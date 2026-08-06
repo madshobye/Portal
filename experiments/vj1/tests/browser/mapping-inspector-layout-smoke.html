@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Mapping inspector layout smoke</title>
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/base.css" />
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/themes/vj.css" />
+  <style>
+    body { margin: 0; background: #101010; }
+    #host { width: 330px; height: 760px; }
+  </style>
+</head>
+<body>
+  <main id="host" class="studio-inspector"></main>
+  <pre id="result">running</pre>
+  <script>
+    const fail = (error) => {
+      document.documentElement.dataset.testStatus = "failed";
+      document.querySelector("#result").textContent = error?.stack || String(error);
+    };
+    window.addEventListener("error", (event) => fail(event.error || event.message));
+    window.addEventListener("unhandledrejection", (event) => fail(event.reason));
+  </script>
+  <script type="module">
+    import { mappingSurfaceInspectorUiGraph } from "../../js/control/control-ui-program.js";
+    import { createInitialState } from "../../js/domain/models.js";
+    import {
+      RetainedUiRuntime,
+      UiNodeDefinitions,
+      UiNodeRegistry,
+    } from "../../js/libraries/ui-engine/index.js";
+
+    const state = createInitialState();
+    const mapping = state.mappings[0];
+    const surface = mapping.surfaces[0];
+    state.ui.selectedMappingId = mapping.id;
+    state.ui.selectedSurfaceId = surface.id;
+
+    const runtime = new RetainedUiRuntime({
+      registry: new UiNodeRegistry(UiNodeDefinitions),
+      dispatch: () => {},
+    });
+    const host = document.querySelector("#host");
+    runtime.activate(mappingSurfaceInspectorUiGraph(surface, state), { host });
+
+    const panel = host.querySelector(".ui-node-panel");
+    const controls = host.querySelector(".inspector-control-surface");
+    const resetButton = host.querySelector('[data-ui-slot="reset"] button');
+    const fields = [...host.querySelectorAll('[data-ui-presentation="parameter"]')];
+    const controlSlots = [...controls.querySelectorAll(":scope > .ui-node-layout-content > .ui-node-layout-slot")];
+    const panelRect = panel.getBoundingClientRect();
+    const controlsRect = controls.getBoundingClientRect();
+    const lastFieldRect = fields.at(-1).getBoundingClientRect();
+    if (
+      controls.dataset.uiLayoutSizing !== "content" ||
+      controlSlots.map((slot) => slot.dataset.uiSlot).join(" ") !== "reset parameters" ||
+      getComputedStyle(resetButton).borderTopWidth !== "0px" ||
+      Math.abs(controlsRect.width - panel.querySelector(".ui-node-panel-content").getBoundingClientRect().width) > 1 ||
+      panelRect.bottom + 1 < controlsRect.bottom ||
+      panelRect.bottom + 1 < lastFieldRect.bottom
+    ) {
+      throw new Error(`Mapping controls escaped their panel: ${JSON.stringify({ panel: panelRect.toJSON(), controls: controlsRect.toJSON(), lastField: lastFieldRect.toJSON() })}`);
+    }
+
+    document.querySelector("#result").textContent = "PASS mapping inspector intrinsic height and full width";
+    document.documentElement.dataset.testStatus = "passed";
+  </script>
+</body>
+</html>

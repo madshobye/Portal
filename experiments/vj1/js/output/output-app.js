@@ -23,6 +23,8 @@ import {
 } from "./canvas-ownership.js";
 import { createPresentationHostLifecycle } from "./presentation-host-lifecycle.js";
 import { screenCaptureService } from "../libraries/device-engine/index.js";
+import { createOutputSurfaceUi } from "../libraries/ui-engine/index.js";
+import { loadClassicBrowserScript } from "../services/browser-script-loader.js";
 
 let outputFitSignature = "";
 
@@ -66,13 +68,8 @@ export function shouldSuspendStableOutputPresentation({
 
 export function installOutputApp({ root, mode, diagnostics = null }) {
   const outputId = mode === "output" ? new URL(window.location.href).searchParams.get("outputId") || "" : "";
-  document.body.classList.add("output-client");
-  root.innerHTML = `
-    <div id="output-stage" class="output-stage">
-      <div class="output-fps" data-output-fps>0 fps</div>
-      <script id="vj1-runtime-metrics" type="application/json">[]</script>
-    </div>
-  `;
+  const outputUi = createOutputSurfaceUi({ host: root });
+  const outputStage = outputUi.stage;
 
   let renderer = null;
   let pendingState = null;
@@ -119,6 +116,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     diagnostics?.destroy?.();
     bridge?.close?.();
     bridge = null;
+    outputUi.dispose();
   }, { once: true });
 
   window.setup = async function setup() {
@@ -136,16 +134,15 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     const size = outputSize(pendingState, mode);
     const canvas = createCanvas(size.width, size.height, WEBGL);
     assertP5RenderCapabilities();
-    canvas.parent("output-stage");
+    canvas.parent(outputStage);
     const canvasOwnerId = `output:${outputId || "main"}`;
     claimPresentationCanvas(canvas, {
       ownerId: canvasOwnerId,
-      host: root.querySelector("#output-stage"),
+      host: outputStage,
     });
     applyLoadedFont();
     fitOutputCanvas(size);
-    const stage = document.querySelector("#output-stage");
-    presentationHost.observe(stage);
+    presentationHost.observe(outputStage);
     pixelDensity(1);
     frameRate(renderMaxFrameRate(pendingState?.render));
     if (window.p5) window.p5.disableFriendlyErrors = true;
@@ -154,15 +151,16 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     renderer = new OutputRenderer({
       mode,
       outputId,
-      hud: root.querySelector("[data-output-fps]"),
+      hud: outputUi.hud,
       font: renderFont,
       sendMetrics: (metrics) => {
-        recordRuntimeMetric(metrics);
+        recordRuntimeMetric(metrics, outputUi);
         bridge?.metrics(metrics);
       },
       sendMapping: (id, mapping, status, meta) => bridge?.mappingState(id, mapping, status, meta),
       requestMediaFiles: (ids) => bridge?.requestMediaFiles(ids),
       requestPresentationFrame: wakeOutputPresentation,
+      onDownload: (request) => outputUi.download(request),
       screenCapture: screenCaptureService(),
       installedNodePackages,
     });
@@ -533,13 +531,13 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       })
       .catch((error) => {
         initialStateGate.fail(error);
-        root.innerHTML = `<div class="empty-preview">${error.message}</div>`;
+        outputUi.setError(error.message);
         console.warn(`[vj1] Could not load fixture state: ${error.message}`);
       });
   }
 
-  loadClassicScript(VJ1.p5Script).catch((error) => {
-    root.innerHTML = `<div class="empty-preview">${error.message}</div>`;
+  loadClassicBrowserScript(VJ1.p5Script).catch((error) => {
+    outputUi.setError(error.message);
   });
 }
 
@@ -787,7 +785,7 @@ function applyFixtureSourceBindings(surfaces = [], bindings = new Map()) {
   });
 }
 
-function recordRuntimeMetric(metrics) {
+function recordRuntimeMetric(metrics, outputUi = null) {
   const samples = globalThis.__vj1RuntimeMetrics || [];
   samples.push({
     ...metrics,
@@ -795,21 +793,5 @@ function recordRuntimeMetric(metrics) {
   });
   if (samples.length > 240) samples.splice(0, samples.length - 240);
   globalThis.__vj1RuntimeMetrics = samples;
-  const metricsNode = document.getElementById("vj1-runtime-metrics");
-  if (metricsNode) metricsNode.textContent = JSON.stringify(samples);
-}
-
-function loadClassicScript(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[data-vj1-script="${src}"]`)) {
-      resolve();
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = src;
-    script.dataset.vj1Script = src;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error(`Could not load ${src}`));
-    document.head.appendChild(script);
-  });
+  outputUi?.setMetrics?.(samples);
 }

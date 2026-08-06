@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { componentCatalogToolsTemplate } from "../js/control/catalog-view.js";
 import { sceneComponents, ordinaryComponents } from "../js/control/control-selectors.js";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveProgramNavigableComponents, liveProgramSignificantControlsTemplate, liveScenePillTemplate, liveSignificantParameterAssignments, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfacePillTemplate, mappingSurfaceSectionTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate, significantParameterValueFromUnit } from "../js/control/mapping-live-view.js";
-import { liveProjectionRailTemplate, projectRailTemplate } from "../js/control/project-rail-view.js";
-import { createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js";
+import { liveProgramNavigableComponents, liveSignificantParameterAssignments, selectedLiveComponentViewModel, selectedLiveGeneralParameterModel, selectedLiveInspectorModel, selectedLiveParameterTabsModel, selectedLiveRetainedParameterModel, significantParameterValueFromUnit } from "../js/control/mapping-live-view.js";
+import { componentCatalogUiModel, liveChainContentParameterUiGraph, liveChainGeneralParameterUiGraph, liveComponentControlsUiGraph, liveComponentViewUiGraph, liveProjectionRailUiGraph, liveRailUiGraph, liveSignificantUiGraph, mappingRailUiGraph, parameterTabsUiGraph } from "../js/control/control-ui-program.js";
+import { mappingSurfaceControlDescriptors, mappingSurfaceInspectorUiGraph } from "../js/control/control-ui-program.js";
+import { componentCatalogListItems, liveProjectionListModel, liveSourceListItems, mappingCatalogListItems, selectedLiveSourceId } from "../js/control/project-rail-view.js";
+import { renderListItemsHtml } from "../js/libraries/ui-engine/index.js";
+import { createLiveComponentView, createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js";
 import { createVj1NodePackage } from "../js/app-node-package.js";
 import {
   componentLayerProjection,
@@ -14,6 +16,11 @@ import {
 } from "../js/domain/component-layer-projection.js";
 
 const nodePackage = createVj1NodePackage();
+
+function liveInspectorProjection(state) {
+  const model = selectedLiveInspectorModel(state);
+  return JSON.stringify(model);
+}
 
 function prepare(state) {
   return nodePackage.prepareProjectState(state);
@@ -57,25 +64,62 @@ test("Mapping and Live Scene presentation lives outside the control orchestrator
   const surface = state.surfaces[0];
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
-  assert.match(mappingPillTemplate(mapping, state), /data-select-mapping=/);
-  assert.match(mappingPillTemplate(mapping, state), />select_all</);
-  assert.match(liveScenePillTemplate(liveScene, state), /data-live-scene=/);
-  assert.match(liveScenePillTemplate(liveScene, state), /data-cycle-catalog-marker="scene"/);
-  assert.match(liveInspectorTemplate(state), /live-component-card|No components/);
-  const surfaceTemplate = mappingSurfaceTemplate(surface, state);
-  assert.match(surfaceTemplate, /class="sculpt-card inspector-control-surface"/);
-  assert.doesNotMatch(surfaceTemplate, /data-set-route-frame-id=/);
+  const [mappingItem] = mappingCatalogListItems([mapping]);
+  assert.equal(mappingItem.id, mapping.id);
+  assert.equal(mappingItem.media.fallback, "select_all");
+  const [liveSceneItem] = liveSourceListItems([liveScene], state);
+  assert.equal(liveSceneItem.id, liveScene.id);
+  assert.equal(liveSceneItem.actions[0].id, "marker");
+  assert.ok(selectedLiveInspectorModel(state).targetId);
+  const surfaceGraph = mappingSurfaceInspectorUiGraph(surface, state);
+  assert.ok(surfaceGraph.nodes.some((node) => node.id === "mapping-surface-panel"));
+  assert.ok(surfaceGraph.nodes.some((node) => node.id === "mapping-surface-controls"));
   assert.match(controller, /from "\.\/mapping-live-view\.js"/);
   assert.doesNotMatch(controller, /function liveInspectorTemplate\(/);
-  assert.doesNotMatch(controller, /function mappingSurfaceTemplate\(/);
+  assert.doesNotMatch(controller, /mappingSurfaceTemplate/);
   assert.doesNotMatch(controller, /sceneSignificantComponentTemplate/);
+});
+
+test("Live inspector uses the same compact semantic header as the other workspace sections", () => {
+  const { state } = stateWithScene();
+  const model = selectedLiveInspectorModel(state);
+
+  assert.equal(model.title, "Parameters");
+  assert.equal(model.icon, "tune");
+  assert.equal(model.media, null);
+});
+
+test("Live element inspection allocates a visible bounded parameter region", () => {
+  const { state } = stateWithScene();
+  state.ui.live.componentView = "elements";
+  const model = selectedLiveInspectorModel(state);
+
+  assert.ok(model.secondaryChildren.length > 0);
+  assert.deepEqual(model.secondaryChildren[0].layout, {
+    fill: true,
+    grow: 1,
+    shrink: 1,
+    basis: 0,
+    overflow: "hidden",
+  });
+  assert.deepEqual(model.secondaryLayout, {
+    fill: true,
+    grow: 0,
+    shrink: 0,
+    basis: "40%",
+    overflow: "hidden",
+  });
 });
 
 test("Mapping Surface parameters use the shared inset control section", () => {
   const { state } = stateWithScene();
   const surface = state.surfaces[0];
 
-  assert.match(mappingSurfaceTemplate(surface, state), /class="sculpt-card inspector-control-surface"/);
+  const controlsLayout = mappingSurfaceInspectorUiGraph(surface, state).nodes
+    .find((node) => node.id === "mapping-surface-controls");
+  assert.equal(controlsLayout.inputs.presentation, "inspector-controls");
+  assert.equal(controlsLayout.inputs.sizing, "content");
+  assert.deepEqual(controlsLayout.inputs.slots.map((slot) => slot.id), ["reset", "parameters"]);
 });
 
 test("Mapping Surface rail membership comes from the selected Mapping, not the executable projection", () => {
@@ -92,10 +136,9 @@ test("Mapping Surface rail membership comes from the selected Mapping, not the e
   // Deliberately leave the compatibility projection pointing at Mapping one.
   state.surfaces = first.surfaces.map((surface) => ({ ...surface }));
 
-  const html = mappingSurfaceSectionTemplate(state);
-
-  assert.match(html, /Second Surface 0/);
-  assert.doesNotMatch(html, new RegExp(`data-select-surface="${first.surfaces[0].id}"`));
+  const collection = mappingRailUiGraph(state).nodes.find((node) => node.id === "mapping-surface-collection");
+  assert.ok(collection.inputs.items.some((item) => item.label === "Second Surface 0"));
+  assert.ok(!collection.inputs.items.some((item) => item.id === first.surfaces[0].id));
 });
 
 test("Mapping Surface eye reflects authored Surface visibility, never Scene Mapping routing", () => {
@@ -112,39 +155,39 @@ test("Mapping Surface eye reflects authored Surface visibility, never Scene Mapp
     ...authoredSurface,
     enabled: false,
   };
-  const enabledHtml = mappingSurfacePillTemplate(routedSurface, state);
-  assert.match(enabledHtml, /data-toggle-value="true"/);
-  assert.match(enabledHtml, /data-toggle-enabled-icon="crop_free"/);
-  assert.match(enabledHtml, />crop_free</);
-  assert.doesNotMatch(enabledHtml, />hide_source</);
+  state.surfaces = [routedSurface];
+  let surfaceItem = mappingRailUiGraph(state).nodes
+    .find((node) => node.id === "mapping-surface-collection").inputs.items
+    .find((item) => item.id === authoredSurface.id);
+  assert.equal(surfaceItem.actions[0].icon, "crop_free");
+  assert.equal(surfaceItem.actions[0].presentation, "enabled-toggle");
 
   authoredSurface.enabled = false;
   const staleEnabledRoute = {
     ...authoredSurface,
     enabled: true,
   };
-  const disabledHtml = mappingSurfacePillTemplate(staleEnabledRoute, state);
-  assert.match(disabledHtml, /data-toggle-value="false"/);
-  assert.match(disabledHtml, /data-toggle-enabled-icon="crop_free"/);
-  assert.match(disabledHtml, /data-toggle-disabled-icon="hide_source"/);
-  assert.match(disabledHtml, />hide_source</);
+  state.surfaces = [staleEnabledRoute];
+  surfaceItem = mappingRailUiGraph(state).nodes
+    .find((node) => node.id === "mapping-surface-collection").inputs.items
+    .find((item) => item.id === authoredSurface.id);
+  assert.equal(surfaceItem.actions[0].icon, "hide_source");
+  assert.equal(surfaceItem.actions[0].presentation, "disabled-toggle");
 });
 
 test("Live combines independently enabled Scene and Part filters while keeping one on", () => {
   const { state, liveScene } = stateWithScene();
   const component = state.components.find((candidate) => candidate.type !== "scene" && !candidate.systemRole);
-  const scenesHtml = projectRailTemplate(state, { workspace: "live" });
-  assert.match(scenesHtml, /data-live-source-filter="scenes" aria-pressed="true"/);
-  assert.match(scenesHtml, /data-live-source-filter="components" aria-pressed="true"/);
-  assert.match(scenesHtml, new RegExp(`data-live-scene="${liveScene.id}"`));
-  assert.match(scenesHtml, /data-live-target-component=/);
+  let graph = liveRailUiGraph(state, { items: liveSourceListItems([...sceneComponents(state), ...ordinaryComponents(state)], state) });
+  assert.equal(graph.nodes.find((node) => node.id === "live-source-collection").inputs.hasToolSlot, true);
+  assert.equal(graph.nodes.find((node) => node.id === "live-source-scenes").inputs.value, true);
+  assert.equal(graph.nodes.find((node) => node.id === "live-source-components").inputs.value, true);
+  assert.ok(graph.nodes.find((node) => node.id === "live-source-collection").inputs.items.some((item) => item.id === liveScene.id));
+  assert.ok(graph.nodes.find((node) => node.id === "live-source-collection").inputs.items.some((item) => item.id === component.id));
 
   state.ui.live.showComponents = true;
-  const componentsHtml = projectRailTemplate(state, { workspace: "live" });
-  assert.match(componentsHtml, /data-live-source-filter="scenes" aria-pressed="true"/);
-  assert.match(componentsHtml, /data-live-source-filter="components" aria-pressed="true"/);
-  assert.match(componentsHtml, new RegExp(`data-live-target-component="${component.id}"`));
-  assert.match(componentsHtml, /data-live-scene=/);
+  graph = liveRailUiGraph(state, { items: liveSourceListItems([...sceneComponents(state), ...ordinaryComponents(state)], state) });
+  assert.equal(graph.nodes.find((node) => node.id === "live-source-components").inputs.value, true);
 
   const legacy = sanitizeState({ ...state, ui: { ...state.ui, live: { sourceKind: "component" } } });
   assert.equal(legacy.ui.live.showScenes, true);
@@ -165,80 +208,83 @@ test("Live source cards distinguish Overall selection from a deliberate Surface 
   state.ui.live.previewSurfaceId = surface.id;
   state.ui.live.patchSourceId = "";
 
-  assert.doesNotMatch(liveScenePillTemplate(liveScene, state), /is-selected/);
-  assert.doesNotMatch(liveTargetComponentPillTemplate(component, state), /is-selected/);
+  assert.equal(selectedLiveSourceId(state), "");
 
   state.ui.live.patchSourceId = component.id;
-  assert.match(liveTargetComponentPillTemplate(component, state), /is-selected/);
-  assert.doesNotMatch(liveScenePillTemplate(liveScene, state), /is-selected/);
+  assert.equal(selectedLiveSourceId(state), component.id);
 
   state.ui.live.previewSurfaceId = "__mapping__";
   state.ui.live.patchSourceId = "";
-  assert.match(liveScenePillTemplate(liveScene, state), /is-selected/);
+  assert.equal(selectedLiveSourceId(state), liveScene.id);
 });
 
 test("Live projection column exposes the overall Mapping and every Surface", () => {
   const { state, mapping, liveScene } = stateWithScene();
   state.ui.live.previewSurfaceId = "__mapping__";
   state.ui.live.selectedComponentId = liveScene.id;
-  const html = liveProjectionRailTemplate(state);
-
-  assert.match(html, /data-live-preview-surface="__mapping__"/);
-  assert.match(html, /data-live-surface-visibility="__mapping__"/);
-  assert.match(html, />Scene Mapping</);
-  assert.match(html, />Output</);
+  let model = liveProjectionListModel(state);
+  const graph = liveProjectionRailUiGraph(model);
+  assert.equal(model.selectedOutputId, "__mapping__");
+  assert.equal(graph.nodes.find((node) => node.id === "live-output-collection").inputs.title, "Output");
+  assert.equal(model.outputItems[0].label, "Scene Mapping");
+  assert.equal(model.outputItems[0].actions[0].id, "toggle-visibility");
   for (const surface of mapping.surfaces) {
-    assert.match(html, new RegExp(`data-live-preview-surface="${surface.id}"`));
-    assert.match(html, new RegExp(`data-live-surface-visibility="${surface.id}"`));
-    assert.match(html, new RegExp(surface.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.equal(model.outputItems.find((item) => item.id === surface.id)?.label, surface.name);
   }
   const nestedComponent = state.components.find((component) => component.type !== "scene" && !component.systemRole);
-  assert.match(html, />Components</);
-  assert.match(html, new RegExp(`data-live-component="${nestedComponent.id}"`));
-  assert.doesNotMatch(html, /data-clear-live-surface-patch=/);
-  assert.match(html, /data-clear-live-overall-component="__mapping__"/);
-  assert.doesNotMatch(html, /<small>/, "projection rows do not reserve space for secondary Frame metadata");
+  assert.ok(model.componentItems.some((item) => item.id === nestedComponent.id));
+  assert.ok(!model.outputItems.slice(1).some((item) => item.actions.some((action) => action.id === "clear-patch")));
+  assert.ok(model.outputItems[0].actions.some((action) => action.id === "clear-overall"));
+  assert.ok(model.outputItems.every((item) => !item.meta), "projection rows do not reserve space for secondary Frame metadata");
 
   state.ui.live.surfacePatches = { [mapping.surfaces[0].id]: nestedComponent.id };
-  const patchedHtml = liveProjectionRailTemplate(state);
-  assert.match(patchedHtml, new RegExp(`data-clear-live-surface-patch="${mapping.surfaces[0].id}"`));
+  model = liveProjectionListModel(state);
+  const patchedItem = model.outputItems.find((item) => item.id === mapping.surfaces[0].id);
+  const clearPatchAction = patchedItem.actions.find((action) => action.id === "clear-patch");
+  assert.equal(clearPatchAction.variant, "remove");
+  assert.match(renderListItemsHtml([patchedItem]), /class="ui-node-list-item[^\"]*has-remove/);
+  assert.match(renderListItemsHtml([patchedItem]), /aria-label="Clear custom source/);
+
+  const directSurface = mapping.surfaces.find((surface) => surface.destination?.type === "direct");
+  state.ui.live.surfacePatches = { [directSurface.id]: nestedComponent.id };
+  const directItem = liveProjectionListModel(state).outputItems.find((item) => item.id === directSurface.id);
+  assert.match(renderListItemsHtml([directItem]), /class="ui-node-list-item[^\"]*has-remove/);
+  assert.match(renderListItemsHtml([directItem]), />close<\/span>/);
 
   state.ui.live.selectedComponentId = nestedComponent.id;
-  const overallPatchedHtml = liveProjectionRailTemplate(state);
-  assert.match(overallPatchedHtml, /data-clear-live-overall-component="__mapping__"/);
+  assert.ok(liveProjectionListModel(state).outputItems[0].actions.some((action) => action.id === "clear-overall"));
 });
 
 test("Scene and Component cards share their workspace type icons across Live and authored catalogs", () => {
   const { state, liveScene } = stateWithScene();
   const component = state.components.find((candidate) => candidate.type !== "scene" && !candidate.systemRole);
 
-  assert.match(liveScenePillTemplate(liveScene, state), /component-card-type-icon[^>]*>landscape</);
-  assert.match(liveTargetComponentPillTemplate(component, state), /component-card-type-icon[^>]*>extension</);
-  assert.match(projectRailTemplate(state, { workspace: "scene" }), /component-card-type-icon[^>]*>landscape</);
-  assert.match(projectRailTemplate(state, { workspace: "component" }), /component-card-type-icon[^>]*>extension</);
+  assert.equal(liveSourceListItems([liveScene], state)[0].labelIcon, "landscape");
+  assert.equal(liveSourceListItems([component], state)[0].labelIcon, "extension");
+  assert.match(renderListItemsHtml(componentCatalogListItems([liveScene], state)), /ui-node-list-label-icon[^>]*>landscape</);
+  assert.match(renderListItemsHtml(componentCatalogListItems([component], state)), /ui-node-list-label-icon[^>]*>extension</);
 });
 
 test("Mapping membership and Live visibility are independent Scene Mapping controls", () => {
   const { state, mapping } = stateWithScene();
-  const mappingHtml = projectRailTemplate(state, { workspace: "mapping" });
-  assert.match(mappingHtml, /data-scene-mapping-in-live="true"/);
-  assert.match(mappingHtml, />Scene Mapping</);
+  const mappingSurfaceCollection = mappingRailUiGraph(state).nodes.find((node) => node.id === "mapping-surface-collection");
+  const sceneMappingItem = mappingSurfaceCollection.inputs.items.find((item) => item.id === "__scene_mapping__");
+  assert.equal(sceneMappingItem.label, "Scene Mapping");
+  assert.equal(sceneMappingItem.actions[0].icon, "crop_free");
 
   state.ui.live.sceneMappingVisible = false;
   state.ui.live.previewSurfaceId = "__mapping__";
-  const hiddenRouteHtml = liveProjectionRailTemplate(state);
-  assert.match(hiddenRouteHtml, /data-live-surface-visibility="__mapping__"[^>]*title="Show Scene Mapping"/);
-  assert.match(hiddenRouteHtml, /data-live-preview-surface="__mapping__"/);
-  assert.match(hiddenRouteHtml, />Scene Mapping</);
-  assert.doesNotMatch(hiddenRouteHtml, /data-clear-live-overall-component="__mapping__"/);
+  let liveMappingItem = liveProjectionListModel(state).outputItems[0];
+  assert.equal(liveMappingItem.id, "__mapping__");
+  assert.equal(liveMappingItem.label, "Scene Mapping");
+  assert.equal(liveMappingItem.actions[0].icon, "hide_source");
+  assert.ok(!liveMappingItem.actions.some((action) => action.id === "clear-overall"));
 
   state.ui.live.sceneMappingInLive = false;
   state.ui.live.previewSurfaceId = "__mapping__";
-  const disabledHtml = liveProjectionRailTemplate(state);
-  assert.match(disabledHtml, />Scene Mapping</);
-  assert.match(disabledHtml, /data-live-surface-visibility="__mapping__"[^>]*title="Show Scene Mapping"/);
-  assert.match(disabledHtml, /data-live-preview-surface="__mapping__"/);
-  assert.doesNotMatch(disabledHtml, /Scene Mapping is disabled in Mapping/);
+  liveMappingItem = liveProjectionListModel(state).outputItems[0];
+  assert.equal(liveMappingItem.id, "__mapping__");
+  assert.equal(liveMappingItem.actions[0].label, "Show Scene Mapping");
 });
 
 test("Live internal Component focus is separate from the on-air source", () => {
@@ -247,8 +293,8 @@ test("Live internal Component focus is separate from the on-air source", () => {
   state.ui.live.selectedComponentId = liveScene.id;
   state.ui.live.inspectedComponentId = nestedComponent.id;
 
-  assert.match(liveComponentPillTemplate(nestedComponent, state), /is-selected/);
-  assert.match(liveInspectorTemplate(state), new RegExp(nestedComponent.name));
+  assert.equal(liveProjectionListModel(state).selectedComponentId, nestedComponent.id);
+  assert.match(liveInspectorProjection(state), new RegExp(nestedComponent.name));
   assert.equal(state.ui.live.selectedComponentId, liveScene.id);
 });
 
@@ -272,9 +318,9 @@ test("Live Component navigation includes roots and sources across all Surface ro
     patchedComponent.id,
   ]));
 
-  const html = liveProjectionRailTemplate(state);
-  assert.match(html, new RegExp(`data-live-component="${overallComponent.id}"`));
-  assert.match(html, new RegExp(`data-live-component="${patchedComponent.id}"`));
+  const componentIds = liveProjectionListModel(state).componentItems.map((item) => item.id);
+  assert.ok(componentIds.includes(overallComponent.id));
+  assert.ok(componentIds.includes(patchedComponent.id));
 });
 
 test("Live Component navigation follows the current graph while the renderer owns the outgoing branch", () => {
@@ -315,8 +361,8 @@ test("Live inspector resolves the Overall Scene root when a Surface has no expli
   state.ui.live.previewSurfaceId = surface.id;
   state.ui.live.patchSourceId = "";
 
-  assert.match(liveInspectorTemplate(state), new RegExp(liveScene.name));
-  assert.doesNotMatch(liveInspectorTemplate(state), /No sources/);
+  assert.match(liveInspectorProjection(state), new RegExp(liveScene.name));
+  assert.doesNotMatch(liveInspectorProjection(state), /No sources/);
 });
 
 test("Live Component navigation is the enabled final render graph including its root Scene", () => {
@@ -338,9 +384,9 @@ test("Live projection visibility reflects the routed program rather than changin
   const surface = mapping.surfaces[0];
   state.ui.live.surfaceVisibility = { [surface.id]: false };
 
-  const html = liveProjectionRailTemplate(state);
-  assert.match(html, new RegExp(`data-live-surface-visibility="${surface.id}"`));
-  assert.match(html, new RegExp(`data-live-surface-visibility="${surface.id}"[^>]*title="Show`));
+  const outputItem = liveProjectionListModel(state).outputItems.find((item) => item.id === surface.id);
+  assert.equal(outputItem.actions[0].icon, "hide_source");
+  assert.match(outputItem.actions[0].label, /^Show /);
   assert.notEqual(surface.enabled, false);
 });
 
@@ -356,65 +402,76 @@ test("Mapping cards intentionally avoid render thumbnails", () => {
     outputFrameId: "frame-a",
   };
 
-  const html = mappingPillTemplate(mapping, state);
-  assert.doesNotMatch(html, /src="frame-thumb"/);
-  assert.doesNotMatch(html, /src="scene-thumb"/);
-  assert.match(html, /select_all/);
+  const [item] = mappingCatalogListItems([mapping]);
+  assert.equal(item.media.src || "", "");
+  assert.equal(item.media.fallback, "select_all");
 });
 
 test("Live target reset is shown on Scene and Part thumbnails with temporary parameters", () => {
   const { state, liveScene } = stateWithScene();
   const component = state.components.find((item) => item.kind !== "scene");
-  assert.doesNotMatch(liveScenePillTemplate(liveScene, state), /data-reset-live-target/);
-  assert.doesNotMatch(liveTargetComponentPillTemplate(component, state), /data-reset-live-target/);
+  assert.ok(!liveSourceListItems([liveScene], state)[0].actions.some((action) => action.id === "reset"));
+  assert.ok(!liveSourceListItems([component], state)[0].actions.some((action) => action.id === "reset"));
 
   state.ui.live.parameterDiffs[liveScene.id] = {
     [state.components[0].id]: { opacity: 0.5 },
   };
-  assert.match(liveScenePillTemplate(liveScene, state), /data-reset-live-target/);
+  assert.ok(liveSourceListItems([liveScene], state)[0].actions.some((action) => action.id === "reset"));
 
   state.ui.live.selectedComponentId = component.id;
   state.ui.live.parameterDiffs[component.id] = {
     [component.id]: { opacity: 0.25 },
   };
-  assert.match(liveTargetComponentPillTemplate(component, state), /data-reset-live-target/);
+  assert.ok(liveSourceListItems([component], state)[0].actions.some((action) => action.id === "reset"));
 });
 
 test("Mapping Surface inspectors expose calibration only; source routing belongs to the Live program", () => {
   const { state } = stateWithScene();
-  const html = mappingSurfaceTemplate(state.surfaces[0], state);
+  const controls = mappingSurfaceControlDescriptors(state.surfaces[0], state);
+  const graph = mappingSurfaceInspectorUiGraph(state.surfaces[0], state);
+  const mappingIndex = state.mappings.findIndex((mapping) => mapping.id === state.ui.selectedMappingId);
 
-  assert.match(html, /data-reset-surface-mapping=/);
-  assert.match(html, /data-update="mappings\.[^.]+\.surfaces\.[^.]+\.feather"/);
-  assert.match(html, /data-update="mappings\.[^.]+\.surfaces\.[^.]+\.opacity"/);
-  assert.match(html, /data-update="mappings\.[^.]+\.surfaces\.[^.]+\.projectionFit"/);
-  assert.doesNotMatch(html, /data-set-route-frame-id=|data-catalog-sort-scope="source"|Filter frames/);
+  assert.equal(graph.nodes.find((node) => node.id === "mapping-surface-reset")?.inputs.commandPayload.surfaceId, state.surfaces[0].id);
+  assert.deepEqual(controls.map((control) => control.address), [
+    `mappings.${mappingIndex}.surfaces.0.feather`,
+    `mappings.${mappingIndex}.surfaces.0.opacity`,
+    `mappings.${mappingIndex}.surfaces.0.projectionFit`,
+  ]);
+  for (const control of controls) {
+    const node = graph.nodes.find((candidate) => candidate.id === control.id);
+    assert.equal(node?.stateAddress, control.address);
+    assert.equal(node?.type, control.type);
+  }
+  assert.equal(JSON.stringify(graph).includes("data-set-route-frame-id"), false);
 });
 
 test("catalog presentation and component selectors have single owners", () => {
   const state = createInitialState();
-  const catalog = componentCatalogToolsTemplate("component", "changed", "Filter components");
+  const model = componentCatalogUiModel({ items: ordinaryComponents(state), projectId: "test" });
+  const catalog = model.children[0];
 
-  assert.match(catalog, /data-catalog-sort-scope="component"/);
-  assert.match(catalog, /data-component-filter/);
-  assert.doesNotMatch(catalog, /<span>Changed<\/span>/);
+  assert.equal(catalog.title, "Components");
+  assert.equal(catalog.searchPlaceholder, "Filter components");
+  assert.equal(catalog.itemNode, "thumbnail-button");
   assert.equal(ordinaryComponents(state).every((component) => component.type !== "scene"), true);
   assert.equal(sceneComponents(state).every((component) => component.type === "scene"), true);
   assert.equal(ordinaryComponents(state).length + sceneComponents(state).length, state.components.length);
 });
 
-test("Live navigates components by thumbnail and Scene exposes marked significant params", () => {
+test("Live navigates components by thumbnail and exposes marked significant params as retained controls", () => {
   const { state } = stateWithScene();
   let component = state.components[0];
   markSignificant(state, component, ["chain.0.source.params.renderQuality"]);
   state.ui.live.selectedComponentId = component.id;
-  const picker = liveComponentPillTemplate(component, state);
-  const significant = sceneSignificantComponentTemplate(component, state);
-  assert.match(picker, /data-live-component=/);
-  assert.match(picker, /component-thumbnail/);
-  assert.match(significant, /Significant/);
-  assert.match(significant, new RegExp(`data-edit-component="${component.id}"`));
-  assert.match(significant, /nodes\.groups\.\d+\.nodes\.\d+\.configuration\.source\.params\.renderQuality/);
+  const picker = liveProjectionListModel(state).componentItems.find((item) => item.id === component.id);
+  const significant = liveSignificantUiGraph(state).nodes.find((node) =>
+    node.commands.change?.target.path === "source.params.renderQuality"
+  );
+  assert.equal(picker.id, component.id);
+  assert.equal(picker.thumbnail.key, `${component.id}:`);
+  assert.equal(picker.thumbnail.fallback, picker.labelIcon);
+  assert.equal(significant.commands.change.action, "live.set-value");
+  assert.equal(significant.commands.change.target.componentId, component.id);
 });
 
 test("the MIDImix bottom knob row follows ordered significant params through subcomponents", () => {
@@ -466,11 +523,13 @@ test("Live and MIDImix resolve significant boundary controls from the shared Gen
     name: `${component.name} · Boundary rotation`,
   }]);
 
-  const controls = liveProgramSignificantControlsTemplate(state);
-  assert.match(controls, /data-live-update="boundary\.x"/);
-  assert.match(controls, /data-live-update="boundary\.y"/);
-  assert.match(controls, /data-live-update="boundary\.rotation"/);
-  assert.match(controls, /value="-0\.125"/);
+  const controls = liveSignificantUiGraph(state).nodes.filter((node) => node.commands.change);
+  assert.deepEqual(controls.map((node) => node.commands.change.target.path), [
+    "boundary.x",
+    "boundary.y",
+    "boundary.rotation",
+  ]);
+  assert.equal(controls[0].inputs.value, -0.125);
 });
 
 test("Significant controls and MIDImix share every source in the active output mapping", () => {
@@ -502,9 +561,9 @@ test("Significant controls and MIDImix share every source in the active output m
     patched.id,
     child.id,
   ]));
-  const controls = liveProgramSignificantControlsTemplate(state);
-  assert.match(controls, /Patched output · Content scale/);
-  assert.match(controls, new RegExp(`${child.name} · Render quality`));
+  const controls = liveSignificantUiGraph(state).nodes.filter((node) => node.commands.change);
+  assert.ok(controls.some((node) => node.inputs.label === "Patched output · Content scale"));
+  assert.ok(controls.some((node) => node.inputs.label === `${child.name} · Render quality`));
 });
 
 test("Live separates a Component's public controls from its element inspector", () => {
@@ -515,34 +574,38 @@ test("Live separates a Component's public controls from its element inspector", 
   markSignificant(state, component, ["chain.0.source.params.renderQuality", "chain.0.transform.scale"]);
   state.ui.live.selectedComponentId = component.id;
 
-  const controls = liveInspectorTemplate(state);
-  assert.match(controls, /data-live-component-view="controls"/);
-  assert.match(controls, />[^<]*Controls<\/button>/);
-  assert.match(controls, /data-live-component-view="elements"/);
-  assert.match(controls, /data-live-update="opacity"/);
-  assert.match(controls, /data-live-update="speed"/);
-  assert.match(controls, /data-live-update="blend"/);
-  assert.match(controls, /data-live-update="transform\.x"/);
-  assert.match(controls, /data-live-update="transform\.y"/);
-  assert.match(controls, /data-live-update="transform\.scale"/);
-  assert.doesNotMatch(controls, /data-live-update="transform\.rotation"/);
-  assert.doesNotMatch(controls, /Published controls/);
-  assert.doesNotMatch(controls, /class="live-chain-outline"/);
-  const significant = liveProgramSignificantControlsTemplate(state);
-  assert.match(significant, /data-live-update="source\.params\.renderQuality"/);
-  assert.match(significant, /data-live-update="transform\.scale"/);
-  assert.match(significant, new RegExp(`data-live-node-id="${component.chain[0].id}"`));
+  const inspector = selectedLiveInspectorModel(state);
+  let viewModel = selectedLiveComponentViewModel(state);
+  let viewGraph = liveComponentViewUiGraph(viewModel);
+  assert.equal(inspector.contentChildren[0].id, "live-component-views");
+  assert.deepEqual(viewGraph.nodes.find((node) => node.id === "live-component-view-tabs").inputs.items.map((item) => item.id), ["controls", "elements"]);
+  assert.equal(viewModel.selectedId, "controls");
+  assert.ok(viewGraph.nodes.some((node) => node.parent === "live-component-view-tabs" && node.slot === "controls"));
+  const publicGraph = liveComponentControlsUiGraph(component, createLiveComponentView(component, state), state);
+  const publicPaths = publicGraph.nodes.filter((node) => node.commands.change).map((node) => node.commands.change.target.path);
+  assert.deepEqual(publicPaths, ["transform.x", "transform.y", "transform.scale", "opacity", "speed", "blend"]);
+  assert.ok(publicGraph.nodes.filter((node) => node.commands.change).every((node) => node.commands.change.action === "live.set-value"));
+  const significant = liveSignificantUiGraph(state).nodes.filter((node) => node.commands.change);
+  assert.ok(significant.some((node) => node.commands.change.target.path === "source.params.renderQuality"));
+  assert.ok(significant.some((node) => node.commands.change.target.path === "transform.scale"));
+  assert.ok(significant.some((node) => node.commands.change.target.nodeId === component.chain[0].id));
 
   state.ui.live.componentView = "elements";
-  const elements = liveInspectorTemplate(state);
-  assert.match(elements, /class="element-list-surface live-element-list-surface"[\s\S]*?class="live-chain-outline"/);
-  assert.match(elements, /class="text-list-item live-chain-outline-row compact-list-row has-leading is-selected"/);
-  assert.match(elements, /data-live-toggle="enabled"/);
-  assert.match(elements, new RegExp(`data-live-node-id="${component.chain[0].id}"`));
-  assert.match(elements, /data-live-chain-item="[^"]+" data-live-component-id="[^"]+"/);
-  assert.doesNotMatch(elements, />visibility(?:_off)?<\/span>/);
-  assert.match(elements, /aria-label="Selected live element parameters"/);
-  assert.doesNotMatch(elements, /class="live-component-controls"/);
+  const elements = liveInspectorProjection(state);
+  viewModel = selectedLiveComponentViewModel(state);
+  viewGraph = liveComponentViewUiGraph(viewModel);
+  const elementList = viewGraph.nodes.find((node) => node.id === "live-component-elements");
+  const element = elementList.inputs.items.find((item) => item.id === component.chain[0].id);
+  assert.equal(viewModel.selectedId, "elements");
+  assert.equal(elementList.inputs.presentation, "element-list");
+  assert.equal(element.presentation, "element-row");
+  assert.equal(element.selectPresentation, "element-select");
+  assert.equal(element.actions.some((action) => action.id === "remove"), false);
+  assert.equal(Object.hasOwn(element, "meta"), false);
+  assert.equal(element.actions[0].id, "toggle-enabled");
+  assert.notEqual(element.actions[0].icon, "visibility");
+  assert.equal(element.actions[0].payload.nodeId, component.chain[0].id);
+  assert.match(elements, /Selected live element parameters/);
 });
 
 test("Live Scene controls expose element Content scale instead of a Scene-root transform", () => {
@@ -552,14 +615,26 @@ test("Live Scene controls expose element Content scale instead of a Scene-root t
   state.ui.live.selectedComponentId = liveScene.id;
   state.ui.live.componentView = "controls";
 
-  const controls = liveInspectorTemplate(state);
+  const controls = liveInspectorProjection(state);
   assert.doesNotMatch(controls, /class="live-component-transform-controls"/);
   assert.doesNotMatch(controls, /data-live-update="transform\.scale"/);
 
   state.ui.live.componentView = "elements";
-  const elements = liveInspectorTemplate(state);
-  assert.match(elements, /data-live-update="transform\.scale"/);
-  assert.match(elements, /<span>Content scale<\/span>/);
+  const elements = liveInspectorProjection(state);
+  assert.match(elements, /live-chain-parameter-tabs/);
+  const tabsModel = selectedLiveParameterTabsModel(state);
+  assert.ok(tabsModel.views.some((view) => view.id === "general"));
+  assert.ok(tabsModel.views.every((view) => !("html" in view)));
+  const tabsGraph = parameterTabsUiGraph(tabsModel, { live: true });
+  assert.ok(tabsGraph.nodes.some((node) =>
+    node.commands.change?.target.path === "transform.scale"
+    && node.inputs.label === "Content scale"
+  ));
+  const generalGraph = liveChainGeneralParameterUiGraph(selectedLiveGeneralParameterModel(state));
+  assert.ok(generalGraph.nodes.some((node) =>
+    node.commands.change?.target.path === "transform.scale"
+    && node.inputs.label === "Content scale"
+  ));
 });
 
 test("Live component-source rows resolve user-facing component names", () => {
@@ -588,20 +663,21 @@ test("Live component-source rows resolve user-facing component names", () => {
   state.ui.live.selectedComponentId = owner.id;
   state.ui.live.componentView = "elements";
 
-  const html = liveInspectorTemplate(state);
-  assert.match(html, new RegExp(`>${referenced.name}<\\/span>`));
-  assert.doesNotMatch(html, new RegExp(`>${referenced.id}<\\/span>`));
+  const html = liveInspectorProjection(state);
+  assert.match(html, new RegExp(`"title":"${referenced.name}"`));
+  assert.doesNotMatch(html, new RegExp(`"title":"${referenced.id}"`));
 });
 
-test("Scene significant controls include generic chain transforms", () => {
+test("retained significant controls include generic chain transforms", () => {
   const { state } = stateWithScene();
   const component = state.components[0];
   componentLayerProjection(state, component)[0].item.transform = { x: 0.4, y: 0, scale: 1, rotation: 0 };
   markSignificant(state, component, ["chain.0.transform.x"]);
 
-  const significant = sceneSignificantComponentTemplate(component, state);
-  assert.match(significant, /nodes\.groups\.\d+\.nodes\.\d+\.configuration\.transform\.x/);
-  assert.match(significant, /value="0\.4"/);
+  const significant = liveSignificantUiGraph(state).nodes.find((node) =>
+    node.commands.change?.target.path === "transform.x"
+  );
+  assert.equal(significant.inputs.value, 0.4);
 });
 
 test("source parameters marked at their persisted path are published in Live", () => {
@@ -612,11 +688,10 @@ test("source parameters marked at their persisted path are published in Live", (
   markSignificant(state, component, ["chain.0.source.params.renderQuality"]);
   state.ui.live.selectedComponentId = component.id;
 
-  const live = liveProgramSignificantControlsTemplate(state);
-  assert.match(live, /data-live-update="source\.params\.renderQuality"/);
+  const live = liveSignificantUiGraph(state);
+  assert.ok(live.nodes.some((node) => node.commands.change?.target.path === "source.params.renderQuality"));
 
-  const sceneControls = sceneSignificantComponentTemplate(component, state);
-  assert.match(sceneControls, /data-update="nodes\.groups\.\d+\.nodes\.\d+\.configuration\.source\.params\.renderQuality"/);
+  assert.ok(!live.nodes.some((node) => JSON.stringify(node).includes("data-update")));
 });
 
 test("image source schema automatically exposes cut and feather in Live and published controls", () => {
@@ -642,14 +717,26 @@ test("image source schema automatically exposes cut and feather in Live and publ
   state.ui.live.selectedChainItemId = sourceLayer.nodeId;
   state.ui.live.componentView = "elements";
 
-  const elements = liveInspectorTemplate(state);
-  assert.match(elements, /data-live-update="source\.params\.alphaCut"/);
-  assert.match(elements, /data-live-update="source\.params\.alphaFeather"/);
-  assert.match(elements, /<span>Cut edge<\/span>/);
-  assert.match(elements, /<span>Feather<\/span>/);
+  const elements = liveInspectorProjection(state);
+  assert.match(elements, /live-chain-parameter-tabs/);
+  assert.ok(selectedLiveParameterTabsModel(state).views.some((view) =>
+    view.id === "content" && view.liveParameterModel?.params.some((param) => param.id === "alphaCut")
+  ));
+  const primaryGraph = liveChainContentParameterUiGraph(
+    selectedLiveRetainedParameterModel(state, "primary"),
+  );
+  const primaryControls = primaryGraph.nodes.filter((node) => node.commands.change);
+  assert.ok(primaryControls.some((node) =>
+    node.commands.change.target.path === "source.params.alphaCut"
+    && node.inputs.label === "Cut edge"
+  ));
+  assert.ok(primaryControls.some((node) =>
+    node.commands.change.target.path === "source.params.alphaFeather"
+    && node.inputs.label === "Feather"
+  ));
 
   markSignificant(state, component, ["chain.0.source.params.alphaFeather"]);
-  assert.match(liveProgramSignificantControlsTemplate(state), /data-live-update="source\.params\.alphaFeather"/);
+  assert.ok(liveSignificantUiGraph(state).nodes.some((node) => node.commands.change?.target.path === "source.params.alphaFeather"));
 });
 
 test("Live publishes significant source parameters nested inside Groups", () => {
@@ -678,8 +765,8 @@ test("Live publishes significant source parameters nested inside Groups", () => 
   state.ui.live.selectedComponentId = component.id;
   state.ui.live.componentView = "controls";
 
-  const live = liveProgramSignificantControlsTemplate(state);
-  assert.match(live, /data-live-update="source\.params\.renderQuality"/);
-  assert.match(live, /data-live-update="transform\.scale"/);
-  assert.match(live, new RegExp(`data-live-node-id="${source.id}"`));
+  const live = liveSignificantUiGraph(state).nodes.filter((node) => node.commands.change);
+  assert.ok(live.some((node) => node.commands.change.target.path === "source.params.renderQuality"));
+  assert.ok(live.some((node) => node.commands.change.target.path === "transform.scale"));
+  assert.ok(live.some((node) => node.commands.change.target.nodeId === source.id));
 });

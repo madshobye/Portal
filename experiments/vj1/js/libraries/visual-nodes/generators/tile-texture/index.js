@@ -17,7 +17,7 @@ const manifest = Object.freeze({
         Math.abs(Number(params.scrollY) || 0) > 0.0001,
     },
     params: [
-      createTextParam("imageId", "Image", ""),
+      createTextParam("imageId", "Image", "", { ui: "media", rows: 1 }),
       createEnumParam("tileAxis", "Tiling", ["both", "horizontal", "vertical"], "both"),
       createNumberParam("repeat", "Repeat", { min: 0.001, max: 64, step: 0.001, defaultValue: 1 }),
       createNumberParam("offsetX", "Offset X", { min: -1, max: 1, step: 0.01, defaultValue: 0 }),

@@ -610,7 +610,8 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.equal(params.nearClip.label, "Near clip minimum");
   assert.equal(params.nearClip.defaultValue, 0.1);
   assert.equal(params.farClip.defaultValue, 20000);
-  assert.ok(parameterSource.includes('data-number-scale="log"'));
+  const controlNodeSource = readFileSync(new URL("../js/libraries/ui-engine/nodes/control-nodes.js", import.meta.url), "utf8");
+  assert.ok(controlNodeSource.includes('scale: inputs.scale === "log"'));
   assert.ok(rendererSource.includes("float focalLength = 1.0 / tan(radians(clamp(fieldOfView"));
   assert.ok(rendererSource.includes("worldLateral * focalLength / max(aspectRatio, 0.01)"));
   assert.ok(rendererSource.includes("(meshUv.x - 0.5) * gridCells.x * cellScale * 1.44"));
@@ -1048,26 +1049,31 @@ test("renderer source extraction merges source node params", () => {
 
 test("live source controls use dynamic param metadata", () => {
   const source = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
+  const programSource = readFileSync(new URL("../js/control/control-ui-program.js", import.meta.url), "utf8");
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path, viewParams, nodeId)"));
+  assert.ok(source.includes("componentParamViews(definition)[paramView]"));
+  assert.ok(source.includes(".filter(retainedParameterControlEligible)"));
+  assert.ok(source.includes("export function selectedLiveRetainedParameterModel"));
+  assert.ok(programSource.includes("export function liveChainContentParameterUiGraph"));
   assert.ok(source.includes("visualGeneratorComponent(state, source.generatorId)?.params"));
   assert.ok(source.includes("listProjectIsfVisualComponents(state)"));
-  assert.ok(source.includes("paramControlsTemplate(params,"));
   assert.ok(!source.includes("source-control-schema"));
   assert.ok(!source.includes("source.type === \"media\""));
-  assert.ok(parameterSource.includes("export function paramControlTemplate"));
-  assert.ok(!source.includes("function liveParamControlTemplate"));
+  assert.ok(programSource.includes("parameterUiNodes"));
+  assert.ok(parameterSource.includes("export function componentParamViews"));
 });
 
 test("color picker exposes color and opacity without redundant hsv sliders", () => {
-  const source = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/libraries/ui-engine/nodes/control-nodes.js", import.meta.url), "utf8");
+  const commandSource = readFileSync(new URL("../js/control/control-command-controller.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.ok(controllerSource.includes('change.command.phase === "color"'));
-  assert.ok(source.includes('control.dataset.colorMode === "live" ? (phase === "scrub" ? "scrub:live" : "live:update")'));
-  assert.ok(source.includes('rgbInput?.addEventListener("change", () => updateColorParamFromControl(control, reason("color")));'));
-  assert.ok(source.includes('alphaInput?.addEventListener("change", () => updateColorParamFromControl(control, reason("color")));'));
+  assert.ok(source.includes('control.addEventListener("input", onInput)'));
+  assert.ok(source.includes('control.addEventListener("change", onCommit)'));
+  assert.ok(source.includes('alpha.addEventListener("change", onCommit)'));
+  assert.ok(commandSource.includes('phase === "change" ? "scrub:live" : "live:update"'));
   assert.ok(!source.includes("data-color-hue"));
   assert.ok(!source.includes("data-color-sat"));
   assert.ok(!source.includes("data-color-val"));
@@ -1631,7 +1637,7 @@ test("Component Scene and Live previews follow the shared thumbnail toggle", () 
 });
 
 test("playback control pauses the shared preview and output transport", () => {
-  const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
+  const shellSource = readFileSync(new URL("../js/libraries/ui-engine/nodes/workspace-shell-node.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const frameRuntimeSource = readFileSync(new URL("../js/output/output-frame-runtime.js", import.meta.url), "utf8");
@@ -1642,9 +1648,8 @@ test("playback control pauses the shared preview and output transport", () => {
   paused.global.playing = false;
 
   assert.equal(sanitizeState(paused).global.playing, false);
-  assert.ok(shellSource.includes('id="toggle-output-playback"'));
-  assert.ok(controllerSource.includes("refs.toggleOutputPlayback.disabled = !hasProject"));
-  assert.ok(controllerSource.includes("if (!hasOpenProject(latestState)) return"));
+  assert.ok(controllerSource.includes('{ id: "playback"'));
+  assert.ok(controllerSource.includes("if (!hasOpenProject(latestState)) return false"));
   assert.doesNotMatch(controllerSource, /if \(latestState\.metrics\.clients <= 0\) return/);
   assert.ok(controllerSource.includes('outputPlaying ? "pause" : "play_arrow"'));
   assert.ok(frameRuntimeSource.includes("this.presentationClock = advancePresentationClock("));

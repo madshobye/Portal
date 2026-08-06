@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 
 import { ProjectDerivedAssetStore } from "../js/services/project-derived-asset-store.js";
 import { RENDITION_DIR, RENDITION_ROOT } from "../js/services/media-rendition-service.js";
-import { THUMBNAIL_DIR, THUMBNAIL_ROOT } from "../js/services/component-thumbnail-store.js";
+import {
+  THUMBNAIL_DIR,
+  THUMBNAIL_ROOT,
+  mediaThumbnailFilename,
+} from "../js/services/component-thumbnail-store.js";
 
 test("derived asset store owns rendition deduplication, manifest indexing, and publication", async () => {
   const project = new MemoryDirectory("project");
@@ -43,6 +47,33 @@ test("derived asset store owns rendition deduplication, manifest indexing, and p
   const thumbnails = await thumbnailRoot.getDirectoryHandle(THUMBNAIL_DIR);
   const thumbnailFile = await thumbnails.getFileHandle("component-a__component.webp");
   assert.equal(thumbnailFile.value, thumbnail);
+
+  const modelThumbnail = new Blob(["<svg>model</svg>"], { type: "image/svg+xml" });
+  assert.equal(await store.writeMediaThumbnail("component-a", "rev-1", modelThumbnail), true);
+  assert.equal(await store.readMediaThumbnail("component-a", "rev-1") instanceof Object, true);
+  assert.equal(
+    (await thumbnails.getFileHandle(mediaThumbnailFilename("component-a", "rev-1", "svg"))).value,
+    modelThumbnail,
+    "model and Component thumbnails share the project thumbnail directory",
+  );
+  assert.equal(await store.writeMediaThumbnail("component-a", "rev-2", modelThumbnail), true);
+  await assert.rejects(
+    () => thumbnails.getFileHandle(mediaThumbnailFilename("component-a", "rev-1", "svg")),
+    { name: "NotFoundError" },
+    "a new source revision removes only the stale model thumbnail",
+  );
+  assert.equal((await thumbnails.getFileHandle("component-a__component.webp")).value, thumbnail);
+
+  const imageThumbnail = new Blob(["raster thumbnail"], { type: "image/webp" });
+  assert.equal(await store.writeMediaThumbnail("media/photo.png", "image-rev", imageThumbnail), true);
+  assert.equal(
+    (await thumbnails.getFileHandle(mediaThumbnailFilename("media/photo.png", "image-rev", "webp"))).value,
+    imageThumbnail,
+  );
+  assert.equal(
+    await (await store.readMediaThumbnail("media/photo.png", "image-rev", ["webp", "png"])).text(),
+    "raster thumbnail",
+  );
 });
 
 test("cached component thumbnails publish incrementally in bounded batches", async () => {

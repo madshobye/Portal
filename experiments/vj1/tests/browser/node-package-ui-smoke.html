@@ -13,8 +13,10 @@
     <main id="package-smoke">Loading package repository…</main>
     <script type="module">
       import { createVj1NodePackage } from "../../js/app-node-package.js";
-      import { nodeLibraryRailTemplate } from "../../js/control/node-library-view.js";
+      import { nodesRailUiGraph } from "../../js/control/control-ui-program.js";
+      import { nodeLibraryRailModel } from "../../js/control/node-library-view.js";
       import { createInitialState } from "../../js/domain/models.js";
+      import { RetainedUiRuntime, UiNodeDefinitions, UiNodeRegistry } from "../../js/libraries/ui-engine/index.js";
       import { defineNode, defineNodePackage } from "../../js/libraries/node-engine/index.js";
 
       const definition = defineNode({
@@ -50,7 +52,16 @@
         [versionOne],
         [versionTwo, versionOne],
       );
-      document.querySelector("#package-smoke").innerHTML = nodeLibraryRailTemplate(state, packageRoot);
+      const runtime = new RetainedUiRuntime({
+        registry: new UiNodeRegistry(UiNodeDefinitions),
+        dispatch(command) {
+          window.__nodePackageCommands = [...(window.__nodePackageCommands || []), command];
+        },
+      });
+      runtime.activate(nodesRailUiGraph(nodeLibraryRailModel(state, packageRoot)), {
+        host: document.querySelector("#package-smoke"),
+      });
+      window.__nodePackageUiRuntime = runtime;
       document.documentElement.dataset.smokeReady = "true";
     </script>
   </body>

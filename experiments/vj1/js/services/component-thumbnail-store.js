@@ -7,6 +7,19 @@ export function componentThumbnailFilename(componentId, surfaceId = "", extensio
   return `${component}${surface}.${extension === "png" ? "png" : "webp"}`;
 }
 
+export function mediaThumbnailFilename(mediaId, sourceRevision, extension = "webp") {
+  const media = encodeURIComponent(String(mediaId || "media"));
+  const revision = encodeURIComponent(String(sourceRevision || "unknown"));
+  const format = ["webp", "png", "svg"].includes(extension) ? extension : "webp";
+  return `${media}__media__${revision}.${format}`;
+}
+
+export function mediaThumbnailExtension(blob) {
+  if (blob?.type === "image/svg+xml") return "svg";
+  if (blob?.type === "image/png") return "png";
+  return "webp";
+}
+
 export function parseComponentThumbnailFilename(filename = "") {
   const match = String(filename).match(/^(.+?)(__component|__surface__(.+))\.(webp|png)$/i);
   if (!match) return null;

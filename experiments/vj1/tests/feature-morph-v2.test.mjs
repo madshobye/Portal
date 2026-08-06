@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { featureMorphMediaControlsTemplate } from "../js/control/feature-morph-view.js";
 import {
   createGeneratorSource,
   FeatureMorphToImageNode,
@@ -377,10 +376,6 @@ test("Feature Morph V2 uses vendored MobileNet and the shared compiled morph ren
     readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
   ].join("\n");
-  const controls = featureMorphMediaControlsTemplate("components.0.source", { params: {} }, { media: [] }, {
-    note: "MobileNet regions",
-    emptyDetail: "MobileNet input",
-  });
 
   assert.ok(serviceSource.includes("vendor/tensorflow/tfjs-4.22.0.min.js"));
   assert.ok(serviceSource.includes("vendor/tensorflow/mobilenet-2.1.1.min.js"));
@@ -393,9 +388,11 @@ test("Feature Morph V2 uses vendored MobileNet and the shared compiled morph ren
   assert.equal(group.backend, "compiled-visual-group");
   assert.equal(render.renderer, "output/specialized:featureMorph");
   assert.match(rendererSource, /registerNativeRenderer\(\s*"output\/specialized:featureMorph"/);
-  assert.match(controls, /Image A/);
-  assert.match(controls, /Image B/);
-  assert.match(controls, /MobileNet input/);
+  assert.deepEqual(
+    component.params.filter((param) => ["imageAId", "imageBId"].includes(param.id)).map((param) => [param.id, param.ui]),
+    [["imageAId", "media"], ["imageBId", "media"]],
+    "image inputs declare the reusable media-resource UI contract",
+  );
   plan.dispose();
 });
 

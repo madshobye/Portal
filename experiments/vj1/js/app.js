@@ -29,27 +29,41 @@ import {
 import {
   setLiveAnimationOverride,
   setLiveOverride,
-} from "./control/input-controller.js";
+} from "./control/control-command-controller.js";
+import { createStartupStatusUi } from "./libraries/ui-engine/index.js";
 
-const root = document.getElementById("app");
-const mode = getClientMode();
-const compatibility = reportBrowserCompatibility({ mode: mode === "control" ? "control" : mode });
+let startupUi = null;
+let root = null;
+let mode = "control";
+let compatibility = null;
 
-if (!compatibility?.supported) {
-  root.innerHTML = `
-    <section class="empty-state">
-      <h1>Unsupported browser or GPU</h1>
-      <p>VJ1 requires current Google Chrome, WebGL2, and its modern media, worker, and file APIs.</p>
-      <p>${(compatibility?.missing || []).join(", ") || compatibility?.browser?.label || "Unsupported host"}</p>
-    </section>
-  `;
-} else if (mode === "output" || mode === "preview" || mode === "component") {
-  const diagnostics = createDiagnosticsService();
-  diagnostics.install();
-  recordBrowserCapabilityDiagnostics(diagnostics, compatibility);
-  installOutputApp({ root, mode, diagnostics });
-} else {
-  installControlApp().catch(showStartupFailure);
+export function startVj1App({ startupUi: suppliedStartupUi = null } = {}) {
+  startupUi = suppliedStartupUi || createStartupStatusUi({
+    inputs: { state: "loading", title: "VJ1", message: "Starting…" },
+  });
+  root = startupUi.host;
+  mode = getClientMode();
+  compatibility = reportBrowserCompatibility({ mode: mode === "control" ? "control" : mode });
+
+  if (!compatibility?.supported) {
+    startupUi.update({
+      state: "unsupported",
+      title: "Unsupported browser or GPU",
+      message: "VJ1 requires current Google Chrome, WebGL2, and its modern media, worker, and file APIs.",
+      detail: (compatibility?.missing || []).join(", ") || compatibility?.browser?.label || "Unsupported host",
+    });
+    return;
+  }
+  if (mode === "output" || mode === "preview" || mode === "component") {
+    const diagnostics = createDiagnosticsService();
+    diagnostics.install();
+    recordBrowserCapabilityDiagnostics(diagnostics, compatibility);
+    startupUi.dispose();
+    installOutputApp({ root, mode, diagnostics });
+    return;
+  } else {
+    return installControlApp().catch(showStartupFailure);
+  }
 }
 
 async function installControlApp() {
@@ -277,11 +291,12 @@ async function installControlApp() {
     screenCapture: devices.screenCapture,
     diagnostics,
     nodePackage,
+    onLifecycle({ kind }) {
+      if (kind !== "pagehide") return;
+      controlShell?.dispose();
+      devices.dispose();
+    },
   });
-  controlShell.mount();
-  window.addEventListener("pagehide", () => {
-    devices.dispose();
-  }, { once: true });
 
   store.subscribe((state, reason, change) => {
     if (change.effects.session.workspace === "persist") persistWorkspace(state.ui.workspace);
@@ -329,23 +344,24 @@ async function installControlApp() {
       store.setWorkspace(initialWorkspace);
     }
   }
+  // The startup node remains the only visible surface until project restore
+  // has reached an authoritative outcome. Mount the complete shell once with
+  // the final startup state instead of briefly exposing an empty black frame.
+  startupUi.dispose();
+  controlShell.mount();
 }
 
 function showStartupStage(message) {
-  const status = root.querySelector("[data-vj1-startup-status]");
-  if (status) status.textContent = String(message || "Starting…");
+  startupUi.update({ state: "loading", title: "VJ1", message: String(message || "Starting…") });
 }
 
 function showStartupFailure(error) {
   console.error("[VJ1_CONTROL_STARTUP_FAILED]", error);
-  root.innerHTML = `
-    <section class="app-startup-status" role="alert">
-      <strong>VJ1 could not start</strong>
-      <span data-vj1-startup-status></span>
-    </section>
-  `;
-  root.querySelector("[data-vj1-startup-status]").textContent =
-    error?.message || String(error || "Unknown startup error");
+  startupUi.update({
+    state: "error",
+    title: "VJ1 could not start",
+    message: error?.message || String(error || "Unknown startup error"),
+  });
 }
 
 function fixtureStateUrl() {

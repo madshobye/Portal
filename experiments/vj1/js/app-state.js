@@ -255,7 +255,21 @@ export function createAppState(initial = null, {
       );
       if (!targetId) return;
       clearLiveTargetParameterDiffs(draft, targetId);
-    }, "live:reset");
+      // A retained transition owns an executable snapshot of the previous
+      // Live endpoint. Leaving it active can keep presenting the values that
+      // were just removed from the sparse diff bank until the transition
+      // expires. A target reset is an immediate return to authored values.
+      clearLiveTransitionCoordinator(draft.ui.live);
+    }, {
+      reason: "live:target-reset",
+      effects: {
+        control: {
+          regions: ["project-rail", "inspector"],
+          preview: "render",
+        },
+        preview: { mode: "live-program" },
+      },
+    });
   }
 
   function restoreLiveSession(session = {}, {

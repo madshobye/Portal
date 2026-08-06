@@ -53,7 +53,7 @@ export class OutputPresentationMetrics {
     return `${size.width}x${size.height}${densityLabel}`;
   }
 
-  previewDiagnosticMarkup(fps, render = this.host.state?.render || {}) {
+  previewDiagnosticModel(fps, render = this.host.state?.render || {}) {
     const viewport = this.host.presentationGeometry.viewport;
     const logical = this.host.presentationGeometry.displayCanvasSize(render);
     const context = typeof drawingContext !== "undefined" ? drawingContext : null;
@@ -78,27 +78,33 @@ export class OutputPresentationMetrics {
         // Diagnostics must not interfere while p5 reallocates its canvas.
       }
     }
-    const geometry = [
-      `<span>${Math.round(this.smoothedFps || fps)} fps</span><span class="output-resolution">render ${this.resolutionLabel(render)}</span><span>${this.host.presentationGeometry.viewportLabel()}</span><span>pan ${viewport.x},${viewport.y}</span>`,
-      `<span>p5 canvas ${logical.width}x${logical.height}</span><span>backing ${backingWidth}x${backingHeight}</span>`,
-      `<span>windowWidth ${p5WindowWidth}</span><span>windowHeight ${p5WindowHeight}</span><span>browser ${browserWidth}x${browserHeight}</span><span>host ${hostWidth}x${hostHeight}</span>`,
-      `<span>density param ${formatDensity(configuredDensity)}x</span><span>preview scale ${formatDensity(previewScale)}x</span><span>effective ${formatDensity(effectiveDensity)}x</span><span>p5 ${formatDensity(actualP5Density)}x</span>`,
-    ].map((line) => `<span class="preview-debug-line">${line}</span>`).join("");
-    return `${geometry}${this.renderChainListMarkup()}`;
+    return {
+      lines: [
+        [
+          hudText(`${Math.round(this.smoothedFps || fps)} fps`),
+          hudText(`render ${this.resolutionLabel(render)}`, "output-resolution"),
+          hudText(this.host.presentationGeometry.viewportLabel()),
+          hudText(`pan ${viewport.x},${viewport.y}`),
+        ],
+        [hudText(`p5 canvas ${logical.width}x${logical.height}`), hudText(`backing ${backingWidth}x${backingHeight}`)],
+        [hudText(`windowWidth ${p5WindowWidth}`), hudText(`windowHeight ${p5WindowHeight}`), hudText(`browser ${browserWidth}x${browserHeight}`), hudText(`host ${hostWidth}x${hostHeight}`)],
+        [hudText(`density param ${formatDensity(configuredDensity)}x`), hudText(`preview scale ${formatDensity(previewScale)}x`), hudText(`effective ${formatDensity(effectiveDensity)}x`), hudText(`p5 ${formatDensity(actualP5Density)}x`)],
+      ],
+      chains: this.renderChainItems(),
+    };
   }
 
-  outputChainMarkup(fps, render = this.host.state?.render || {}) {
-    const summary = [
-      `<span>${Math.round(this.smoothedFps || fps)} fps</span>`,
-      `<span class="output-resolution">${this.resolutionLabel(render)}</span>`,
-    ].join("");
-    return [
-      `<span class="output-hud-summary">${summary}</span>`,
-      this.renderChainListMarkup(),
-    ].join("");
+  outputChainModel(fps, render = this.host.state?.render || {}) {
+    return {
+      summary: [
+        hudText(`${Math.round(this.smoothedFps || fps)} fps`),
+        hudText(this.resolutionLabel(render), "output-resolution"),
+      ],
+      chains: this.renderChainItems(),
+    };
   }
 
-  renderChainListMarkup() {
+  renderChainItems() {
     const seen = new Set();
     const rows = [];
     for (const entry of this.host.componentRenderRuntime.lastResolutionTrace || []) {
@@ -112,17 +118,14 @@ export class OutputPresentationMetrics {
       if (seen.has(signature)) continue;
       seen.add(signature);
       const depth = Math.max(0, Math.min(8, Number(entry.depth) || 0));
-      rows.push(
-        `<span class="output-chain-row" style="--output-chain-depth:${depth}">` +
-          `<span class="output-chain-kind">${escapeHudText(entry.kind)}</span>` +
-          `<span class="output-chain-name">${escapeHudText(entry.name)}</span>` +
-          `<span class="output-chain-resolution">${entry.width}x${entry.height}</span>` +
-        `</span>`
-      );
+      rows.push({
+        depth,
+        kind: String(entry.kind || ""),
+        name: String(entry.name || ""),
+        resolution: `${entry.width}x${entry.height}`,
+      });
     }
-    return rows.length
-      ? `<span class="output-chain-list">${rows.join("")}</span>`
-      : "";
+    return rows;
   }
 
   update({ frameStart } = {}) {
@@ -139,19 +142,25 @@ export class OutputPresentationMetrics {
     this.updateGpu();
     if (host.hud) {
       const mediaLoading = host.mode === "output" && !!host.readinessRuntime.status?.blocked;
-      const resolution = `<span class="output-resolution">${this.resolutionLabel()}</span>`;
       const diagnostic = host.mode !== "output" && host.state?.ui?.previewDiagnostics === true;
-      host.hud.classList.toggle("is-hidden", !host.state.global.showHud);
-      host.hud.classList.toggle("is-loading", mediaLoading);
-      host.hud.classList.toggle("is-diagnostic", diagnostic);
       const outputChainDiagnostic = host.mode === "output";
-      host.hud.classList.toggle("is-chain-diagnostic", outputChainDiagnostic);
-      const markup = outputChainDiagnostic
-        ? this.outputChainMarkup(fps)
+      const content = outputChainDiagnostic
+        ? this.outputChainModel(fps)
         : diagnostic
-        ? this.previewDiagnosticMarkup(fps)
-        : `${mediaLoading ? `<span class="output-loading-dot" aria-hidden="true"></span>` : ""}<span>${Math.round(this.smoothedFps || fps)} fps</span>${resolution}`;
-      if (host.hud.innerHTML !== markup) host.hud.innerHTML = markup;
+        ? this.previewDiagnosticModel(fps)
+        : {
+            summary: [
+              hudText(`${Math.round(this.smoothedFps || fps)} fps`),
+              hudText(this.resolutionLabel(), "output-resolution"),
+            ],
+          };
+      host.hud.present?.({
+        hidden: !host.state.global.showHud,
+        loading: mediaLoading,
+        diagnostic,
+        chainDiagnostic: outputChainDiagnostic,
+        ...content,
+      });
     }
     if (millis() - this.lastPublishedAt > 500) {
       this.lastPublishedAt = millis();
@@ -205,11 +214,6 @@ function formatDensity(value = 1) {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
-function escapeHudText(value = "") {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+function hudText(text = "", presentation = "") {
+  return { text: String(text), presentation: String(presentation) };
 }

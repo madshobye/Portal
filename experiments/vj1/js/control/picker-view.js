@@ -1,9 +1,10 @@
 import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js";
-import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js";
-import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js";
+import { effectIcon, UI_ICONS } from "./ui-icons.js";
+import { sortComponentCatalog } from "./catalog-view.js";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js";
-import { mediaCategory, mediaPickerCardTemplate, mediaRefreshButtonTemplate } from "./media-view.js";
-import { UI_ICONS } from "./ui-icons.js";
+import { mediaCategory } from "./media-view.js";
+import { catalogMarkerMeta } from "../domain/catalog-marker.js";
+import { createAuthoredMediaSource } from "../domain/authored-visual-source.js";
 
 function getByPath(target, path) {
   return String(path || "").split(".").filter(Boolean).reduce((value, segment) => value?.[segment], target);
@@ -44,276 +45,225 @@ export function generatorIcon(id) {
   }[id] || "auto_awesome";
 }
 
-export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
+function sourceFilterDescriptors({ mediaItems = [], allowedCategory = "", hasIsf = false, hasComponents = false } = {}) {
+  if (allowedCategory) return [{
+    id: allowedCategory,
+    label: allowedCategory === "model" ? "3D" : allowedCategory === "image" ? "Images" : allowedCategory,
+  }];
+  const availableMedia = new Set(mediaItems.map(mediaCategory));
+  return [
+    ...(hasComponents ? [{ id: "component", label: "Components" }] : []),
+    ...(availableMedia.has("image") ? [{ id: "image", label: "Images" }] : []),
+    ...(availableMedia.has("video") ? [{ id: "video", label: "Videos" }] : []),
+    ...(availableMedia.has("model") ? [{ id: "model", label: "3D" }] : []),
+    { id: "generator", label: "Generators" },
+    ...(hasIsf ? [{ id: "isf", label: "ISF" }] : []),
+    { id: "live", label: "Live" },
+    { id: "blank", label: "Blank" },
+  ];
+}
+
+function elementFilterDescriptors({ mediaItems = [], hasComponents = false, hasIsf = false } = {}) {
+  const availableMedia = new Set(mediaItems.map(mediaCategory));
+  return [
+    ...(hasComponents ? [{ id: "component", label: "Components" }] : []),
+    ...(availableMedia.has("image") ? [{ id: "image", label: "Images" }] : []),
+    ...(availableMedia.has("video") ? [{ id: "video", label: "Videos" }] : []),
+    ...(availableMedia.has("model") ? [{ id: "model", label: "3D" }] : []),
+    { id: "live", label: "Live" },
+    { id: "group", label: "Groups" },
+    { id: "generator", label: "Generators" },
+    { id: "effect", label: "Effects" },
+    ...(hasIsf ? [{ id: "isf", label: "ISF" }] : []),
+  ];
+}
+
+export function sourceChoicePickerUiModel(state, picker, mediaLibrary) {
   const source = currentSourceValue(picker, state);
   const allowedCategory = picker?.allowedCategory || "";
   const components = picker?.allowComponents
-    ? (state.components || []).filter((component) =>
-      component.type !== "scene" &&
-      component.id !== picker.ownerComponentId
-    )
+    ? (state.components || []).filter((component) => component.type !== "scene" && component.id !== picker.ownerComponentId)
     : [];
   const mediaSortMode = state.ui?.catalogSortModes?.media || "recent";
-  const allMediaItems = sortComponentCatalog(state.media || [], mediaSortMode);
-  const mediaItems = allowedCategory
-    ? allMediaItems.filter((item) => elementMediaCategory(item) === allowedCategory)
-    : allMediaItems;
+  const allMedia = sortComponentCatalog(state.media || [], mediaSortMode);
+  const media = allowedCategory ? allMedia.filter((item) => elementMediaCategory(item) === allowedCategory) : allMedia;
   const generators = mergeVisualCatalogEntries(
     listGeneratorComponents(),
     listProjectIsfVisualComponents(state).filter((component) => component.kind === "generator"),
-  )
-    .filter((generator) => !["black", "cameraInput"].includes(generator.id));
-  const hasIsf = generators.some(isIsfVisualComponent);
-  const sourceFilter = allowedCategory || picker?.filter || "all";
-  const isMediaValuePicker = picker?.valueMode === "mediaId";
-  return `
-    <div class="modal-backdrop"></div>
-    <section class="modal-panel element-modal" role="dialog" aria-modal="true" aria-label="Choose source">
-      <header class="modal-header">
-        <div>
-          <strong>${isMediaValuePicker ? "Choose image" : "Choose source"}</strong>
-          <small>${isMediaValuePicker ? "Pick one image for this parameter." : "Pick one source for this element."}</small>
-        </div>
-        <span class="modal-header-actions">
-          ${mediaRefreshButtonTemplate()}
-          <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
-        </span>
-      </header>
-
-      <label class="element-search-field">
-        ${icon("search")}
-        <input type="search" data-element-search placeholder="${allowedCategory === "model" ? "Search 3D objects" : allowedCategory === "image" ? "Search images" : "Search media and generators"}" value="${esc(picker?.search || "")}" autocomplete="off" />
-      </label>
-
-      ${sourceFilterBarTemplate({
-        active: sourceFilter,
-        mediaItems: allMediaItems,
-        allowedCategory,
-        hasIsf,
-        hasComponents: components.length > 0,
-      })}
-
-      <div class="element-modal-body" data-scroll-region data-scroll-key="source-picker-results">
-        ${components.length ? `<section class="ui-section element-section" data-element-section>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">${UI_ICONS.component}</span><span>Components</span></div>
-          <div class="element-grid media-element-grid">
-            ${components.map((component) => `
-              <button type="button" class="element-card media-element-card ${source.type === "component" && source.componentId === component.id ? "is-selected" : ""}" data-pick-source-component="${esc(component.id)}" data-element-category="component" data-element-search-card="${esc(elementSearchText(component.name, "component source"))}">
-                ${thumbnailTemplate(component.thumbnail, UI_ICONS.component, component.id)}
-                <strong>${esc(component.name)}</strong>
-                <small>component</small>
-              </button>
-            `).join("")}
-          </div>
-          <div class="soft-note" data-element-empty hidden>No matching components.</div>
-        </section>` : ""}
-
-        ${mediaPickerSectionTemplate(mediaItems, mediaLibrary, {
-          action: "pick",
-          selectedMediaId: selectedSourceMediaId(source),
-          sortMode: mediaSortMode,
-          emptyMessage: allowedCategory === "model"
-            ? "No 3D objects are available. Add an OBJ or STL file to the project folder."
-            : "",
-        })}
-
-        ${allowedCategory ? "" : `<section class="ui-section element-section" data-element-section>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
-          <div class="element-grid compact-element-grid">
-            ${generators.map((generator) => `
-              <button type="button" class="element-card ${source.type === "generator" && source.generatorId === generator.id ? "is-selected" : ""}" data-pick-source-generator="${esc(generator.id)}" data-element-category="${esc(elementPickerCategories("generator", generator))}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator", isIsfVisualComponent(generator) ? "isf" : ""))}">
-                ${icon(generatorIcon(generator.id))}
-                <strong>${esc(visualPickerDisplayName(generator))}</strong>
-                <small>generator</small>
-              </button>
-            `).join("")}
-          </div>
-          <div class="soft-note" data-element-empty hidden>No matching generators.</div>
-        </section>`}
-
-        ${allowedCategory ? "" : `<section class="ui-section element-section" data-element-section>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">input</span><span>Other sources</span></div>
-          <div class="element-grid compact-element-grid">
-            <button type="button" class="element-card ${source.type === "generator" && source.generatorId === "cameraInput" ? "is-selected" : ""}" data-pick-source-camera data-element-category="live" data-element-search-card="live camera portal camera feed video input">
-              ${icon("photo_camera")}
-              <strong>Live camera</strong>
-              <small>Portal camera feed</small>
-            </button>
-            <button type="button" class="element-card ${source.type === "generator" && source.generatorId === "black" ? "is-selected" : ""}" data-pick-source-black data-element-category="blank" data-element-search-card="black empty blank source">
-              ${icon("radio_button_unchecked")}
-              <strong>Black</strong>
-              <small>Empty black source</small>
-            </button>
-          </div>
-          <div class="soft-note" data-element-empty hidden>No matching sources.</div>
-        </section>`}
-        <div class="soft-note" data-element-no-results hidden>No matching sources.</div>
-      </div>
-    </section>
-  `;
-}
-
-function sourceFilterBarTemplate({
-  active = "all",
-  mediaItems = [],
-  allowedCategory = "",
-  hasIsf = false,
-  hasComponents = false,
-} = {}) {
-  if (allowedCategory) {
-    const label = allowedCategory === "model" ? "3D" : allowedCategory === "image" ? "Images" : allowedCategory;
-    const filterIcon = allowedCategory === "model" ? "deployed_code" : allowedCategory === "image" ? "image" : "filter_alt";
-    return filterTabBarTemplate([[allowedCategory, label, filterIcon]], {
-      active: allowedCategory,
-      ariaLabel: "Allowed source type",
-      scrollKey: "source-picker-filters",
-      locked: true,
-    });
-  }
-  const availableMedia = new Set(mediaItems.map(mediaCategory));
-  const filters = [
-    ...(hasComponents ? [["component", "Components", UI_ICONS.component]] : []),
-    ...(availableMedia.has("image") ? [["image", "Images", "image"]] : []),
-    ...(availableMedia.has("video") ? [["video", "Videos", "movie"]] : []),
-    ...(availableMedia.has("model") ? [["model", "3D", "deployed_code"]] : []),
-    ["generator", "Generators", "auto_awesome"],
-    ...(hasIsf ? [["isf", "ISF", "animation"]] : []),
-    ["live", "Live", "photo_camera"],
-    ["blank", "Blank", "radio_button_unchecked"],
+  ).filter((generator) => !["black", "cameraInput"].includes(generator.id));
+  const selectedMediaId = selectedSourceMediaId(source);
+  const sections = [
+    ...(components.length ? [{
+      id: "components", label: "Components", emptyText: "No matching components.",
+      items: components.map((component) => ({
+        id: `component:${component.id}`, label: component.name, meta: "component", icon: UI_ICONS.component,
+        media: component.thumbnail ? { src: component.thumbnail, type: "image" } : null,
+        categories: "component", searchText: elementSearchText(component.name, "component source"),
+        selected: source.type === "component" && source.componentId === component.id,
+        value: { type: "component", componentId: component.id },
+      })),
+    }] : []),
+    mediaCatalogSection(media, mediaLibrary, mediaSortMode, (item) => sourceForMediaDescriptor(item), selectedMediaId),
+    ...(!allowedCategory ? [{
+      id: "generators", label: "Generators", emptyText: "No matching generators.",
+      items: generators.map((generator) => visualCatalogItem(generator, "generator", {
+        selected: source.type === "generator" && source.generatorId === generator.id,
+        value: { type: "generator", generatorId: generator.id },
+      })),
+    }, {
+      id: "other", label: "Other sources", emptyText: "No matching sources.",
+      items: [{
+        id: "generator:cameraInput", label: "Live camera", meta: "Portal camera feed", icon: "photo_camera",
+        categories: "live", searchText: "live camera portal camera feed video input",
+        selected: source.type === "generator" && source.generatorId === "cameraInput",
+        value: { type: "generator", generatorId: "cameraInput" },
+      }, {
+        id: "generator:black", label: "Black", meta: "Empty black source", icon: "radio_button_unchecked",
+        categories: "blank", searchText: "black empty blank source",
+        selected: source.type === "generator" && source.generatorId === "black",
+        value: { type: "generator", generatorId: "black" },
+      }],
+    }] : []),
   ];
-  return filterTabBarTemplate(filters, {
-    active,
-    ariaLabel: "Filter source types",
-    scrollKey: "source-picker-filters",
-  });
+  return {
+    stateAddress: allowedCategory ? `picker/source/${allowedCategory}` : "picker/source/all",
+    title: picker?.valueMode === "mediaId" ? "Choose image" : "Choose source",
+    description: picker?.valueMode === "mediaId" ? "Pick one image for this parameter." : "Pick one source for this element.",
+    searchPlaceholder: allowedCategory === "model" ? "Search 3D objects" : allowedCategory === "image" ? "Search images" : "Search media and generators",
+    activeFilter: allowedCategory || picker?.filter || "all",
+    search: picker?.search || "",
+    lockedFilter: !!allowedCategory,
+    filters: sourceFilterDescriptors({
+      mediaItems: allMedia,
+      allowedCategory,
+      hasIsf: generators.some(isIsfVisualComponent),
+      hasComponents: components.length > 0,
+    }),
+    actions: [{ id: "refresh", label: "Refresh media", icon: "refresh" }],
+    sections,
+    noResultsText: "No matching sources.",
+  };
 }
 
-export function elementPickerTemplate(state, picker, mediaLibrary, componentCatalog = {}) {
+export function elementPickerUiModel(state, picker, mediaLibrary, componentCatalog = {}) {
   const mediaSortMode = state.ui?.catalogSortModes?.media || "recent";
-  const mediaItems = sortComponentCatalog(state.media || [], mediaSortMode);
+  const media = sortComponentCatalog(state.media || [], mediaSortMode);
   const owner = state.components.find((component) => component.id === picker.componentId);
   const componentItems = Array.isArray(componentCatalog.components) ? componentCatalog.components : state.components;
   const components = owner?.type === "scene"
     ? componentItems.filter((component) => component.id !== picker.componentId && component.type !== "scene")
     : [];
   const projectIsf = listProjectIsfVisualComponents(state);
-  const generators = mergeVisualCatalogEntries(
-    listGeneratorComponents(),
-    projectIsf.filter((component) => component.kind === "generator"),
-  )
+  const generators = mergeVisualCatalogEntries(listGeneratorComponents(), projectIsf.filter((component) => component.kind === "generator"))
     .filter((generator) => !["black", "cameraInput"].includes(generator.id));
-  const effects = mergeVisualCatalogEntries(
-    listShaderComponents(),
-    projectIsf.filter((component) => component.kind === "effect"),
-  );
-  const hasIsf = [...generators, ...effects].some(isIsfVisualComponent);
-  return `
-    <div class="modal-backdrop"></div>
-    <section class="modal-panel element-modal" role="dialog" aria-modal="true" aria-label="Add element">
-      <header class="modal-header">
-        <div>
-          <strong>Add element</strong>
-          <small>Choose a source or an effect for this component.</small>
-        </div>
-        <span class="modal-header-actions">
-          ${mediaRefreshButtonTemplate()}
-          <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
-        </span>
-      </header>
+  const effects = mergeVisualCatalogEntries(listShaderComponents(), projectIsf.filter((component) => component.kind === "effect"));
+  return {
+    stateAddress: `picker/element/${encodeURIComponent(picker.componentId || "unknown")}`,
+    title: "Add element",
+    description: "Choose a source or an effect for this component.",
+    searchPlaceholder: "Search media, generators, effects",
+    activeFilter: picker.filter || "all",
+    search: picker.search || "",
+    filters: elementFilterDescriptors({
+      mediaItems: media,
+      hasComponents: components.length > 0,
+      hasIsf: [...generators, ...effects].some(isIsfVisualComponent),
+    }),
+    actions: [{ id: "refresh", label: "Refresh media", icon: "refresh" }],
+    sections: [
+      ...(components.length ? [{
+        id: "components", label: "Components", emptyText: "No matching components.",
+        actions: [catalogSortDescriptor("component", componentCatalog.sortMode || "recent")],
+        items: components.map((component) => catalogMarkedItem({
+          id: `component:${component.id}`, label: component.name, meta: "component", icon: UI_ICONS.component,
+          media: component.thumbnail ? { src: component.thumbnail, type: "image" } : null,
+          categories: "component", searchText: elementSearchText(component.name, "component source"),
+          value: { kind: "source", value: { type: "component", componentId: component.id } },
+        }, component, "component")),
+      }] : []),
+      mediaCatalogSection(media, mediaLibrary, mediaSortMode, (item) => ({ kind: "source", value: sourceForMediaDescriptor(item) })),
+      {
+        id: "live", label: "Live input", emptyText: "No matching live inputs.", items: [{
+          id: "generator:cameraInput", label: "Live camera", meta: "Portal camera feed", icon: "photo_camera",
+          categories: "live", searchText: "live camera portal camera feed video input",
+          value: { kind: "source", value: { type: "generator", generatorId: "cameraInput" } },
+        }],
+      }, {
+        id: "structure", label: "Structure", emptyText: "No matching structure elements.", items: [{
+          id: "group", label: "Group", meta: "nested chain", icon: UI_ICONS.group,
+          categories: "group", searchText: "group folder chain nested structure", value: { kind: "group" },
+        }],
+      }, {
+        id: "generators", label: "Generators", emptyText: "No matching generators.",
+        items: generators.map((generator) => visualCatalogItem(generator, "generator", {
+          value: { kind: "source", value: { type: "generator", generatorId: generator.id } },
+        })),
+      }, {
+        id: "effects", label: "Effects", emptyText: "No matching effects.",
+        items: effects.map((effect) => visualCatalogItem(effect, "effect", {
+          value: { kind: "effect", value: effect.id },
+        })),
+      },
+    ],
+    noResultsText: "No matching elements.",
+  };
+}
 
-      <label class="element-search-field">
-        ${icon("search")}
-        <input type="search" data-element-search placeholder="Search media, generators, effects" value="${esc(picker?.search || "")}" autocomplete="off" />
-      </label>
+function mediaCatalogSection(items, mediaLibrary, sortMode, valueFor, selectedMediaId = "") {
+  return {
+    id: "media", label: "Media", emptyText: "No matching media.",
+    actions: [catalogSortDescriptor("media", sortMode)],
+    items: items.map((item) => catalogMarkedItem({
+      id: `media:${item.id}`,
+      label: String(item.name || item.path || item.id || "Media").split(/[\\/]/).filter(Boolean).at(-1) || "Media",
+      meta: elementMediaCategory(item),
+      icon: item.type === "video" ? "movie" : item.type === "model" ? "deployed_code" : "image",
+      categories: elementMediaCategory(item),
+      searchText: elementSearchText(item.id, item.name, item.type, item.path, "media"),
+      selected: item.id === selectedMediaId,
+      value: valueFor(item),
+      media: ["image", "video", "model"].includes(item.type) && mediaLibrary?.getFile?.(item.id)
+        ? {
+          key: item.id,
+          // The thumbnail handler always returns a still derived image,
+          // including for videos and 3D media.
+          type: "image",
+          load: "visible",
+        }
+        : null,
+    }, item, "media")),
+  };
+}
 
-      ${elementFilterBarTemplate({
-        active: picker.filter || "all",
-        mediaItems,
-        hasComponents: components.length > 0,
-        hasIsf,
-      })}
+function sourceForMediaDescriptor(item) {
+  return createAuthoredMediaSource(item.id, item);
+}
 
-      <div class="element-modal-body" data-scroll-region data-scroll-key="element-picker-results">
-        ${components.length ? `<section class="ui-section element-section" data-element-section>
-          <div class="element-section-heading">
-            <div class="ui-section-header rail-title"><span class="material-symbols-rounded">${UI_ICONS.component}</span><span>Components</span></div>
-            ${componentPickerSortTemplate(componentCatalog.sortMode || "recent")}
-          </div>
-          <div class="element-grid media-element-grid">
-            ${components.map((component) => `
-              <div class="element-card-shell" data-element-category="component" data-element-search-card="${esc(elementSearchText(component.name, "component source"))}">
-                <button type="button" class="element-card media-element-card" data-add-element-component="${esc(component.id)}">
-                  ${thumbnailTemplate(component.thumbnail, UI_ICONS.component, component.id)}
-                  <strong>${esc(component.name)}</strong>
-                  <small>component</small>
-                </button>
-                ${catalogMarkerButtonTemplate(component, "component")}
-              </div>
-            `).join("")}
-          </div>
-          <div class="soft-note" data-element-empty hidden>No matching components.</div>
-        </section>` : ""}
+function visualCatalogItem(component, kind, overrides = {}) {
+  return {
+    id: `${kind}:${component.id}`,
+    label: visualPickerDisplayName(component),
+    meta: component.category || kind,
+    icon: kind === "effect" ? effectIcon(component.id) : generatorIcon(component.id),
+    categories: elementPickerCategories(kind, component),
+    searchText: elementSearchText(component.id, component.label, component.name, component.category, kind, isIsfVisualComponent(component) ? "isf" : ""),
+    ...overrides,
+  };
+}
 
-        ${mediaPickerSectionTemplate(mediaItems, mediaLibrary, {
-          action: "add",
-          sortMode: mediaSortMode,
-        })}
+function catalogMarkedItem(descriptor, item, kind) {
+  const marker = catalogMarkerMeta(item.catalogMarker);
+  return {
+    ...descriptor,
+    actions: [{ id: `marker:${kind}`, label: `${marker.label}; click to mark ${marker.nextLabel}`, icon: marker.icon }],
+  };
+}
 
-        <section class="ui-section element-section" data-element-section>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">videocam</span><span>Live input</span></div>
-          <div class="element-grid compact-element-grid">
-            <button type="button" class="element-card" data-element-category="live" data-add-element-camera data-element-search-card="live camera portal camera feed video input">
-              ${icon("photo_camera")}
-              <strong>Live camera</strong>
-              <small>Portal camera feed</small>
-            </button>
-          </div>
-          <div class="soft-note" data-element-empty hidden>No matching live inputs.</div>
-        </section>
-
-        <section class="ui-section element-section" data-element-section>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">${UI_ICONS.group}</span><span>Structure</span></div>
-          <div class="element-grid compact-element-grid">
-            <button type="button" class="element-card" data-element-category="group" data-add-element-group data-element-search-card="group folder chain nested structure">
-              ${icon(UI_ICONS.group)}
-              <strong>Group</strong>
-              <small>nested chain</small>
-            </button>
-          </div>
-          <div class="soft-note" data-element-empty hidden>No matching structure elements.</div>
-        </section>
-
-        <section class="ui-section element-section" data-element-section>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
-          <div class="element-grid compact-element-grid visual-element-grid">
-            ${generators.map((generator) => `
-              <button type="button" class="element-card" data-element-category="${esc(elementPickerCategories("generator", generator))}" data-add-element-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator", isIsfVisualComponent(generator) ? "isf" : ""))}">
-                ${icon(generatorIcon(generator.id))}
-                <strong>${esc(visualPickerDisplayName(generator))}</strong>
-                <small>generator</small>
-              </button>
-            `).join("")}
-          </div>
-          <div class="soft-note" data-element-empty hidden>No matching generators.</div>
-        </section>
-
-        <section class="ui-section element-section" data-element-section>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
-          <div class="element-grid compact-element-grid visual-element-grid">
-            ${effects.map((shader) => `
-              <button type="button" class="element-card" data-element-category="${esc(elementPickerCategories("effect", shader))}" data-add-element-effect="${esc(shader.id)}" data-element-search-card="${esc(elementSearchText(shader.id, shader.name, shader.category, "effect", isIsfVisualComponent(shader) ? "isf" : ""))}">
-                ${icon(effectIcon(shader.id))}
-                <strong>${esc(visualPickerDisplayName(shader))}</strong>
-                <small>${esc(shader.category || "effect")}</small>
-              </button>
-            `).join("")}
-          </div>
-          <div class="soft-note" data-element-empty hidden>No matching effects.</div>
-        </section>
-        <div class="soft-note" data-element-no-results hidden>No matching elements.</div>
-      </div>
-    </section>
-  `;
+function catalogSortDescriptor(scope, activeMode) {
+  const modes = ["recent", "marker", "name", "created"];
+  const index = Math.max(0, modes.indexOf(activeMode));
+  const next = modes[(index + 1) % modes.length];
+  return { id: `sort:${scope}:${next}`, label: `Sorted by ${modes[index]}; click to sort by ${next}`, icon: "sort" };
 }
 
 // A project may already contain an imported ISF file that later becomes part
@@ -339,92 +289,6 @@ export function mergeVisualCatalogEntries(builtIns = [], project = []) {
     merged.push(item);
   }
   return merged;
-}
-
-function elementFilterBarTemplate({
-  active = "all",
-  mediaItems = [],
-  hasComponents = false,
-  hasIsf = false,
-} = {}) {
-  const availableMedia = new Set(mediaItems.map(elementMediaCategory));
-  const filters = [
-    ...(availableMedia.has("image") ? [["image", "Images", "image"]] : []),
-    ...(availableMedia.has("video") ? [["video", "Videos", "movie"]] : []),
-    ...(availableMedia.has("model") ? [["model", "3D", "deployed_code"]] : []),
-    ["generator", "Generators", "auto_awesome"],
-    ["effect", "Effects", "blur_on"],
-    ...(hasIsf ? [["isf", "ISF", "animation"]] : []),
-    ...(hasComponents ? [["component", "Components", UI_ICONS.component]] : []),
-    ["live", "Live", "photo_camera"],
-    ["group", "Groups", "folder"],
-  ];
-  return filterTabBarTemplate(filters, {
-    active,
-    ariaLabel: "Filter element types",
-    scrollKey: "element-picker-filters",
-  });
-}
-
-function mediaPickerSectionTemplate(mediaItems, mediaLibrary, {
-  action = "pick",
-  selectedMediaId = "",
-  sortMode = "recent",
-  emptyMessage = "",
-} = {}) {
-  const fallback = emptyMessage || "Drop image, video, or 3D model files into the browser, or add them to the project folder.";
-  return `<section class="ui-section element-section" data-element-section>
-    <div class="element-section-heading">
-      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
-      ${catalogPickerSortTemplate("media", sortMode)}
-    </div>
-    <div class="element-grid media-element-grid">
-      ${mediaItems.length ? mediaItems.map((item) => mediaPickerCardTemplate(item, mediaLibrary, {
-        action,
-        selected: item.id === selectedMediaId,
-      })).join("") : `<div class="soft-note">${fallback}</div>`}
-    </div>
-    <div class="soft-note" data-element-empty hidden>No matching media.</div>
-  </section>`;
-}
-
-function filterTabBarTemplate(filters, {
-  active = "all",
-  ariaLabel = "Filter",
-  scrollKey = "picker-filters",
-  locked = false,
-} = {}) {
-  const validActive = filters.some(([id]) => id === active) ? active : "all";
-  return `
-    <nav class="element-filter-bar" role="tablist" data-scroll-region data-scroll-key="${esc(scrollKey)}" aria-label="${esc(ariaLabel)}">
-      ${filters.map(([id, label, filterIcon]) => `
-        <button type="button" role="tab" class="${id === validActive ? "is-active" : ""}" data-element-filter="${esc(id)}" aria-selected="${id === validActive}" ${locked ? "disabled" : ""} ${id === "model" ? 'title="3D models (OBJ and STL)"' : ""}>
-          ${icon(filterIcon)}<span>${label}</span>
-        </button>
-      `).join("")}
-    </nav>
-  `;
-}
-
-function componentPickerSortTemplate(activeMode = "recent") {
-  return catalogPickerSortTemplate("component", activeMode);
-}
-
-function catalogPickerSortTemplate(scope = "component", activeMode = "recent") {
-  const modes = [
-    ["recent", "Changed", "history"],
-    ["marker", "Marked", "keep"],
-    ["name", "Name", "sort_by_alpha"],
-    ["created", "Created", "add_circle"],
-  ];
-  const activeIndex = Math.max(0, modes.findIndex(([mode]) => mode === activeMode));
-  const [, activeLabel, activeIcon] = modes[activeIndex];
-  const [nextMode, nextLabel] = modes[(activeIndex + 1) % modes.length];
-  return `
-    <div class="component-sort-toggle component-picker-sort">
-      <button type="button" class="is-active" data-catalog-sort-scope="${esc(scope)}" data-catalog-sort="${nextMode}" title="Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}" aria-label="Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}">${icon(activeIcon)}<span>${activeLabel}</span></button>
-    </div>
-  `;
 }
 
 export function elementMediaCategory(item = {}) {

@@ -9,34 +9,28 @@
     />
     <title>VJ1</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" />
-    <link rel="stylesheet" type="text/css" href="style.css?v=isf-toggle-buttons-1" />
+    <link rel="stylesheet" type="text/css" href="js/libraries/ui-engine/base.css?v=ui-engine-53" />
+    <link rel="stylesheet" type="text/css" href="style.css?v=ui-engine-53" />
+    <link rel="stylesheet" type="text/css" href="js/libraries/ui-engine/themes/vj.css?v=ui-engine-53" />
   </head>
   <body data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
-    <main id="app" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
-      <section class="app-startup-status" role="status" aria-live="polite">
-        <strong>VJ1</strong>
-        <span data-vj1-startup-status>Starting…</span>
-        <span class="app-startup-progress" aria-hidden="true"></span>
-      </section>
-    </main>
+    <main id="app" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></main>
     <script>
       (async () => {
-        const sourceRevision = "source-coherence-214";
+        const sourceRevision = "source-coherence-273";
+        const { createVj1StartupUi } = await import(`./js/startup.js?v=${sourceRevision}`);
+        const startupUi = createVj1StartupUi();
         const workerUrl = new URL(`./module-source-worker.js?v=${sourceRevision}`, location.href).href;
-        const setStartupStatus = (message) => {
-          const status = document.querySelector("[data-vj1-startup-status]");
-          if (status) status.textContent = message;
-        };
-        const start = () => {
-          setStartupStatus("Loading application modules…");
-          return import("./js/app.js");
+        const start = async () => {
+          startupUi.update({ state: "loading", title: "VJ1", message: "Starting application…" });
+          const application = await import("./js/app.js");
+          return application.startVj1App({ startupUi });
         };
         if (!("serviceWorker" in navigator) || !window.isSecureContext) {
           await start();
           return;
         }
         try {
-          setStartupStatus("Checking source revision…");
           const registration = await navigator.serviceWorker.register(
             workerUrl,
             { scope: "./", updateViaCache: "none" },
@@ -49,6 +43,7 @@
               console.warn("[VJ1_SOURCE_COHERENCE_REFRESH_FAILED]", error);
             });
           } else {
+            startupUi.update({ state: "loading", title: "VJ1", message: "Updating application sources…" });
             await Promise.race([
               Promise.all([
                 registration.update(),
@@ -81,9 +76,12 @@
         } catch (error) {
           if (error?.message === "VJ1_SOURCE_WORKER_REVISION_MISMATCH") {
             console.error("[VJ1_SOURCE_COHERENCE_BLOCKED]", error);
-            setStartupStatus(
-              "VJ1 could not activate a coherent source revision. Reload after the service worker update completes.",
-            );
+            startupUi.update({
+              state: "error",
+              title: "VJ1 could not start",
+              message: "Application sources could not be updated.",
+              detail: "Reload the page to retry source synchronization.",
+            });
             return;
           }
           console.warn("[VJ1_SOURCE_COHERENCE_UNAVAILABLE]", error);

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>UI thumbnail scroll retention</title>
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/base.css" />
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/themes/vj.css" />
+  <style>
+    #host { width: 240px; height: 360px; }
+    #host > * { height: 100%; }
+  </style>
+</head>
+<body>
+  <main id="host"></main>
+  <pre id="result">running</pre>
+  <script type="module">
+    import { createUi } from "../../js/libraries/ui-engine/index.js";
+    import { componentCatalogUiModel } from "../../js/control/control-ui-program.js";
+
+    const host = document.querySelector("#host");
+    const items = Array.from({ length: 30 }, (_, index) => ({
+      id: `component-${index}`,
+      label: `Component ${index}`,
+      thumbnail: { fallback: "extension", key: `component-${index}:` },
+      actions: [],
+    }));
+    const model = (selectedId, values = items) => componentCatalogUiModel({
+      items: values,
+      selectedId,
+      sortMode: "recent",
+      projectId: "scroll-smoke",
+    });
+    const ui = createUi({ host, model: model("component-0") });
+    const listBefore = host.querySelector(".ui-node-list");
+    const cardBefore = host.querySelector('[data-ui-list-item="component-18"]');
+    listBefore.scrollTop = 420;
+    const positionBefore = listBefore.scrollTop;
+    const updatedItems = items.map((item) => item.id === "component-18"
+      ? { ...item, label: "Component 18 updated" }
+      : item);
+    ui.update(model("component-18", updatedItems));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const listAfter = host.querySelector(".ui-node-list");
+    const cardAfter = host.querySelector('[data-ui-list-item="component-18"]');
+    const result = {
+      listRetained: listBefore === listAfter,
+      cardRetained: cardBefore === cardAfter,
+      positionBefore,
+      positionAfter: listAfter.scrollTop,
+      scrollRetained: listAfter.scrollTop === positionBefore,
+    };
+    result.ok = result.listRetained && result.cardRetained && result.scrollRetained && positionBefore > 0;
+    document.querySelector("#result").textContent = JSON.stringify(result, null, 2);
+    document.documentElement.dataset.testStatus = result.ok ? "passed" : "failed";
+  </script>
+</body>
+</html>

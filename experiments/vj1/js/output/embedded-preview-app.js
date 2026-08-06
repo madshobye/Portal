@@ -21,6 +21,7 @@ import {
   publishCanvasOwnershipDiagnostics,
 } from "./canvas-ownership.js";
 import { createPresentationHostLifecycle } from "./presentation-host-lifecycle.js";
+import { loadClassicBrowserScript } from "../services/browser-script-loader.js";
 
 export function createEmbeddedPreviewApp({
   store,
@@ -29,9 +30,10 @@ export function createEmbeddedPreviewApp({
   onChainItemTarget,
   onControlSignal = null,
   onDmxFixture = null,
+  onDownload = null,
   screenCapture = null,
 }) {
-  let host = null;
+  let surface = null;
   let stage = null;
   let hud = null;
   let canvas = null;
@@ -91,9 +93,9 @@ export function createEmbeddedPreviewApp({
     importMediaFilesIfChanged(true);
   }) || (() => {});
 
-  function mount({ host: nextHost, stage: nextStage, hud: nextHud, mode, state, activation = "full" }) {
+  function mount({ surface: nextSurface, stage: nextStage, hud: nextHud, mode, state, activation = "full" }) {
     const sameMount = !!renderer &&
-      host === nextHost &&
+      surface === nextSurface &&
       stage === nextStage &&
       hud === nextHud;
     const modeChanged = !!renderer && pendingMode !== mode;
@@ -102,12 +104,12 @@ export function createEmbeddedPreviewApp({
       setState(state, mode, { activation });
       return;
     }
-    host = nextHost;
+    surface = nextSurface;
     stage = nextStage;
     hud = nextHud;
     pendingMode = mode;
     pendingState = preserveActiveRetimedTransition(state || pendingState || {});
-    host?.classList.remove("is-paused");
+    surface?.setPaused?.(false);
     paused = false;
     presentationIdle.resume();
     applyPreviewFrameRate();
@@ -209,6 +211,10 @@ export function createEmbeddedPreviewApp({
     wakePreviewPresentation();
     if (name === "set-profile-diagnostics") renderer?.profileRuntime.setDiagnosticsEnabled(payload.enabled === true);
     if (name === "set-calibrate") renderer?.mappingRuntime.setCalibrate(!!payload.calibrating);
+    if (name === "clear-live-transition") {
+      activeRetimedTransition = null;
+      activeRetimedTransitionSceneId = "";
+    }
     if (name === "reset-mapping") renderer?.mappingRuntime.reset(payload.surfaceId);
     if (name === "export-mapping") renderer?.mappingRuntime.export();
     if (name === "schedule") renderer?.frameRuntime.schedule(payload);
@@ -216,7 +222,7 @@ export function createEmbeddedPreviewApp({
   }
 
   function pause() {
-    host?.classList.add("is-paused");
+    surface?.setPaused?.(true);
     paused = true;
     presentationIdle.forceStop();
     alignedFrameRate = 0;
@@ -259,14 +265,14 @@ export function createEmbeddedPreviewApp({
     window.draw = draw;
     window.windowResized = resizeToStage;
     window.addEventListener("pagehide", cleanup, { once: true });
-    loadClassicScript(VJ1.p5Script)
+    loadClassicBrowserScript(VJ1.p5Script)
       .then(() => {
         setTimeout(() => {
           if (!presentationHost.setupClaimed && typeof createCanvas === "function") setup();
         }, 0);
       })
       .catch((error) => {
-        if (host) host.innerHTML = `<div class="empty-preview">${error.message}</div>`;
+        surface?.setError?.(error.message);
       });
   }
 
@@ -304,6 +310,7 @@ export function createEmbeddedPreviewApp({
       sendMediaMetadata: updateMediaMetadata,
       requestMediaFiles: () => importMediaFilesIfChanged(true),
       requestPresentationFrame: wakePreviewPresentation,
+      onDownload,
       sendDmxFixture: onDmxFixture,
       screenCapture,
       onSurfaceSelect: selectSurface,
@@ -1089,19 +1096,4 @@ export function previewFitSignature({ mode = "preview", size = {}, logical = {},
     Number(viewport.y) || 0,
     outputs,
   ].join(":");
-}
-
-function loadClassicScript(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[data-vj1-script="${src}"]`)) {
-      resolve();
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = src;
-    script.dataset.vj1Script = src;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error(`Could not load ${src}`));
-    document.head.appendChild(script);
-  });
 }

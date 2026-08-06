@@ -1,20 +1,18 @@
 import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js";
 import { sortComponentCatalog } from "./catalog-view.js";
-import { setClass, setText } from "./dom-utils.js";
-import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js";
-import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js";
-import { configuredOutputsTemplate, dmxSettingsSignature, dmxSettingsTemplate, midiSettingsSignature, midiSettingsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js";
+import { getByPath, setByPath, setByPathCreate } from "./path-input-utils.js";
+import { elementMediaCategory, elementPickerUiModel, sourceChoicePickerUiModel } from "./picker-view.js";
+import { settingsUiModel } from "./settings-view.js";
 import { createAkaiMidiMixProfile, normalizeMidiInputSettings } from "../libraries/control-engine/midi-input-profile/index.js";
 import { createDmxFixture, normalizeDeviceSettings } from "../libraries/dmx-engine/index.js";
 import { mergeSourceChoice } from "../domain/source-choice.js";
 import {
   createAuthoredMediaSource,
 } from "../domain/authored-visual-source.js";
-import { screenInputOptionsTemplate } from "./parameter-view.js";
+import { catalogPickerUiGraph, settingsModalUiGraph } from "./control-ui-program.js";
 
-export function nextPickerFilter(activeFilter = "all", requestedFilter = "all") {
-  return activeFilter === requestedFilter ? "all" : requestedFilter;
-}
+const SETTINGS_UI_SCOPE = "vj1.control.settings";
+const PICKER_UI_SCOPE = "vj1.control.catalog-picker";
 
 export function sourceForCatalogMedia(mediaId, state = {}) {
   const id = String(mediaId || "");
@@ -28,45 +26,35 @@ export function createModalController({
   getHost,
   mediaLibrary,
   refreshMedia,
-  replaceHtmlIfChanged,
   getCatalogSortMode,
-  bindCatalogSortControls,
+  retainedUi,
   midiInput = null,
   dmxOutput = null,
   screenCapture = null,
 }) {
   if (!screenCapture) throw new Error("SCREEN_CAPTURE_SERVICE_REQUIRED");
+  if (!retainedUi) throw new Error("SETTINGS_UI_RUNTIME_REQUIRED");
   let elementPicker = null;
   let sourceChoicePicker = null;
-  const elementPickerMemory = { filter: "all", search: "" };
-  const sourceChoicePickerMemory = { filter: "all", search: "" };
-  let focusElementPickerSearch = false;
   let settingsOpen = false;
-  let settingsTab = "outputs";
-  let mediaPreviewObserver = null;
-  const activeMediaPreviews = new Set();
-  const visibleMediaPreviews = new WeakSet();
-  const mediaPreviewActivationTokens = new WeakMap();
-  const maxRetainedMediaPreviews = 500;
-  let reportedPreviewObserverFallback = false;
   let mediaRefreshInFlight = false;
-  screenCapture.subscribe((status) => {
-    syncScreenCaptureStatus(getHost(), status);
-    syncScreenInputSelects(status.inputs);
-  });
+  let dmxTestChannel = 1;
+  screenCapture.subscribe(() => { if (settingsOpen) render(getState()); });
 
   function render(state = getState()) {
     const host = getHost();
     if (!host) return;
     if (!elementPicker && !sourceChoicePicker && !settingsOpen) {
-      resetDemandMediaPreviews();
-      replaceHtmlIfChanged(host, "");
+      retainedUi.deactivate(SETTINGS_UI_SCOPE);
+      retainedUi.deactivate(PICKER_UI_SCOPE);
       return;
     }
     if (settingsOpen) {
+      retainedUi.deactivate(PICKER_UI_SCOPE);
       renderSettings(host, state);
       return;
     }
+    retainedUi.deactivate(SETTINGS_UI_SCOPE);
     if (sourceChoicePicker) {
       renderSourceChoicePicker(host, state);
       return;
@@ -75,63 +63,24 @@ export function createModalController({
       renderElementPicker(host, state);
       return;
     }
-    resetDemandMediaPreviews();
-    replaceHtmlIfChanged(host, "");
   }
 
   function renderSettings(host, state) {
-    resetDemandMediaPreviews();
-    settingsTab = normalizeSettingsTab(settingsTab);
-    if (!host.querySelector("[data-settings-modal]")) {
-      replaceHtmlIfChanged(host, settingsModalTemplate(
-        state,
-        settingsTab,
-        midiInput?.snapshot?.(),
-        dmxOutput?.snapshot?.(),
-        screenCapture.snapshot().inputs,
-      ));
-      bindClose(host, closeSettings);
-      host.querySelectorAll("[data-settings-tab]").forEach((button) => {
-        button.addEventListener("click", () => {
-          settingsTab = normalizeSettingsTab(button.dataset.settingsTab);
-          applySettingsTab(host);
-        });
-      });
-    }
-    syncSettingsModal(host, state);
-    bindSettingsModalControls(host);
+    retainedUi.activate(settingsModalUiGraph(settingsUiModel(state, {
+      projectId: state.project?.folderName || state.project?.name || "unopened",
+      midiStatus: midiInput?.snapshot?.() || {},
+      dmxStatus: dmxOutput?.snapshot?.() || {},
+      sharedInputs: screenCapture.snapshot().inputs,
+    })), { host, scope: SETTINGS_UI_SCOPE });
   }
 
   function renderSourceChoicePicker(host, state) {
-    if (!replaceHtmlIfChanged(host, sourceChoicePickerTemplate(state, sourceChoicePicker, mediaLibrary))) return;
-    bindClose(host, closeSourceChoicePicker);
-    bindElementPickerSearch(host);
-    bindElementPickerFilters(host);
-    bindCatalogSortControls(host);
-    bindCatalogMarkerControls(host);
-    host.querySelector("[data-refresh-media]")?.addEventListener("click", refreshMediaPicker);
-    bindDemandMediaPreviews(host);
-    host.querySelectorAll("[data-pick-source-media]").forEach((button) => {
-      button.addEventListener("click", () => chooseSource(
-        sourceForCatalogMedia(button.dataset.pickSourceMedia || "", getState())
-      ));
-    });
-    host.querySelector("[data-pick-source-camera]")?.addEventListener("click", () => chooseSource({
-      type: "generator",
-      generatorId: "cameraInput",
-    }));
-    host.querySelector("[data-pick-source-black]")?.addEventListener("click", () =>
-      chooseSource({ type: "generator", generatorId: "black" })
-    );
-    host.querySelectorAll("[data-pick-source-generator]").forEach((button) => {
-      button.addEventListener("click", () => chooseSource({ type: "generator", generatorId: button.dataset.pickSourceGenerator }));
-    });
-    host.querySelectorAll("[data-pick-source-component]").forEach((button) => {
-      button.addEventListener("click", () => chooseSource({
-        type: "component",
-        componentId: button.dataset.pickSourceComponent,
-      }));
-    });
+    const model = sourceChoicePickerUiModel(state, sourceChoicePicker, mediaLibrary);
+    if (model.actions[0]) model.actions[0].disabled = mediaRefreshInFlight;
+    retainedUi.activate(catalogPickerUiGraph(
+      model,
+      { id: PICKER_UI_SCOPE },
+    ), { host, scope: PICKER_UI_SCOPE });
   }
 
   function chooseSource(source) {
@@ -171,51 +120,12 @@ export function createModalController({
   function renderElementPicker(host, state) {
     const sortMode = getCatalogSortMode(state);
     const components = sortComponentCatalog(state.components || [], sortMode);
-    if (!replaceHtmlIfChanged(host, elementPickerTemplate(state, elementPicker, mediaLibrary, {
-      components,
-      sortMode,
-    }))) return;
-    bindClose(host, closeElementPicker);
-    bindElementPickerSearch(host);
-    bindElementPickerFilters(host);
-    bindCatalogSortControls(host);
-    bindCatalogMarkerControls(host);
-    host.querySelector("[data-refresh-media]")?.addEventListener("click", refreshMediaPicker);
-    focusPendingElementPickerSearch(host);
-    bindDemandMediaPreviews(host);
-    host.querySelectorAll("[data-add-element-media]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const mediaId = button.dataset.addElementMedia || "";
-        addElement("source", sourceForCatalogMedia(mediaId, getState()));
-      });
-    });
-    host.querySelectorAll("[data-add-element-component]").forEach((button) => {
-      button.addEventListener("click", () => addElement("source", { type: "component", componentId: button.dataset.addElementComponent || "" }));
-    });
-    host.querySelector("[data-add-element-camera]")?.addEventListener("click", () => addElement("source", {
-      type: "generator",
-      generatorId: "cameraInput",
-    }));
-    host.querySelector("[data-add-element-group]")?.addEventListener("click", () => addElement("group"));
-    host.querySelectorAll("[data-add-element-generator]").forEach((button) => {
-      button.addEventListener("click", () => addElement("source", { type: "generator", generatorId: button.dataset.addElementGenerator }));
-    });
-    host.querySelectorAll("[data-add-element-effect]").forEach((button) => {
-      button.addEventListener("click", () => addElement("effect", button.dataset.addElementEffect));
-    });
-  }
-
-  function bindCatalogMarkerControls(host) {
-    host.querySelectorAll("[data-cycle-catalog-marker]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        store.cycleCatalogMarker?.(
-          button.dataset.cycleCatalogMarker || "",
-          button.dataset.catalogMarkerId || "",
-        );
-      });
-    });
+    const model = elementPickerUiModel(state, elementPicker, mediaLibrary, { components, sortMode });
+    if (model.actions[0]) model.actions[0].disabled = mediaRefreshInFlight;
+    retainedUi.activate(catalogPickerUiGraph(
+      model,
+      { id: PICKER_UI_SCOPE },
+    ), { host, scope: PICKER_UI_SCOPE });
   }
 
   function addElement(kind, value) {
@@ -235,13 +145,7 @@ export function createModalController({
   async function refreshMediaPicker() {
     if (mediaRefreshInFlight || typeof refreshMedia !== "function") return;
     mediaRefreshInFlight = true;
-    const host = getHost();
-    const button = host?.querySelector("[data-refresh-media]");
-    if (button) {
-      button.disabled = true;
-      button.setAttribute("aria-busy", "true");
-    }
-    resetDemandMediaPreviews();
+    render(getState());
     try {
       await refreshMedia();
       render(getState());
@@ -252,154 +156,8 @@ export function createModalController({
       });
     } finally {
       mediaRefreshInFlight = false;
-      const currentButton = getHost()?.querySelector("[data-refresh-media]");
-      if (currentButton) {
-        currentButton.disabled = false;
-        currentButton.removeAttribute("aria-busy");
-      }
+      render(getState());
     }
-  }
-
-  function bindDemandMediaPreviews(host) {
-    resetDemandMediaPreviews();
-    const previews = Array.from(host.querySelectorAll("[data-media-preview-id]"));
-    if (!previews.length) return;
-    for (const preview of previews) {
-      const trigger = preview.closest?.("button") || preview;
-      trigger.addEventListener("pointerenter", () => activateMediaPreview(preview));
-      trigger.addEventListener("focus", () => activateMediaPreview(preview));
-    }
-    if (typeof IntersectionObserver !== "function") {
-      previews.slice(0, 24).forEach(activateMediaPreview);
-      if (!reportedPreviewObserverFallback) {
-        reportedPreviewObserverFallback = true;
-        console.warn("[VJ1_MEDIA_PREVIEW_OBSERVER_UNAVAILABLE]", {
-          eagerLimit: 24,
-          message: "Viewport observation is unavailable; only the first preview batch and hovered items are loaded",
-        });
-      }
-      return;
-    }
-    mediaPreviewObserver = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          visibleMediaPreviews.add(entry.target);
-          activateMediaPreview(entry.target);
-        } else {
-          visibleMediaPreviews.delete(entry.target);
-        }
-      }
-      enforceMediaPreviewRetentionLimit();
-    }, { rootMargin: "360px 0px" });
-    previews.forEach((preview) => mediaPreviewObserver.observe(preview));
-  }
-
-  async function activateMediaPreview(preview) {
-    if (!preview) return;
-    if (preview.dataset.mediaPreviewLoaded === "true") {
-      activeMediaPreviews.delete(preview);
-      activeMediaPreviews.add(preview);
-      return;
-    }
-    const mediaId = preview.dataset.mediaPreviewId || "";
-    const token = Symbol(mediaId);
-    mediaPreviewActivationTokens.set(preview, token);
-    preview.dataset.mediaPreviewLoading = "true";
-    activeMediaPreviews.add(preview);
-    const url = await Promise.resolve(mediaLibrary.acquirePreviewUrl?.(mediaId) || "");
-    if (mediaPreviewActivationTokens.get(preview) !== token || !preview.isConnected) return;
-    delete preview.dataset.mediaPreviewLoading;
-    if (!url) return;
-    preview.src = url;
-    preview.dataset.mediaPreviewLoaded = "true";
-    activeMediaPreviews.add(preview);
-    if (preview.tagName === "VIDEO") {
-      preview.preload = "metadata";
-      preview.load?.();
-    }
-    enforceMediaPreviewRetentionLimit();
-  }
-
-  function enforceMediaPreviewRetentionLimit() {
-    if (activeMediaPreviews.size <= maxRetainedMediaPreviews) return;
-    for (const preview of activeMediaPreviews) {
-      if (activeMediaPreviews.size <= maxRetainedMediaPreviews) break;
-      if (visibleMediaPreviews.has(preview)) continue;
-      unloadMediaPreview(preview);
-    }
-  }
-
-  function unloadMediaPreview(preview) {
-    if (!preview || (preview.dataset.mediaPreviewLoaded !== "true" && preview.dataset.mediaPreviewLoading !== "true")) return;
-    const mediaId = preview.dataset.mediaPreviewId || "";
-    mediaPreviewActivationTokens.delete(preview);
-    delete preview.dataset.mediaPreviewLoading;
-    preview.pause?.();
-    preview.removeAttribute("src");
-    if (preview.tagName === "VIDEO") {
-      preview.preload = "none";
-      preview.load?.();
-    }
-    delete preview.dataset.mediaPreviewLoaded;
-    activeMediaPreviews.delete(preview);
-    mediaLibrary.releasePreviewUrl?.(mediaId);
-  }
-
-  function resetDemandMediaPreviews() {
-    mediaPreviewObserver?.disconnect?.();
-    mediaPreviewObserver = null;
-    for (const preview of activeMediaPreviews) {
-      mediaPreviewActivationTokens.delete(preview);
-      preview.pause?.();
-      preview.removeAttribute?.("src");
-      if (preview.tagName === "VIDEO") {
-        preview.preload = "none";
-        preview.load?.();
-      }
-      if (preview.dataset) delete preview.dataset.mediaPreviewLoaded;
-    }
-    activeMediaPreviews.clear();
-    mediaLibrary.releasePreviewUrls?.();
-  }
-
-  function bindClose(host, close) {
-    host.querySelector("[data-close-modal]")?.addEventListener("click", close);
-    host.querySelector(".modal-backdrop")?.addEventListener("click", close);
-  }
-
-  function bindSettingsModalControls(host) {
-    host.querySelectorAll("[data-settings-update]").forEach((input) => {
-      if (input.dataset.settingsBound) return;
-      input.dataset.settingsBound = "true";
-      input.addEventListener("input", () => {
-        syncRangeValue(input);
-        updateRenderSetting(input, `scrub:${input.dataset.settingsUpdate}`);
-      });
-      input.addEventListener("change", () => {
-        syncRangeValue(input);
-        updateRenderSetting(input, `update:${input.dataset.settingsUpdate}`);
-      });
-    });
-    bindOnce(host, "[data-render-preset]", (button) => applyRenderPreset(button.dataset.renderPreset));
-    bindOnce(host, "[data-start-screen-capture]", startConfiguredScreenCapture);
-    bindOnce(host, "[data-stop-screen-capture]", () => screenCapture.stopAll());
-    bindScreenCaptureInputs(host);
-    bindOnce(host, "[data-add-output]", addConfiguredOutput);
-    bindOnce(host, "[data-remove-output]", (button) => removeConfiguredOutput(button.dataset.removeOutput));
-    bindOnce(host, "[data-add-midi-profile]", addMidiProfile);
-    bindOnce(host, "[data-connect-midi]", () => midiInput?.connect?.());
-    bindOnce(host, "[data-test-midi-leds]", () => midiInput?.testLeds?.());
-    bindOnce(host, "[data-remove-midi-profile]", removeMidiProfile);
-    bindOnce(host, "[data-midi-page]", (button) => {
-      const status = midiInput?.snapshot?.() || {};
-      midiInput?.setPage?.((Number(status.page) || 0) + Number(button.dataset.midiPage || 0));
-    });
-    bindOnce(host, "[data-connect-dmx]", () => dmxOutput?.connect?.());
-    bindOnce(host, "[data-disconnect-dmx]", () => dmxOutput?.disconnect?.());
-    bindOnce(host, "[data-add-dmx-fixture]", addDmxFixture);
-    bindOnce(host, "[data-remove-dmx-fixture]", (button) => removeDmxFixture(button.dataset.removeDmxFixture));
-    bindDmxFixtureControls(host);
-    bindDmxTestControls(host);
   }
 
   async function startConfiguredScreenCapture() {
@@ -411,182 +169,7 @@ export function createModalController({
     }
   }
 
-  function syncScreenCaptureStatus(host, status = screenCapture.snapshot()) {
-    const output = host?.querySelector?.("[data-screen-capture-status]");
-    if (!output) return;
-    const list = host.querySelector("[data-screen-capture-list]");
-    const signature = screenCaptureSignature(status.inputs);
-    if (list && list.dataset.screenCaptureSignature !== signature) {
-      list.innerHTML = screenCaptureInputsTemplate(status.inputs);
-      list.dataset.screenCaptureSignature = signature;
-      bindScreenCaptureInputs(host);
-    }
-    const stopAll = host.querySelector("[data-stop-screen-capture]");
-    if (stopAll) stopAll.hidden = !status.inputs.length;
-    setText(output, status.status === "active"
-      ? `${status.inputs.length} shared input${status.inputs.length === 1 ? "" : "s"} active.`
-      : status.status === "requesting"
-        ? "Waiting for screen selection…"
-        : status.error || "Nothing is currently shared.");
-    output.classList.toggle("is-error", status.status === "error");
-  }
-
-  function syncScreenInputSelects(inputs = []) {
-    globalThis.document?.querySelectorAll?.("[data-screen-input-select]").forEach((select) => {
-      const html = screenInputOptionsTemplate(inputs, select.value);
-      if (select.innerHTML !== html) select.innerHTML = html;
-    });
-  }
-
-  function bindScreenCaptureInputs(host) {
-    host.querySelectorAll("[data-screen-capture-name]").forEach((input) => {
-      if (input.dataset.captureBound) return;
-      input.dataset.captureBound = "true";
-      input.addEventListener("change", () => screenCapture.rename(input.dataset.screenCaptureName, input.value));
-    });
-    host.querySelectorAll("[data-stop-screen-capture-input]").forEach((button) => {
-      if (button.dataset.captureBound) return;
-      button.dataset.captureBound = "true";
-      button.addEventListener("click", () => screenCapture.stop(button.dataset.stopScreenCaptureInput));
-    });
-  }
-
-  function bindOnce(host, selector, listener) {
-    host.querySelectorAll(selector).forEach((element) => {
-      if (element.dataset.settingsBound) return;
-      element.dataset.settingsBound = "true";
-      element.addEventListener("click", () => listener(element));
-    });
-  }
-
-  function syncSettingsModal(host, state) {
-    const modal = host.querySelector("[data-settings-modal]");
-    if (!modal) return;
-    const renderSettings = normalizeRenderSettings(state.render || {});
-    const outputList = modal.querySelector("[data-configured-output-list]");
-    const outputSignature = renderSettings.outputs.map((output) => output.id).join("|");
-    if (outputList && outputList.dataset.outputSignature !== outputSignature) {
-      outputList.innerHTML = configuredOutputsTemplate(renderSettings);
-      outputList.dataset.outputSignature = outputSignature;
-    }
-    const normalizedState = { ...state, render: renderSettings };
-    const midiStatus = midiInput?.snapshot?.() || {};
-    const midiSettings = modal.querySelector("[data-midi-settings]");
-    const midiSignature = midiSettingsSignature(state, midiStatus);
-    if (midiSettings && midiSettings.dataset.midiSignature !== midiSignature) {
-      midiSettings.innerHTML = midiSettingsTemplate(state, midiStatus);
-      midiSettings.dataset.midiSignature = midiSignature;
-      bindSettingsModalControls(host);
-    }
-    const dmxStatus = dmxOutput?.snapshot?.() || {};
-    const dmxSettings = modal.querySelector("[data-dmx-settings]");
-    const dmxSignature = dmxSettingsSignature(state, dmxStatus);
-    if (dmxSettings && dmxSettings.dataset.dmxSignature !== dmxSignature) {
-      dmxSettings.innerHTML = dmxSettingsTemplate(state, dmxStatus);
-      dmxSettings.dataset.dmxSignature = dmxSignature;
-      bindSettingsModalControls(host);
-    }
-    modal.querySelectorAll("[data-settings-update]").forEach((input) => {
-      if (input === document.activeElement) return;
-      const value = getByPath(normalizedState, input.dataset.settingsUpdate);
-      if (input.type === "checkbox") input.checked = value === true;
-      else if (value !== undefined && input.value !== String(value)) input.value = String(value);
-    });
-    setText(modal.querySelector("[data-upscaling-amount-label]"), `${Math.round(renderSettings.upscaling.amount * 100)}%`);
-    setText(modal.querySelector("[data-grayscale-amount-label]"), `${Math.round(renderSettings.postProcessing.grayscaleAmount * 100)}%`);
-    setText(modal.querySelector("[data-noise-amount-label]"), `${Math.round(renderSettings.postProcessing.noiseAmount * 1000) / 10}%`);
-    syncScreenCaptureStatus(host);
-    applySettingsTab(host);
-  }
-
-  function applySettingsTab(host) {
-    settingsTab = normalizeSettingsTab(settingsTab);
-    host.querySelectorAll("[data-settings-tab]").forEach((button) => {
-      const active = button.dataset.settingsTab === settingsTab;
-      setClass(button, "is-active", active);
-      button.setAttribute("aria-selected", active ? "true" : "false");
-    });
-    host.querySelectorAll("[data-settings-panel]").forEach((panel) => {
-      panel.hidden = panel.dataset.settingsPanel !== settingsTab;
-    });
-  }
-
-  function bindElementPickerSearch(host) {
-    const input = host.querySelector("[data-element-search]");
-    if (!input) return;
-    const applyFilter = () => {
-      const picker = sourceChoicePicker || elementPicker;
-      if (picker && !picker.allowedCategory) picker.search = input.value || "";
-      filterElementPicker(host, input.value || "", activeElementFilter(host));
-    };
-    input.addEventListener("input", applyFilter);
-    applyFilter();
-  }
-
-  function bindElementPickerFilters(host) {
-    host.querySelectorAll("[data-element-filter]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const requestedFilter = button.dataset.elementFilter || "all";
-        const filter = nextPickerFilter(activeElementFilter(host), requestedFilter);
-        const picker = sourceChoicePicker || elementPicker;
-        if (picker && !picker.allowedCategory) {
-          picker.filter = filter;
-        }
-        host.querySelectorAll("[data-element-filter]").forEach((candidate) => {
-          const active = candidate.dataset.elementFilter === filter;
-          candidate.classList.toggle("is-active", active);
-          candidate.setAttribute("aria-selected", active ? "true" : "false");
-        });
-        filterElementPicker(host, host.querySelector("[data-element-search]")?.value || "", filter);
-      });
-    });
-  }
-
-  function activeElementFilter(host) {
-    return host.querySelector("[data-element-filter].is-active")?.dataset.elementFilter || "all";
-  }
-
-  function filterElementPicker(host, value, filter = "all") {
-    const query = normalizeSearchText(value);
-    host.querySelectorAll("[data-element-search-card]").forEach((card) => {
-      const haystack = normalizeSearchText(card.dataset.elementSearchCard || "");
-      const categories = String(card.dataset.elementCategory || "")
-        .split(/\s+/)
-        .filter(Boolean);
-      card.classList.toggle("is-search-hidden", !!query && !haystack.includes(query));
-      card.classList.toggle(
-        "is-filter-hidden",
-        filter !== "all" && !categories.includes(filter),
-      );
-    });
-    host.querySelectorAll("[data-element-section]").forEach((section) => {
-      const cards = Array.from(section.querySelectorAll("[data-element-search-card]"));
-      const visibleCount = cards.filter((card) => (
-        !card.classList.contains("is-search-hidden") && !card.classList.contains("is-filter-hidden")
-      )).length;
-      const empty = section.querySelector("[data-element-empty]");
-      const sectionHidden = visibleCount <= 0;
-      section.hidden = sectionHidden;
-      section.classList.toggle("is-search-hidden", sectionHidden);
-      if (empty) empty.hidden = true;
-    });
-    const sections = Array.from(host.querySelectorAll("[data-element-section]"));
-    const hasVisibleSection = sections.some((section) => !section.hidden);
-    const noResults = host.querySelector("[data-element-no-results]");
-    if (noResults) noResults.hidden = hasVisibleSection || (!query && filter === "all");
-  }
-
-  function focusPendingElementPickerSearch(host) {
-    if (!focusElementPickerSearch) return;
-    focusElementPickerSearch = false;
-    requestAnimationFrame(() => {
-      const input = host.querySelector("[data-element-search]");
-      if (input && document.activeElement !== input) input.focus({ preventScroll: true });
-    });
-  }
-
   function openSettings() {
-    resetDemandMediaPreviews();
     settingsOpen = true;
     elementPicker = null;
     sourceChoicePicker = null;
@@ -607,10 +190,7 @@ export function createModalController({
     elementPicker = {
       componentId,
       selectedChainItemId,
-      filter: elementPickerMemory.filter,
-      search: elementPickerMemory.search,
     };
-    focusElementPickerSearch = true;
     sourceChoicePicker = null;
     settingsOpen = false;
     render();
@@ -621,9 +201,7 @@ export function createModalController({
   }
 
   function closeElementPicker() {
-    rememberUnrestrictedPicker(elementPickerMemory, elementPicker);
     elementPicker = null;
-    resetDemandMediaPreviews();
     render();
   }
 
@@ -640,20 +218,14 @@ export function createModalController({
   function openChoicePicker(picker) {
     sourceChoicePicker = picker.allowedCategory
       ? { ...picker, filter: picker.allowedCategory, search: "" }
-      : {
-        ...picker,
-        filter: sourceChoicePickerMemory.filter,
-        search: sourceChoicePickerMemory.search,
-      };
+      : { ...picker };
     elementPicker = null;
     settingsOpen = false;
     render();
   }
 
   function closeSourceChoicePicker() {
-    rememberUnrestrictedPicker(sourceChoicePickerMemory, sourceChoicePicker);
     sourceChoicePicker = null;
-    resetDemandMediaPreviews();
     render();
   }
 
@@ -690,13 +262,14 @@ export function createModalController({
     render();
   }
 
-  function updateRenderSetting(input, reason) {
+  function updateSetting(address, value, reason = `settings:${address}`) {
+    if (!address) return;
     store.update((draft) => {
-      setByPath(draft, input.dataset.settingsUpdate, readInputValue(input));
+      setByPath(draft, address, value);
       draft.render = normalizeRenderSettings(draft.render);
       draft.devices = normalizeDeviceSettings(draft.devices);
     }, reason);
-    syncSettingsModal(getHost(), store.getState());
+    render(getState());
   }
 
   function applyRenderPreset(preset) {
@@ -758,100 +331,17 @@ export function createModalController({
     }, "remove-dmx-fixture");
   }
 
-  function bindDmxFixtureControls(host) {
-    const bind = (selector, listener) => {
-      host.querySelectorAll(selector).forEach((input) => {
-        if (input.dataset.dmxBound) return;
-        input.dataset.dmxBound = "true";
-        input.addEventListener("change", () => listener(input));
-      });
-    };
-    bind("[data-dmx-fixture-name]", (input) => updateDmxFixture(input.dataset.dmxFixtureName, (fixture) => {
-      fixture.name = input.value || fixture.name;
-    }, "dmx-fixture-name"));
-    bind("[data-dmx-fixture-profile]", (input) => updateDmxFixture(input.dataset.dmxFixtureProfile, (fixture) => {
-      fixture.profileId = input.value;
-    }, "dmx-fixture-profile"));
-    bind("[data-dmx-fixture-start]", (input) => updateDmxFixture(input.dataset.dmxFixtureStart, (fixture) => {
-      fixture.startChannel = Number(input.value);
-    }, "dmx-fixture-start"));
-    bind("[data-dmx-fixture-enabled]", (input) => updateDmxFixture(input.dataset.dmxFixtureEnabled, (fixture) => {
-      fixture.enabled = input.checked;
-    }, "dmx-fixture-enabled"));
-    bind("[data-dmx-channel-name]", (input) => updateDmxChannel(input.dataset.dmxChannelName, (channel) => {
-      channel.name = input.value || channel.name;
-    }, "dmx-channel-name"));
-    bind("[data-dmx-channel-role]", (input) => updateDmxChannel(input.dataset.dmxChannelRole, (channel) => {
-      channel.role = input.value;
-    }, "dmx-channel-role"));
-    bind("[data-dmx-channel-feature]", (input) => updateDmxChannel(input.dataset.dmxChannelFeature, (channel) => {
-      channel.sampleFeature = input.value;
-    }, "dmx-channel-feature"));
-    bind("[data-dmx-channel-cell-x]", (input) => updateDmxChannel(input.dataset.dmxChannelCellX, (channel) => {
-      channel.sampleCell.x = Math.max(0, Number(input.value) - 1);
-    }, "dmx-channel-cell-x"));
-    bind("[data-dmx-channel-cell-y]", (input) => updateDmxChannel(input.dataset.dmxChannelCellY, (channel) => {
-      channel.sampleCell.y = Math.max(0, Number(input.value) - 1);
-    }, "dmx-channel-cell-y"));
-    bind("[data-dmx-profile-sample-width]", (input) => updateDmxProfile(input.dataset.dmxProfileSampleWidth, (profile) => {
-      profile.sampleResolution.width = Number(input.value);
-    }, "dmx-profile-sample-width"));
-    bind("[data-dmx-profile-sample-height]", (input) => updateDmxProfile(input.dataset.dmxProfileSampleHeight, (profile) => {
-      profile.sampleResolution.height = Number(input.value);
-    }, "dmx-profile-sample-height"));
-  }
-
-  function updateDmxFixture(index, mutate, reason) {
+  function updateDmxFixture(address, value) {
+    const [index, field] = String(address || "").split(":");
     store.update((draft) => {
       const devices = normalizeDeviceSettings(draft.devices);
       const fixture = devices.dmx.fixtures[Number(index)];
-      if (fixture) mutate(fixture);
-      draft.devices = normalizeDeviceSettings(devices);
-    }, reason);
-    render(getState());
-  }
-
-  function updateDmxChannel(key, mutate, reason) {
-    const [fixtureIndex, channelIndex] = String(key || "").split(":").map(Number);
-    store.update((draft) => {
-      const devices = normalizeDeviceSettings(draft.devices);
-      const fixture = devices.dmx.fixtures[fixtureIndex];
-      const profile = devices.dmx.profiles.find((entry) => entry.id === fixture?.profileId);
-      const channel = profile?.channels?.[channelIndex];
-      if (channel) mutate(channel);
-      draft.devices = normalizeDeviceSettings(devices);
-    }, reason);
-    render(getState());
-  }
-
-  function updateDmxProfile(fixtureIndex, mutate, reason) {
-    store.update((draft) => {
-      const devices = normalizeDeviceSettings(draft.devices);
-      const fixture = devices.dmx.fixtures[Number(fixtureIndex)];
-      const profile = devices.dmx.profiles.find((entry) => entry.id === fixture?.profileId);
-      if (profile) mutate(profile);
-      draft.devices = normalizeDeviceSettings(devices);
-    }, reason);
-    render(getState());
-  }
-
-  function bindDmxTestControls(host) {
-    const channel = host.querySelector("[data-dmx-test-channel]");
-    const value = host.querySelector("[data-dmx-test-value]");
-    if (channel && value && !value.dataset.dmxBound) {
-      value.dataset.dmxBound = "true";
-      value.addEventListener("input", () => {
-        syncRangeValue(value);
-        dmxOutput?.setTestChannel?.(Number(channel.value), Number(value.value) / 255);
-      });
-    }
-    bindOnce(host, "[data-clear-dmx-test]", () => {
-      dmxOutput?.clearTestChannels?.();
-      if (value) {
-        value.value = "0";
-        syncRangeValue(value);
+      if (fixture && ["name", "profileId", "startChannel", "enabled"].includes(field)) {
+        fixture[field] = field === "startChannel" ? Number(value) : field === "enabled" ? value === true : value;
       }
-    });
+      draft.devices = normalizeDeviceSettings(devices);
+    }, `dmx-fixture:${field}`);
+    render(getState());
   }
 
   function removeConfiguredOutput(outputId) {
@@ -865,21 +355,94 @@ export function createModalController({
     }, "remove-output");
   }
 
-  return { render, openSettings, openMediaPicker, openElementPicker, openSourceChoicePicker };
+  function handleUiCommand(command) {
+    if (command.action === "settings.close") {
+      closeSettings();
+      return true;
+    }
+    if (command.action === "settings.change") {
+      updateSetting(String(command.address || ""), command.payload?.value);
+      return true;
+    }
+    if (command.action === "settings.screen-name") {
+      screenCapture.rename(String(command.address || ""), String(command.payload?.value || ""));
+      return true;
+    }
+    if (command.action === "settings.dmx-fixture") {
+      updateDmxFixture(String(command.address || ""), command.payload?.value);
+      return true;
+    }
+    if (command.action === "settings.dmx-test") {
+      if (command.address === "channel") dmxTestChannel = Math.max(1, Number(command.payload?.value) || 1);
+      else dmxOutput?.setTestChannel?.(dmxTestChannel, Math.max(0, Number(command.payload?.value) || 0) / 255);
+      return true;
+    }
+    if (command.action === "settings.action") {
+      const action = String(command.payload?.id || "");
+      if (action === "render-preset") applyRenderPreset(command.payload?.preset);
+      else if (action === "add-output") addConfiguredOutput();
+      else if (action === "remove-output") removeConfiguredOutput(command.payload?.outputId);
+      else if (action === "add-midi-profile") addMidiProfile();
+      else if (action === "remove-midi-profile") removeMidiProfile();
+      else if (action === "connect-midi") midiInput?.connect?.();
+      else if (action === "test-midi-leds") midiInput?.testLeds?.();
+      else if (action === "midi-page") {
+        const status = midiInput?.snapshot?.() || {};
+        midiInput?.setPage?.((Number(status.page) || 0) + Number(command.payload?.delta || 0));
+      } else if (action === "start-screen-capture") startConfiguredScreenCapture();
+      else if (action === "stop-screen-capture") screenCapture.stopAll();
+      else if (action === "stop-screen-capture-input") screenCapture.stop(command.payload?.inputId);
+      else if (action === "connect-dmx") dmxOutput?.connect?.();
+      else if (action === "disconnect-dmx") dmxOutput?.disconnect?.();
+      else if (action === "add-dmx-fixture") addDmxFixture();
+      else if (action === "remove-dmx-fixture") removeDmxFixture(command.payload?.fixtureId);
+      else if (action === "clear-dmx-test") dmxOutput?.clearTestChannels?.();
+      render(getState());
+      return true;
+    }
+    if (command.action === "picker.close") {
+      if (sourceChoicePicker) closeSourceChoicePicker();
+      else if (elementPicker) closeElementPicker();
+      return true;
+    }
+    if (command.action === "picker.select") {
+      if (sourceChoicePicker) chooseSource(command.payload?.value);
+      else if (elementPicker) {
+        const selection = command.payload?.value || {};
+        addElement(selection.kind, selection.value);
+      }
+      return true;
+    }
+    if (command.action === "picker.filter" || command.action === "picker.search") {
+      // CatalogPickerNode owns filter/search state and restoration. The app
+      // observes the semantic command without maintaining a second UI model.
+      return true;
+    }
+    if (command.action === "picker.action") {
+      const action = String(command.payload?.id || "");
+      if (action === "refresh") refreshMediaPicker();
+      else if (action.startsWith("marker:")) {
+        store.cycleCatalogMarker?.(action.slice("marker:".length), String(command.payload?.itemId || "").replace(/^[^:]+:/, ""));
+      } else if (action.startsWith("sort:")) {
+        const [, scope, mode] = action.split(":");
+        if (["component", "media"].includes(scope) && ["recent", "marker", "name", "created"].includes(mode)) {
+          store.updateUi?.((ui) => {
+            ui.catalogSortModes ||= {};
+            ui.catalogSortModes[scope] = mode;
+          }, `catalog-sort:${scope}`);
+          render(getState());
+        }
+      }
+      return true;
+    }
+    return command.action === "settings.select-tab";
+  }
+
+  return { render, openSettings, openMediaPicker, openElementPicker, openSourceChoicePicker, handleUiCommand };
 }
 
 export function scaleMappingForRenderChange(draft, previousRender, nextRender) {
   // v25 mappings are relative to the output world and therefore remain valid
   // when either the host size or an authored proportion changes.
   return draft;
-}
-
-function normalizeSearchText(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function rememberUnrestrictedPicker(memory, picker) {
-  if (!picker || picker.allowedCategory) return;
-  memory.filter = String(picker.filter || "all");
-  memory.search = String(picker.search || "");
 }

@@ -6,14 +6,22 @@ const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 // One stable patch address for persistent editor edits and temporary Live
 // commands. A node id addresses graph configuration; an empty node id
 // addresses Component-level presentation metadata such as resolution scale.
-export function createComponentRenderPatch(componentId, nodeId, path, value) {
-  return {
+export function createComponentRenderPatch(componentId, nodeId, path, value, {
+  interpolation = "",
+} = {}) {
+  const patch = {
     target: "component",
     componentId: String(componentId || ""),
     nodeId: String(nodeId || ""),
     path: String(path || ""),
     value,
   };
+  // Interpolation is execution metadata on the sparse value diff, not a
+  // second parameter model. Direct manipulation uses the same patch address
+  // as every other Live edit but asks renderers to present its newest sample
+  // immediately instead of repeatedly restarting the configured Param fade.
+  if (interpolation === "immediate") patch.interpolation = "immediate";
+  return patch;
 }
 
 export function createRenderStatePatch(path, value) {
@@ -91,7 +99,15 @@ export function resolveLiveRenderPatches(state, patches = []) {
           "unsupported-state-path",
         );
       }
-      destinations.push({ ...destination, targetType: "state", componentId: "", nodeId: "", path, value: patch.value });
+      destinations.push({
+        ...destination,
+        targetType: "state",
+        componentId: "",
+        nodeId: "",
+        path,
+        value: patch.value,
+        interpolation: patch.interpolation === "immediate" ? "immediate" : "configured",
+      });
       statePaths.add(path);
       continue;
     }
@@ -132,6 +148,7 @@ export function resolveLiveRenderPatches(state, patches = []) {
       nodeId,
       path: parts.map(String).join("."),
       value: patch.value,
+      interpolation: patch.interpolation === "immediate" ? "immediate" : "configured",
     });
     componentIds.add(componentId);
     if (nodeId) {

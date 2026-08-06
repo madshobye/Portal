@@ -2,33 +2,29 @@ import { VJ1, WORKSPACES } from "../constants.js";
 import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js";
 import { activeLiveTransitions } from "../domain/live-transition-coordinator.js";
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js";
+import { setLiveNodeParameterDiff } from "../domain/live-parameter-diffs.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js";
 import { CONTROL_SIGNAL_COMMAND } from "../output/control-signal-command.js";
 import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js";
-import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
-import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js";
 import { sortComponentCatalog } from "./catalog-view.js";
-import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js";
-import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js";
-import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js";
-import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js";
-import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js";
+import { componentElementsUiModel, componentOverviewUiModel, componentSelectedChainSettingsModel, selectedChainParameterTabsModel } from "./component-view.js";
+import { sceneComponents, getLiveSelectedTarget, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js";
+import { selectedLiveComponentViewModel, selectedLiveInspectorModel, selectedLiveParameterTabsModel } from "./mapping-live-view.js";
 import { createClipboardController } from "./clipboard-controller.js";
 import { createModalController } from "./modal-controller.js";
-import { createInputController } from "./input-controller.js";
+import { createControlCommandController } from "./control-command-controller.js";
+import { handleParameterAnimationCommand } from "./animation-command-controller.js";
 import { createControlPerformanceSession } from "./control-performance-session.js";
 import { boundedProfileValue, captureControlLiveProfileDiagnostic } from "./live-profile-diagnostics.js";
-import { createControlDiagnosticsController } from "./control-diagnostics-controller.js";
 import { createControlRenderDiagnostics } from "./control-render-diagnostics.js";
-import { componentTypeIcon, UI_ICONS } from "./ui-icons.js";
-import { liveProjectionRailTemplate, projectRailTemplate } from "./project-rail-view.js";
-import { prepareProjectNodeDefinitionEdit, prepareProjectNodeGraphEdit, selectedNodeEditorTemplate, withProjectNodeFork, withProjectNodeParameterExposure, withProjectNodePortExposure, withoutProjectNodeFork } from "./node-editor-view.js";
-import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js";
-import { bindNodeGraphCanvas } from "./node-graph-canvas.js";
+import { UI_ICONS } from "./ui-icons.js";
+import { componentCatalogListItems, liveProjectionListModel, liveSourceListItems, mappingCatalogListItems, selectedLiveSourceId } from "./project-rail-view.js";
+import { prepareProjectNodeDefinitionEdit, prepareProjectNodeGraphEdit, selectedNodeEditorModel, withProjectNodeFork, withProjectNodeParameterExposure, withProjectNodePortExposure, withoutProjectNodeFork } from "./node-editor-view.js";
+import { nodeLibraryInspectorModel, nodeLibraryRailModel, nodeLibraryStudioModel, selectedNodeWorkspaceTarget } from "./node-library-view.js";
+import { graphWithNodeParameter } from "./node-graph-canvas.js";
 import {
   resolveProjectVisualTransitionEntries,
 } from "../libraries/visual-nodes/project-visual-node-resolver.js";
@@ -37,25 +33,54 @@ import {
   mergeSignalLoadSnapshots,
   signalLoadMeter,
 } from "../metrics/signal-load-meter.js";
+import {
+  createUiStateController,
+  createUiStateStore,
+  compileUiModel,
+  RetainedUiRuntime,
+  UiNodeRegistry,
+  UiNodeDefinitions,
+  uiModelNodeId,
+} from "../libraries/ui-engine/index.js";
+import { artifactInspectorUiModel, componentCatalogUiModel, contextMenuUiGraph, liveComponentViewUiGraph, liveProjectionRailUiGraph, liveRailUiGraph, liveSignificantUiGraph, liveTimingUiGraph, mappingRailUiGraph, mappingSurfaceInspectorUiGraph, nodesRailUiGraph, nodesWorkspaceStudioUiGraph, parameterTabsUiGraph, previewSurfaceUiGraph, previewToolsUiGraph, sceneRailUiModel, sceneSurfaceInspectorUiModel, VJ1_CONTROL_UI_GRAPH } from "./control-ui-program.js";
+import { NodeDefinitionEditorNode } from "../libraries/ui-engine/index.js";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
   "health-5", "health-6", "health-7", "health-8",
 ]);
 const performanceHealthThresholds = Object.freeze([0.18, 0.32, 0.46, 0.60, 0.72, 0.82, 0.92, 1.0]);
+const PERFORMANCE_SIGNAL_CATEGORIES = Object.freeze([
+  ["transactions", "Authored transactions"],
+  ["invalidations", "Render wakeups"],
+  ["compiles", "Graph compiles"],
+  ["resourceRevisions", "Resource revisions"],
+  ["cacheInvalidations", "Cache invalidations"],
+  ["cacheHits", "Cache hits"],
+  ["previewPresentations", "Preview presentations"],
+  ["outputPresentations", "Output presentations"],
+]);
+const ARTIFACT_INSPECTOR_WORKSPACES = Object.freeze(["component", "scene", "live", "nodes"]);
+const ELEMENT_PARAMETER_SECTION_LAYOUT = Object.freeze({
+  fill: true,
+  grow: 0,
+  shrink: 0,
+  basis: "40%",
+  overflow: "hidden",
+});
+const SURFACE_INSPECTOR_SECTION_LAYOUT = Object.freeze({
+  fill: false,
+  grow: 0,
+  shrink: 0,
+  basis: "auto",
+  overflow: "visible",
+});
 
-export function rememberParamViewSelections(scope, selections = new Map()) {
-  for (const input of scope?.querySelectorAll?.(".chain-param-view-input:checked") || []) {
-    if (input.name && input.id) selections.set(input.name, input.id);
-  }
-  return selections;
-}
-
-export function restoreParamViewSelections(scope, selections = new Map()) {
-  for (const input of scope?.querySelectorAll?.(".chain-param-view-input") || []) {
-    if (input.id && selections.get(input.name) === input.id) input.checked = true;
-  }
-  return selections;
+export function artifactInspectorScope(workspace) {
+  const owner = String(workspace || "");
+  return ARTIFACT_INSPECTOR_WORKSPACES.includes(owner)
+    ? `vj1.control.${owner}-artifact-inspector`
+    : "";
 }
 
 function mergeControlInvalidations(current = {}, next = {}) {
@@ -190,6 +215,7 @@ export function createControlShell({
   screenCapture,
   diagnostics = null,
   nodePackage = null,
+  onLifecycle = null,
 }) {
   if (!midiInput || !dmxOutput || !screenCapture) throw new Error("CONTROL_DEVICE_SERVICES_REQUIRED");
   let refs = {};
@@ -204,25 +230,38 @@ export function createControlShell({
   let liveTransitionPackages = null;
   let liveTransitionEntries = Object.freeze([]);
   let activePointerCount = 0;
+  let activeEditor = false;
+  let compactPreviewLayout = false;
+  let outputWindowRequestSequence = 0;
   let activeCatalogViewKey = "";
   let deepEditReturnContext = null;
   const performanceHotspotSmoother = createRuntimeHotspotSmoother();
   const controlSignalMeter = signalLoadMeter("control");
   let signalRefreshTimer = 0;
+  let performanceSummaryOpen = false;
   let performanceHotspotComponentScope = "";
-  const previewLayoutQuery = typeof window !== "undefined" && typeof window.matchMedia === "function"
-    ? window.matchMedia("(max-width: 860px)")
-    : null;
   const catalogOrderSnapshots = { component: [], scene: [], mapping: [], live: [], source: [] };
-  const activeParamViews = new Map();
-  const replaceHtmlIfChanged = createHtmlCache();
-  const diagnosticsController = createControlDiagnosticsController({
-    diagnostics,
-    getRefs: () => refs,
-    replaceHtmlIfChanged,
-    setStatus,
-    onLiveInput: (payload) => performanceSession.recordInteraction("live-input", payload),
+  const retainedUi = new RetainedUiRuntime({
+    registry: new UiNodeRegistry(UiNodeDefinitions),
+    state: createUiStateController({
+      session: createUiStateStore({
+        namespace: "vj1-control",
+        storage: globalThis.sessionStorage,
+      }),
+    }),
+    capabilities: {
+      mediaPreview: Object.freeze({
+        acquire: (mediaId) => mediaLibrary?.acquirePreviewUrl?.(mediaId),
+        release: (mediaId) => mediaLibrary?.releasePreviewUrl?.(mediaId),
+      }),
+      nodeDefinitions: Object.freeze({
+        get: (id, version = "") => editorNodePackage?.registry?.get?.(id, version),
+      }),
+    },
+    dispatch: dispatchUiNodeCommand,
   });
+  let diagnosticsOpen = false;
+  let diagnosticsSnapshot = diagnostics?.summary?.() || emptyDiagnosticsSummary();
   const controlRenderDiagnostics = createControlRenderDiagnostics({ diagnostics });
   const liveTransitionExpiryScheduler = createLiveTransitionExpiryScheduler({
     onExpire: () => {
@@ -235,12 +274,11 @@ export function createControlShell({
     },
   });
   const clipboard = createClipboardController({
-    root,
     store,
     getState: () => latestState,
-    getInspector: () => refs.inspector,
     importFiles,
     setStatus,
+    onTargetChange: syncClipboardNode,
   });
   let embeddedPreview = null;
   let modals = null;
@@ -250,36 +288,34 @@ export function createControlShell({
     getHost: () => refs.modalHost,
     mediaLibrary,
     refreshMedia: () => projectService.refreshFolder({ force: true }),
-    replaceHtmlIfChanged,
     getCatalogSortMode: (state, scope = "component") => catalogSortMode(state, scope),
-    bindCatalogSortControls,
+    retainedUi,
     midiInput,
     dmxOutput,
     screenCapture,
   });
   let animationTriggerSequence = 0;
-  const inputs = createInputController({
+  const triggerParameterAnimation = ({ address }) => {
+    if (!address) return;
+    const payload = {
+      kind: "control",
+      address,
+      value: 1,
+      sequence: ++animationTriggerSequence,
+      timestamp: Date.now(),
+    };
+    embeddedPreview?.command(CONTROL_SIGNAL_COMMAND, payload);
+    bridge.command(CONTROL_SIGNAL_COMMAND, payload);
+  };
+  const inputs = createControlCommandController({
     store,
     getState: () => latestState,
     modals,
-    bindComponentFilters,
-    bindCatalogSortControls,
     resetProjectMapping,
     currentWorkspace,
     refreshSelectedMappingProjection,
-    setStatus,
-    triggerParameterAnimation({ address }) {
-      if (!address) return;
-      const payload = {
-        kind: "control",
-        address,
-        value: 1,
-        sequence: ++animationTriggerSequence,
-        timestamp: Date.now(),
-      };
-      embeddedPreview?.command(CONTROL_SIGNAL_COMMAND, payload);
-      bridge.command(CONTROL_SIGNAL_COMMAND, payload);
-    },
+    showContextMenu,
+    closeContextMenu,
     triggerIsfEvent({ target, parameterId }) {
       if (!target || !parameterId) return;
       const payload = {
@@ -298,6 +334,9 @@ export function createControlShell({
     onControlSignal: (payload) =>
       bridge.command(CONTROL_SIGNAL_COMMAND, payload),
     onDmxFixture: (payload) => dmxOutput.receiveProbe(payload),
+    onDownload: (request) => retainedUi.updateNode("file-download", {
+      request,
+    }, { scope: "vj1.control.ui" }),
     screenCapture,
     onChainItemTarget: (componentId, itemId) => {
       clipboard.setChainItemTarget(componentId, itemId);
@@ -342,7 +381,7 @@ export function createControlShell({
           : null;
       },
     }),
-    onTick: () => renderTopbar(latestState),
+    onTick: () => renderTopbarHealth(latestState),
     onActiveChange: (enabled) => {
       const payload = { enabled: enabled === true };
       embeddedPreview?.command("set-profile-diagnostics", payload);
@@ -353,22 +392,40 @@ export function createControlShell({
       console.info("[VJ1_PROFILE_COMPLETE]", report);
       showPerformanceResults(report);
       setStatus(`Profile complete · ${sampleCount} samples analyzed`);
-      renderTopbar(latestState);
+      renderTopbarHealth(latestState);
     },
   });
 
   function mount() {
-    root.innerHTML = shellTemplate();
-    refs = collectRefs(root);
-    bindStaticEvents();
-    diagnosticsController.mount();
-    previewLayoutQuery?.addEventListener?.("change", () => scheduleRenderNow(latestState, { reason: "preview-layout" }));
+    retainedUi.activate(VJ1_CONTROL_UI_GRAPH, {
+      host: root,
+      scope: "vj1.control.ui",
+    });
+    const shell = retainedUi.getNode("application-shell", { scope: "vj1.control.ui" });
+    const workspaceLayout = retainedUi.getNode("workspace-layout", { scope: "vj1.control.ui" });
+    refs = {
+      shell,
+      projectRail: workspaceLayout.slot("project-rail"),
+      liveProjectionRail: workspaceLayout.slot("live-projection-rail"),
+      inspector: workspaceLayout.slot("inspector"),
+      studio: workspaceLayout.slot("studio"),
+      studioLayout: workspaceLayout.element(),
+      modalHost: shell.slot("modal"),
+      contextMenuHost: shell.slot("context"),
+      performanceResultsHost: shell.slot("performance-results"),
+      performanceSummaryContent: shell.slot("performance-summary"),
+    };
+    syncClipboardNode();
+    diagnostics?.subscribe?.((snapshot) => {
+      diagnosticsSnapshot = snapshot || emptyDiagnosticsSummary();
+      renderTopbar(latestState);
+    });
     restorePreviewPreference();
     midiInput.syncState(latestState);
     dmxOutput.syncState(latestState);
     scheduleLiveTransitionRefresh(latestState);
     if (!signalRefreshTimer) {
-      signalRefreshTimer = globalThis.setInterval(() => renderTopbar(latestState), 1000);
+      signalRefreshTimer = globalThis.setInterval(() => renderTopbarHealth(latestState), 1000);
     }
     store.subscribe((state, reason, change) => {
       latestState = state;
@@ -402,7 +459,7 @@ export function createControlShell({
         return;
       }
       if (change.effects.preview.mode === "thumbnails") {
-        patchComponentThumbnails(change.projection.entries);
+        retainedUi.broadcast("updateMedia", change.projection.entries);
         return;
       }
       if (change.effects.preview.mode === "viewport") {
@@ -605,10 +662,6 @@ export function createControlShell({
     const profileRenderStarted = performanceSession.isActive() ? performance.now() : 0;
     renderMeasuredControlPhases(state, context, [
       ["catalog-order", () => prepareCatalogOrder(state)],
-      ["shell-state", () => {
-        setClass(root, "has-project-open", hasOpenProject(state));
-        setClass(root, "no-project-open", !hasOpenProject(state));
-      }],
       ["topbar", () => renderTopbar(state)],
       ["project-rail", () => renderProjectRail(state)],
       ["live-projection-rail", () => renderLiveProjectionRail(state)],
@@ -646,7 +699,7 @@ export function createControlShell({
     const regionRenderers = {
       "topbar": () => renderTopbar(state),
       "project-rail": () => renderProjectRail(state),
-      "project-selection": () => patchProjectRailSelection(state),
+      "project-selection": () => renderProjectRail(state),
       "live-projection-rail": () => renderLiveProjectionRail(state),
       "inspector": () => renderInspector(state),
       "studio": () => renderStudio(state),
@@ -686,121 +739,22 @@ export function createControlShell({
     });
   }
 
-  function patchComponentThumbnails(entries = []) {
-    const updates = new Map((entries || []).map((entry) => [
-      `${String(entry?.componentId || "")}:${String(entry?.surfaceId || "")}`,
-      String(entry?.url || ""),
-    ]));
-    if (!updates.size) return;
-    for (const thumbnail of root.querySelectorAll("[data-component-thumbnail]")) {
-      const key = `${thumbnail.dataset.componentThumbnail || ""}:${thumbnail.dataset.surfaceThumbnail || ""}`;
-      const url = updates.get(key);
-      if (!url) continue;
-      const image = document.createElement("img");
-      image.src = url;
-      image.alt = "";
-      image.loading = "lazy";
-      thumbnail.classList.remove("component-card-empty");
-      thumbnail.replaceChildren(image);
-    }
+  function syncClipboardNode() {
+    retainedUi.updateNode("clipboard", clipboard.snapshot(), { scope: "vj1.control.ui" });
   }
 
-  function bindStaticEvents() {
-    bindInteractionDeferral();
+  function updateUi(recipe, reason) {
+    if (typeof store.updateUi === "function") {
+      store.updateUi(recipe, reason);
+      return;
+    }
+    store.update((draft) => recipe(draft.ui), reason);
+  }
 
-    root.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-edit-component]");
-      if (!button || !root.contains(button)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      openComponentEditor(button.dataset.editComponent, button.dataset.editChainItem || "");
-    }, true);
-
-    refs.outputMenu.addEventListener("click", (event) => {
-      const state = store.getState();
-      const outputs = state.render.outputs || [];
-      if (event.target.closest("summary") && outputs.length === 1) {
-        event.preventDefault();
-        openOutputWindows(state, outputs);
-        return;
-      }
-      const button = event.target.closest("[data-open-output-id]");
-      if (!button) return;
-      openOutputWindows(state, outputs.filter((output) => output.id === button.dataset.openOutputId));
-    });
-
-    refs.togglePreview.addEventListener("click", () => {
-      updateUi((ui) => {
-        ui.debugPreview = !ui.debugPreview;
-        rememberPreviewPreference(ui.debugPreview);
-      }, "toggle-preview");
-    });
-
-    refs.renderCost.addEventListener("click", (event) => {
-      event.stopPropagation();
-      togglePerformanceSummary();
-    });
-    refs.performanceSummary.addEventListener("click", (event) => event.stopPropagation());
-    refs.performanceAnalyze.addEventListener("click", () => {
-      closePerformanceSummary();
-      performanceSession.start();
-    });
-    refs.performanceResultsHost.addEventListener("click", handlePerformanceResultsClick);
-    window.addEventListener("click", closePerformanceSummary);
-
-    refs.diagnosticsToggle?.addEventListener("click", (event) => {
-      event.stopPropagation();
-      diagnosticsController.toggle();
-    });
-    refs.diagnosticsSummary?.addEventListener("click", diagnosticsController.handleClick);
-    window.addEventListener("click", diagnosticsController.close);
-
-    refs.toggleOutputHud.addEventListener("click", () => {
-      store.update((draft) => {
-        draft.global.showHud = draft.global.showHud === false;
-      }, "toggle-output-hud");
-    });
-
-    refs.toggleOutputPlayback.addEventListener("click", () => {
-      if (!hasOpenProject(latestState)) return;
-      store.update((draft) => {
-        draft.global.playing = draft.global.playing === false;
-      }, "toggle-output-playback");
-    });
-
-    refs.openSettings.addEventListener("click", () => {
-      modals.openSettings();
-    });
-
-    refs.importFiles.addEventListener("change", async () => {
-      await importFiles(refs.importFiles.files);
-      refs.importFiles.value = "";
-    });
-
-    refs.openFolder.addEventListener("click", openProjectFolder);
-    refs.closeProject?.addEventListener("click", closeProject);
-    refs.returnFromDeepEdit?.addEventListener("click", returnFromDeepEdit);
-
-    refs.workspaceButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        if (!hasOpenProject(latestState)) return;
-        const workspace = WORKSPACES.includes(button.dataset.workspace) ? button.dataset.workspace : "scene";
-        deepEditReturnContext = null;
-        switchWorkspace(workspace);
-      });
-    });
-
-    refs.blackout.addEventListener("click", () => {
-      store.update((draft) => {
-        draft.global.blackout = !draft.global.blackout;
-      }, "blackout");
-    });
-
-    refs.undo.addEventListener("click", undoProject);
-    refs.redo.addEventListener("click", redoProject);
-
-    clipboard.bindWindowEvents();
-    window.addEventListener("keydown", handleHistoryKeydown);
+  function nudgePreviewZoom(multiplier) {
+    updateUi((ui) => {
+      updatePreviewViewportForUi(ui, (viewport) => zoomViewport(viewport, multiplier));
+    }, "preview-zoom");
   }
 
   function switchWorkspace(workspace) {
@@ -844,21 +798,11 @@ export function createControlShell({
   }
 
   async function undoProject() {
-    refs.undo.disabled = true;
     await projectService.undoProject().catch((error) => setStatus(`Undo error: ${error.message || error}`));
   }
 
   async function redoProject() {
-    refs.redo.disabled = true;
     await projectService.redoProject().catch((error) => setStatus(`Redo error: ${error.message || error}`));
-  }
-
-  function handleHistoryKeydown(event) {
-    if (isTextEditingNode(event.target) || isTextEditingNode(document.activeElement)) return;
-    if (!(event.metaKey || event.ctrlKey) || event.altKey || String(event.key).toLowerCase() !== "z") return;
-    event.preventDefault();
-    if (event.shiftKey) redoProject();
-    else undoProject();
   }
 
   function restorePreviewPreference() {
@@ -885,15 +829,14 @@ export function createControlShell({
   }
 
   function togglePerformanceSummary() {
-    const opening = refs.performanceSummary.classList.contains("is-hidden");
-    setClass(refs.performanceSummary, "is-hidden", !opening);
-    refs.renderCost.setAttribute("aria-expanded", opening ? "true" : "false");
-    if (opening) renderPerformanceSummary(latestState);
+    performanceSummaryOpen = !performanceSummaryOpen;
+    refs.shell.setPopover("performance", performanceSummaryOpen);
+    if (performanceSummaryOpen) renderPerformanceSummary(latestState);
   }
 
   function closePerformanceSummary() {
-    setClass(refs.performanceSummary, "is-hidden", true);
-    refs.renderCost?.setAttribute("aria-expanded", "false");
+    performanceSummaryOpen = false;
+    refs.shell?.setPopover("performance", false);
   }
 
   function renderPerformanceSummary(state) {
@@ -924,113 +867,135 @@ export function createControlShell({
     const signalLoad = activeSignalLoad(state, controlSignalMeter.snapshot());
     const cacheHits = profiles.reduce((sum, profile) => sum + Math.max(0, Number(profile.componentCacheHits) || 0) + Math.max(0, Number(profile.stageCacheHits) || 0), 0);
     const cacheRenders = profiles.reduce((sum, profile) => sum + Math.max(0, Number(profile.componentRenders) || 0) + Math.max(0, Number(profile.stageRenders) || 0), 0);
-    const rows = hotspots.length
-      ? hotspots.map((item) => {
-          const rendererTotalMs = smoothed.totalsBySource[item.runtimeSource || "renderer"] || displayTotalMs;
-          const share = rendererTotalMs > 0 ? Math.min(999, item.msAvg / rendererTotalMs * 100) : 0;
-          const edit = deepEditButtonTemplate(item.componentId, { chainItemId: item.chainItemId, className: "performance-hotspot-edit", label: `Edit ${item.name}` });
-          const thumbnail = performanceComponentThumbnail(state, item.componentId, "performance-hotspot-thumbnail");
-          const context = item.runtimeSource ? `${item.kind} · ${item.runtimeSource}` : item.kind;
-          return `<li class="${edit ? "has-edit" : ""} ${thumbnail ? "has-thumbnail" : ""}">${thumbnail}<span><strong>${esc(item.name)}</strong><small>${esc(context)}</small></span><span class="performance-hotspot-value">${formatTimeMs(item.msAvg)}<small>${formatPercent(share)}</small></span>${edit}</li>`;
-        }).join("")
-      : `<li class="performance-empty-row">Waiting for an active renderer sample…</li>`;
-    replaceHtmlIfChanged(refs.performanceSummaryContent, `
-      <div class="performance-health-readouts">
-        ${performanceReadoutTemplate("speed", "Overall", formatRenderCost(renderCost))}
-        ${performanceReadoutTemplate("timer", "CPU", formatTimeMs(metric.cpuMs))}
-        ${performanceReadoutTemplate("memory", "GPU", metric.gpuSupported ? formatTimeMs(metric.gpuMs) : "—")}
-        ${performanceReadoutTemplate("open_in_new", "Output", outputConnected ? `${Math.round(outputFps)} fps` : "—")}
-        ${performanceReadoutTemplate("cached", "Cache reuse", String(cacheHits))}
-        ${performanceReadoutTemplate("refresh", "Renders", String(cacheRenders))}
-        ${performanceReadoutTemplate("vital_signs", "Signal load", `${Math.round(signalLoad.totalPerSecond)}/s`)}
-      </div>
-      ${signalLoadBreakdownTemplate(signalLoad)}
-      <ol class="performance-hotspot-list" data-scroll-region data-scroll-key="performance-hotspots">${rows}</ol>
-    `);
-    refs.performanceAnalyze.disabled = performanceSession.isActive();
+    retainedUi.updateNode("performance-summary", {
+      readouts: [
+        { icon: "speed", label: "Overall", value: formatRenderCost(renderCost) },
+        { icon: "timer", label: "CPU", value: formatTimeMs(metric.cpuMs) },
+        { icon: "memory", label: "GPU", value: metric.gpuSupported ? formatTimeMs(metric.gpuMs) : "—" },
+        { icon: "open_in_new", label: "Output", value: outputConnected ? `${Math.round(outputFps)} fps` : "—" },
+        { icon: "cached", label: "Cache reuse", value: String(cacheHits) },
+        { icon: "refresh", label: "Renders", value: String(cacheRenders) },
+        { icon: "vital_signs", label: "Signal load", value: `${Math.round(signalLoad.totalPerSecond)}/s` },
+      ],
+      categoryTitle: "Signal flow per second",
+      categoryNote: signalLoad.topReasons?.length
+        ? `Top: ${signalLoad.topReasons.slice(0, 3).map((item) => `${item.reason} ${Math.round(item.count)}`).join(" · ")}`
+        : "",
+      categories: PERFORMANCE_SIGNAL_CATEGORIES.map(([id, label]) => ({
+        id,
+        label,
+        value: `${formatNumber(signalLoad.categories?.[id], 1)}/s`,
+      })),
+      hotspots: hotspots.map((item) => {
+        const rendererTotalMs = smoothed.totalsBySource[item.runtimeSource || "renderer"] || displayTotalMs;
+        const share = rendererTotalMs > 0 ? Math.min(999, item.msAvg / rendererTotalMs * 100) : 0;
+        const component = state.components?.find((candidate) => candidate.id === item.componentId);
+        return {
+          id: `${item.runtimeSource || "renderer"}:${item.componentId || ""}:${item.chainItemId || ""}`,
+          label: item.name,
+          detail: item.runtimeSource ? `${item.kind} · ${item.runtimeSource}` : item.kind,
+          value: formatTimeMs(item.msAvg),
+          share: formatPercent(share),
+          media: component?.thumbnail ? { src: component.thumbnail } : null,
+          action: item.componentId ? { id: "edit", label: `Edit ${item.name}`, icon: "edit", iconOnly: true, payload: { componentId: item.componentId, chainItemId: item.chainItemId || "" } } : null,
+        };
+      }),
+      emptyText: "Waiting for an active renderer sample…",
+    }, { scope: "vj1.control.ui" });
   }
 
   function showPerformanceResults(report) {
+    retainedUi.updateNode("performance-report", performanceReportModel(report), { scope: "vj1.control.ui" });
+  }
+
+  function performanceReportModel(report = {}) {
     const runtime = report.analysis?.runtime || {};
     const host = report.host || {};
-    const runtimeProfile = runtime.profile || {};
-    const cacheHits = (runtimeProfile.componentCacheHitsAvg || 0) + (runtimeProfile.stageCacheHitsAvg || 0);
-    const cacheRenders = (runtimeProfile.componentRendersAvg || 0) + (runtimeProfile.stageRendersAvg || 0);
-    const cacheReusePercent = cacheHits + cacheRenders > 0 ? cacheHits / (cacheHits + cacheRenders) * 100 : 0;
-    const signalCategories = host.signalCategoriesPerSecondAvg || {};
-    const hotspots = runtime.profile?.hotPasses || [];
-    const hotspotRows = hotspots.length
-      ? hotspots.slice(0, 12).map((item, index) => {
-        const thumbnail = performanceComponentThumbnail(latestState, item.componentId, "performance-analysis-thumbnail");
-        return `
-          <tr>
-            <td>${index + 1}</td>
-            <td><span class="performance-pass-cell">${thumbnail}<span><strong>${esc(item.name)}</strong><small>${esc(item.kind)}</small></span></span></td>
-            <td>${formatTimeMs(item.msAvg)}</td>
-            <td>${formatTimeMs(item.msP95)}</td>
-            <td>${formatTimeMs(item.msMax)}</td>
-            <td>${item.sampleCount}</td>
-          </tr>`;
-      }).join("")
-      : `<tr><td colspan="6">No attributed render passes were captured.</td></tr>`;
-    const bottlenecks = (report.analysis?.bottlenecks || []).slice(0, 6);
-    refs.performanceResultsHost.innerHTML = `
-      <div class="modal-backdrop performance-results-backdrop" data-performance-close></div>
-      <section class="modal-panel performance-results-modal" role="dialog" aria-modal="true" aria-label="Performance analysis">
-        <header class="modal-header">
-          <div><strong>Performance analysis</strong><small>10 second sampled report · ${runtime.sampleCount || 0} metric samples</small></div>
-          <button type="button" class="icon-buttonish" data-performance-close aria-label="Close">${icon("close")}</button>
-        </header>
-        <div class="performance-results-body" data-scroll-region data-scroll-key="performance-results">
-          <div class="performance-result-cards">
-            <div><small>FPS average</small><strong>${formatNumber(runtime.fpsAvg, 1)}</strong></div>
-            <div><small>CPU frame p95</small><strong>${formatTimeMs(runtime.frameMsP95)}</strong></div>
-            <div><small>GPU timer average</small><strong>${runtime.gpuSampleCount ? formatTimeMs(runtime.gpuMsAvg) : "--"}</strong></div>
-            <div><small>Frame budget p95</small><strong>${formatPercent((runtime.renderCostP95 || 0) * 100)}</strong></div>
-            <div><small>UI rebuild p95</small><strong>${host.uiRenderCount ? formatTimeMs(host.uiRenderMsP95) : "--"}</strong></div>
-            <div><small>Main-thread blocks</small><strong>${host.longTaskCount || 0}</strong></div>
-            <div><small>Event-loop lag p95</small><strong>${formatTimeMs(host.eventLoopLagMsP95)}</strong></div>
-            <div><small>Render cache reuse</small><strong>${formatPercent(cacheReusePercent)}</strong></div>
-            <div><small>Signal pressure avg</small><strong>${formatNumber(host.signalPressurePerSecondAvg, 1)}/s</strong></div>
-          </div>
-          <div class="performance-results-section"><h3>Signal flow</h3><p>Per-second architectural activity. Presentations and cache hits are throughput and do not increase the pressure light.</p>${signalCategoryListTemplate(signalCategories)}${host.signalTopPressureReasonsPerSecondAvg?.length ? `<p>Top pressure causes</p><ul>${host.signalTopPressureReasonsPerSecondAvg.slice(0, 12).map((item) => `<li>${esc(item.reason)} · ${formatNumber(item.count, 1)}/s</li>`).join("")}</ul>` : ""}</div>
-          <div class="performance-results-section">
-            <h3>Attributed CPU hotspots</h3>
-            <p>Average, p95, and maximum duration for the bounded diagnostic pass samples. Component rows include their child work.</p>
-            <div class="performance-table-scroll" data-scroll-region data-scroll-key="performance-results-table"><table><thead><tr><th>#</th><th>Pass</th><th>Avg</th><th>P95</th><th>Max</th><th>N</th></tr></thead><tbody>${hotspotRows}</tbody></table></div>
-          </div>
-          ${bottlenecks.length ? `<div class="performance-results-section"><h3>Observations</h3><ul>${bottlenecks.map((item) => `<li><strong>${esc(item.scope)}</strong> · ${esc(item.message)}</li>`).join("")}</ul></div>` : ""}
-          <div class="performance-results-section"><h3>Host / UI activity</h3><p>${host.uiRenderCount || 0} full UI rebuilds · ${host.stateEventCount || 0} state notifications · ${host.longTaskTotalMs ? `${formatTimeMs(host.longTaskTotalMs)} blocked in long tasks` : "no long tasks observed"}${host.memoryDeltaBytes === null ? "" : ` · ${formatBytesSigned(host.memoryDeltaBytes)} JS heap change`}</p>${host.topStateEvents?.length ? `<ul>${host.topStateEvents.map((item) => `<li>${esc(item.reason)} · ${item.count}</li>`).join("")}</ul>` : ""}</div>
-          <p class="performance-method-note">GPU time is an aggregate of completed non-overlapping WebGL timer queries. Exact per-pass GPU profiling is not run continuously because it changes the workload being measured.</p>
-        </div>
-        <footer class="performance-results-actions">
-          <button type="button" data-performance-close>Close</button>
-          <button type="button" class="is-active" data-performance-download>${icon("download")} Download report</button>
-        </footer>
-      </section>`;
+    const profile = runtime.profile || {};
+    const cacheHits = (profile.componentCacheHitsAvg || 0) + (profile.stageCacheHitsAvg || 0);
+    const cacheRenders = (profile.componentRendersAvg || 0) + (profile.stageRendersAvg || 0);
+    const cacheReuse = cacheHits + cacheRenders > 0 ? cacheHits / (cacheHits + cacheRenders) * 100 : 0;
+    const hotspots = profile.hotPasses || [];
+    return {
+      open: true,
+      title: "Performance analysis",
+      subtitle: `10 second sampled report · ${runtime.sampleCount || 0} metric samples`,
+      cards: [
+        { label: "FPS average", value: formatNumber(runtime.fpsAvg, 1) },
+        { label: "CPU frame p95", value: formatTimeMs(runtime.frameMsP95) },
+        { label: "GPU timer average", value: runtime.gpuSampleCount ? formatTimeMs(runtime.gpuMsAvg) : "--" },
+        { label: "Frame budget p95", value: formatPercent((runtime.renderCostP95 || 0) * 100) },
+        { label: "UI rebuild p95", value: host.uiRenderCount ? formatTimeMs(host.uiRenderMsP95) : "--" },
+        { label: "Main-thread blocks", value: String(host.longTaskCount || 0) },
+        { label: "Event-loop lag p95", value: formatTimeMs(host.eventLoopLagMsP95) },
+        { label: "Render cache reuse", value: formatPercent(cacheReuse) },
+        { label: "Signal pressure avg", value: `${formatNumber(host.signalPressurePerSecondAvg, 1)}/s` },
+      ],
+      sections: [
+        {
+          title: "Signal flow",
+          description: "Per-second architectural activity. Presentations and cache hits are throughput and do not increase the pressure light.",
+          items: PERFORMANCE_SIGNAL_CATEGORIES.map(([id, label]) => ({
+            label,
+            value: `${formatNumber(host.signalCategoriesPerSecondAvg?.[id], 1)}/s`,
+          })),
+        },
+        {
+          title: "Attributed CPU hotspots",
+          description: "Average, p95, and maximum duration for the bounded diagnostic pass samples. Component rows include their child work.",
+          table: {
+            columns: [
+              { id: "rank", label: "#" }, { id: "pass", label: "Pass" }, { id: "avg", label: "Avg" },
+              { id: "p95", label: "P95" }, { id: "max", label: "Max" }, { id: "samples", label: "N" },
+            ],
+            rows: hotspots.slice(0, 12).map((item, index) => {
+              const component = latestState.components?.find((candidate) => candidate.id === item.componentId);
+              return {
+                rank: index + 1,
+                pass: {
+                  label: item.name,
+                  detail: item.kind,
+                  media: component?.thumbnail ? { src: component.thumbnail } : null,
+                },
+                avg: formatTimeMs(item.msAvg),
+                p95: formatTimeMs(item.msP95),
+                max: formatTimeMs(item.msMax),
+                samples: item.sampleCount,
+              };
+            }),
+          },
+        },
+        ...(report.analysis?.bottlenecks?.length ? [{
+          title: "Observations",
+          items: report.analysis.bottlenecks.slice(0, 6).map((item) => `${item.scope} · ${item.message}`),
+        }] : []),
+        {
+          title: "Host / UI activity",
+          description: `${host.uiRenderCount || 0} UI reconciliations · ${host.stateEventCount || 0} state notifications · ${host.longTaskTotalMs ? `${formatTimeMs(host.longTaskTotalMs)} blocked in long tasks` : "no long tasks observed"}`,
+          items: (host.topStateEvents || []).map((item) => `${item.reason} · ${item.count}`),
+        },
+      ],
+      note: "GPU time is an aggregate of completed non-overlapping WebGL timer queries. Exact per-pass GPU profiling is not run continuously because it changes the workload being measured.",
+      actions: [{ id: "close", label: "Close" }, { id: "download", label: "Download report", icon: "download" }],
+    };
   }
 
-  function handlePerformanceResultsClick(event) {
-    if (event.target.closest("[data-performance-download]")) {
-      const report = globalThis.__vj1LastProfileReport;
-      if (report) downloadPerformanceProfile(report, latestState.project?.name || "vj1");
-      return;
-    }
-    if (event.target.closest("[data-performance-close]")) refs.performanceResultsHost.innerHTML = "";
-  }
-
-  function bindInteractionDeferral() {
-    root.addEventListener("pointerdown", (event) => {
-      if (!isPointerInteractionNode(event.target)) return;
-      activePointerCount += 1;
-      beginInteractionHold();
-    }, true);
-    window.addEventListener("pointerup", endPointerInteractionSoon, true);
-    window.addEventListener("pointercancel", endPointerInteractionSoon, true);
-    root.addEventListener("focusin", (event) => {
-      if (isInteractiveNode(event.target)) beginInteractionHold();
-    }, true);
-    root.addEventListener("focusout", scheduleDeferredRenderFlush, true);
+  function downloadPerformanceReport(report) {
+    if (!report) return;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const safeProjectName = String(latestState.project?.name || "vj1")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "vj1";
+    retainedUi.updateNode("file-download", {
+      request: {
+        id: `profile:${timestamp}`,
+        filename: `${timestamp}-${safeProjectName}.profile.json`,
+        mime: "application/json",
+        text: JSON.stringify(boundedProfileValue(report), null, 2),
+      },
+    }, { scope: "vj1.control.ui" });
   }
 
   function beginInteractionHold() {
@@ -1044,14 +1009,7 @@ export function createControlShell({
   }
 
   function shouldDeferRender() {
-    return activePointerCount > 0 || hasFocusedEditor();
-  }
-
-  function hasFocusedEditor() {
-    const active = document.activeElement;
-    // A committed select change is safe to render immediately. Text editors
-    // remain mounted until blur so typing and selection are never disturbed.
-    return active?.tagName !== "SELECT" && isTextEditingNode(active);
+    return activePointerCount > 0 || activeEditor;
   }
 
   async function openProjectFolder() {
@@ -1059,7 +1017,7 @@ export function createControlShell({
       setStatus(`Folder error: ${error.message || error}`);
       return null;
     });
-    if (result?.fallback) refs.importFiles.click();
+    if (result?.fallback) refs.shell.requestImport();
     else if (result?.loaded === false) setStatus(result.error || "Project loading was blocked; no files were changed.");
   }
 
@@ -1106,105 +1064,101 @@ export function createControlShell({
         ? state.project.folderName
         : ""
     );
-    setText(refs.projectName, projectName);
-    setText(refs.projectMeta, hasProject ? projectMeta : "Choose a folder to begin");
-    setClass(refs.projectMeta, "is-hidden", hasProject && !projectMeta);
-    setClass(refs.closeProject, "is-hidden", !hasProject);
-    setClass(refs.returnFromDeepEdit, "is-hidden", !hasProject || !deepEditReturnContext);
-    diagnosticsController.render();
-    if (refs.returnFromDeepEdit && deepEditReturnContext) {
-      const label = workspaceLabel(deepEditReturnContext.workspace);
-      refs.returnFromDeepEdit.title = `Return to ${label}`;
-      refs.returnFromDeepEdit.setAttribute("aria-label", `Return to ${label}`);
-    }
+    const returnLabel = hasProject && deepEditReturnContext
+      ? `Return to ${workspaceLabel(deepEditReturnContext.workspace)}`
+      : "";
+    const outputPlaying = state.global.playing !== false;
+    const diagnostic = diagnosticsSnapshot || emptyDiagnosticsSummary();
+    const diagnosticCount = Math.max(0, Number(diagnostic.counts?.error) || 0) + Math.max(0, Number(diagnostic.counts?.warning) || 0) + Math.max(0, Number(diagnostic.counts?.info) || 0);
+    refs.shell.update({
+      brand: "VJ",
+      hasProject,
+      workspace: currentWorkspace(state),
+      project: {
+        name: projectName,
+        meta: hasProject ? projectMeta : "Choose a folder to begin",
+        returnLabel,
+      },
+      workspaces: [
+        { id: "component", label: "Components", icon: UI_ICONS.component },
+        { id: "scene", label: "Scenes", icon: UI_ICONS.scene },
+        { id: "live", label: "Live", icon: UI_ICONS.live },
+        { id: "mapping", label: "Mapping", icon: UI_ICONS.mapping, group: "technical" },
+        { id: "nodes", label: "Nodes", icon: UI_ICONS.nodes, group: "technical" },
+      ].map((item) => ({ ...item, disabled: !hasProject, active: item.id === currentWorkspace(state) })),
+      actions: [
+        { id: "toggle-preview", label: "Toggle preview", icon: "visibility", active: state.ui.debugPreview === true },
+        { id: "toggle-hud", label: "Output FPS and resolution", icon: "bug_report", active: state.global.showHud !== false },
+        { id: "settings", label: "Settings", icon: "settings" },
+        { id: "diagnostics-toggle", label: diagnostic.level === "ok" ? "Diagnostics: OK" : `Diagnostics: ${diagnosticCount} entries`, icon: diagnosticIcon(diagnostic.level), presentation: "diagnostics", active: diagnosticsOpen },
+        { id: "undo", label: "Undo", icon: "undo", disabled: !state.ui.canUndo },
+        { id: "redo", label: "Redo", icon: "redo", disabled: !state.ui.canRedo },
+        { id: "playback", label: outputPlaying ? "Pause playback" : "Play playback", icon: outputPlaying ? "pause" : "play_arrow", disabled: !hasProject, active: hasProject && !outputPlaying },
+        { id: "blackout", label: "Blackout", icon: "brightness_1", presentation: "danger", active: state.global.blackout === true },
+      ],
+      outputs: (state.render.outputs || []).map((output) => ({
+        id: output.id,
+        name: output.name,
+        detail: formatOutputAspect(output.aspectRatio),
+        connected: Boolean(state.metrics.outputs?.[output.id]),
+      })),
+      health: topbarHealthModel(state),
+    });
+    retainedUi.updateNode("diagnostics", {
+      title: "Diagnostics",
+      level: diagnostic.level,
+      counts: diagnostic.counts,
+      entries: diagnostic.entries,
+    }, { scope: "vj1.control.ui" });
+    refs.shell.setPopover("diagnostics", diagnosticsOpen);
+    refs.shell.setPopover("performance", performanceSummaryOpen);
+    if (performanceSummaryOpen && !shouldDeferRender()) renderPerformanceSummary(state);
+  }
+
+  function renderTopbarHealth(state) {
+    refs?.shell?.updateHealth?.(topbarHealthModel(state));
+  }
+
+  function topbarHealthModel(state) {
     const outputConnected = state.metrics.clients > 0;
     const outputFps = outputConnected ? Math.max(0, Number(state.metrics.fps) || 0) : 0;
-    setClass(refs.outputStatus, "is-live", outputConnected);
-    setText(refs.outputStatusText, outputConnected ? `${Math.round(outputFps)}` : "-");
     const renderCost = activeRenderCost(state);
-    setClass(refs.renderCost, "is-active", performanceSession.isActive());
     const profileSeconds = performanceSession.remainingSeconds();
     const workMetric = activeWorkMetric(state, outputFps);
     const signalLoad = activeSignalLoad(state, controlSignalMeter.snapshot());
     const frameInterval = frameTimeFromFps(workMetric.fps);
-    setPerformanceHealthDot(refs.renderCostDot, renderCost);
-    setPerformanceHealthDot(refs.cpuTimeDot, frameInterval > 0 ? workMetric.cpuMs / frameInterval : 0);
-    setPerformanceHealthDot(refs.gpuTimeDot, frameInterval > 0 ? workMetric.gpuMs / frameInterval : 0, workMetric.gpuSupported);
-    setPerformanceHealthDot(refs.signalLoadDot, signalLoad.pressure);
-    const healthTitle = performanceSession.isActive()
-      ? `Profiling rendering… ${profileSeconds} second${profileSeconds === 1 ? "" : "s"} remaining`
-      : `Overall ${formatRenderCost(renderCost)} · CPU ${formatTimeMs(workMetric.cpuMs)} · GPU ${workMetric.gpuSupported ? formatTimeMs(workMetric.gpuMs) : "unavailable"} · Signals ${Math.round(signalLoad.totalPerSecond)}/s · Output ${outputConnected ? `${Math.round(outputFps)} fps` : "closed"}`;
-    refs.renderCost.title = healthTitle;
-    refs.renderCost.setAttribute("aria-label", healthTitle);
-    // Output metrics may arrive between pointerdown and click. Preserve the
-    // interactive subtree until the browser finishes that event sequence.
-    if (!refs.performanceSummary.classList.contains("is-hidden") && !shouldDeferRender()) renderPerformanceSummary(state);
-    setClass(refs.togglePreview, "is-active", state.ui.debugPreview);
-    setClass(refs.toggleOutputHud, "is-active", state.global.showHud !== false);
-    const outputPlaying = state.global.playing !== false;
-    refs.toggleOutputPlayback.disabled = !hasProject;
-    refs.toggleOutputPlayback.title = outputPlaying ? "Pause playback" : "Play playback";
-    refs.toggleOutputPlayback.setAttribute("aria-label", refs.toggleOutputPlayback.title);
-    setText(refs.toggleOutputPlayback.querySelector(".material-symbols-rounded"), outputPlaying ? "pause" : "play_arrow");
-    setClass(refs.toggleOutputPlayback, "is-active", hasProject && !outputPlaying);
-    setClass(refs.blackout, "is-active", state.global.blackout);
-    setClass(refs.blackout, "is-output-enabled", !state.global.blackout);
-    renderOutputMenu(state);
-    refs.undo.disabled = !state.ui.canUndo;
-    refs.redo.disabled = !state.ui.canRedo;
-    refs.workspaceButtons.forEach((button) => {
-      button.disabled = !hasProject;
-      setClass(button, "is-active", button.dataset.workspace === currentWorkspace(state));
-    });
+    return {
+      active: performanceSession.isActive(),
+      outputConnected,
+      outputText: outputConnected ? `${Math.round(outputFps)}` : "-",
+      label: performanceSession.isActive()
+        ? `Profiling rendering… ${profileSeconds} second${profileSeconds === 1 ? "" : "s"} remaining`
+        : `Overall ${formatRenderCost(renderCost)} · CPU ${formatTimeMs(workMetric.cpuMs)} · GPU ${workMetric.gpuSupported ? formatTimeMs(workMetric.gpuMs) : "unavailable"} · Signals ${Math.round(signalLoad.totalPerSecond)}/s · Output ${outputConnected ? `${Math.round(outputFps)} fps` : "closed"}`,
+      levels: [
+        performanceHealthStep(renderCost),
+        performanceHealthStep(frameInterval > 0 ? workMetric.cpuMs / frameInterval : 0),
+        workMetric.gpuSupported ? performanceHealthStep(frameInterval > 0 ? workMetric.gpuMs / frameInterval : 0) : null,
+        performanceHealthStep(signalLoad.pressure),
+      ],
+    };
   }
 
   function openOutputWindows(state, outputs = []) {
     // Opening a display is infrastructure, not a Live performance command.
     // The popup receives the existing Live program through the output bridge;
     // editor selection must never change the program Scene as a side effect.
-    for (const output of outputs) {
-      window.open(
-        buildOutputUrl("output", { outputId: output.id }),
-        `vj1-output-${output.id}`,
-        "popup=yes"
-      );
-    }
-    refs.outputMenu.open = false;
+    retainedUi.updateNode("window-open", {
+      requests: outputs.map((output) => ({
+        id: `output:${++outputWindowRequestSequence}`,
+        url: buildOutputUrl("output", { outputId: output.id }),
+        name: `vj1-output-${output.id}`,
+        features: "popup=yes",
+      })),
+    }, { scope: "vj1.control.ui" });
     if (!outputs.length) return;
     updateUi((ui) => {
       ui.outputWindowOpen = true;
     }, "open-output");
-  }
-
-  function renderOutputMenu(state) {
-    if (!refs.outputMenuItems) return;
-    const outputs = state.render.outputs || [];
-    const direct = outputs.length === 1;
-    const summary = refs.outputMenu.querySelector("summary");
-    const title = direct ? `Open ${outputs[0].name}` : "Open output";
-    summary.title = title;
-    summary.setAttribute("aria-label", title);
-    setClass(refs.outputMenu, "is-direct", direct);
-    if (direct) refs.outputMenu.open = false;
-
-    // Output metrics update the top bar continuously. Only rebuild these
-    // buttons when the configured outputs change, otherwise a render between
-    // pointerdown and click detaches the clicked button and swallows the click.
-    const menuOutputs = direct ? [] : outputs;
-    const signature = JSON.stringify(menuOutputs.map((output) => [output.id, output.name, output.aspectRatio]));
-    if (refs.outputMenuItems.dataset.outputsSignature !== signature) {
-      refs.outputMenuItems.dataset.outputsSignature = signature;
-      refs.outputMenuItems.innerHTML = menuOutputs.map((output) => `
-        <button type="button" data-open-output-id="${esc(output.id)}">
-          <span></span><small>${formatOutputAspect(output.aspectRatio)}</small>
-        </button>
-      `).join("");
-    }
-    for (const output of menuOutputs) {
-      const button = [...refs.outputMenuItems.querySelectorAll("[data-open-output-id]")]
-        .find((item) => item.dataset.openOutputId === output.id);
-      if (button) setText(button.querySelector("span"), `${state.metrics.outputs?.[output.id] ? "● " : ""}${output.name}`);
-    }
   }
 
   function prepareCatalogOrder(state) {
@@ -1257,62 +1211,795 @@ export function createControlShell({
     });
   }
 
-  function bindCatalogSortControls(scope) {
-    scope?.querySelectorAll?.("[data-catalog-sort]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const catalog = button.dataset.catalogSortScope;
-        const mode = button.dataset.catalogSort;
-        if (!["component", "scene", "mapping", "live", "source", "media"].includes(catalog) || !["recent", "marker", "name", "created"].includes(mode)) return;
-        updateUi((ui) => {
-          ui.catalogSortModes ||= { component: "recent", scene: "recent", mapping: "recent", live: "recent", source: "recent", media: "recent" };
-          ui.catalogSortModes[catalog] = mode;
-        }, `catalog-sort:${catalog}`);
-        if (catalog !== "media") captureCatalogOrder(catalog, latestState);
-        if (catalog === "source") renderInspector(latestState);
-        else if (["component", "scene", "mapping", "live"].includes(catalog)) {
-          renderProjectRail(latestState);
-        }
-      });
-    });
-  }
-
   function renderProjectRail(state) {
     const hasProject = hasOpenProject(state);
     const workspace = currentWorkspace(state);
-    refs.projectRail.dataset.workspace = workspace;
-    const html = hasProject
-      ? workspace === "nodes"
-        ? nodeLibraryRailTemplate(state, editorNodePackage)
-        : projectRailTemplate(state, {
-          workspace,
-          // Selection belongs to the editor projection, not the catalog
-          // topology. Keeping it out of the catalog HTML preserves every card
-          // and thumbnail DOM node when the operator changes focus.
-          renderSelection: false,
-          catalogItems: (scope, items) => catalogItemsInSnapshot(scope, items),
-          catalogSortMode: (scope) => catalogSortMode(state, scope),
-          transitionEntries: workspace === "live"
-            ? transitionEntriesForState(state)
-            : null,
-        })
-      : "";
-    if (replaceHtmlIfChanged(refs.projectRail, html, { scrollKey: `project-rail:${workspace}` })) bindRailEvents();
-    patchProjectRailSelection(state);
+    if (workspace !== "live") retainedUi.deactivate("vj1.control.live-timing");
+    const railScopes = [
+      "vj1.control.component-catalog",
+      "vj1.control.scene-rail",
+      "vj1.control.mapping-rail",
+      "vj1.control.live-rail",
+      "vj1.control.nodes-rail",
+    ];
+    for (const scope of railScopes) {
+      const activeScope = {
+        component: "vj1.control.component-catalog",
+        scene: "vj1.control.scene-rail",
+        mapping: "vj1.control.mapping-rail",
+        live: "vj1.control.live-rail",
+        nodes: "vj1.control.nodes-rail",
+      }[workspace];
+      if (!hasProject || scope !== activeScope) retainedUi.deactivate(scope);
+    }
+    if (hasProject && workspace === "component") {
+      for (const nodeId of ["component-catalog-list", "scene-catalog-list", "mapping-catalog-list"]) retainedUi.unmountNode(nodeId);
+      retainedUi.activate(compileUiModel(componentCatalogUiModel({
+        items: componentCatalogListItems(catalogItemsInSnapshot("component", ordinaryComponents(state)), state),
+        selectedId: state.ui?.selectedComponentId || "",
+        sortMode: catalogSortMode(state, "component"),
+        projectId: state.project?.folderName || state.project?.name || "unopened",
+      }), { id: "vj1.control.component-catalog" }), { host: refs.projectRail, scope: "vj1.control.component-catalog" });
+      return;
+    }
+    if (hasProject && workspace === "scene") {
+      for (const nodeId of ["component-catalog-list", "scene-catalog-list", "mapping-catalog-list"]) retainedUi.unmountNode(nodeId);
+      retainedUi.activate(compileUiModel(sceneRailUiModel(state, {
+        items: componentCatalogListItems(catalogItemsInSnapshot("scene", sceneComponents(state)), state),
+        sortMode: catalogSortMode(state, "scene"),
+        projectId: state.project?.folderName || state.project?.name || "unopened",
+      }), { id: "vj1.control.scene-rail" }), { host: refs.projectRail, scope: "vj1.control.scene-rail" });
+      return;
+    }
+    if (hasProject && workspace === "mapping") {
+      for (const nodeId of ["component-catalog-list", "scene-catalog-list", "mapping-catalog-list"]) retainedUi.unmountNode(nodeId);
+      retainedUi.activate(mappingRailUiGraph(state, {
+        items: mappingCatalogListItems(catalogItemsInSnapshot("mapping", state.mappings || [])),
+        sortMode: catalogSortMode(state, "mapping"),
+        projectId: state.project?.folderName || state.project?.name || "unopened",
+      }), { host: refs.projectRail, scope: "vj1.control.mapping-rail" });
+      return;
+    }
+    if (hasProject && workspace === "live") {
+      const showScenes = state.ui?.live?.showScenes !== false;
+      const showComponents = state.ui?.live?.showComponents === true;
+      const sources = catalogItemsInSnapshot("live", [
+        ...(showScenes ? sceneComponents(state) : []),
+        ...(showComponents ? ordinaryComponents(state) : []),
+      ]);
+      retainedUi.activate(liveRailUiGraph(state, {
+        items: liveSourceListItems(sources, state),
+        selectedId: selectedLiveSourceId(state),
+        sortMode: catalogSortMode(state, "live"),
+        projectId: state.project?.folderName || state.project?.name || "unopened",
+      }), { host: refs.projectRail, scope: "vj1.control.live-rail" });
+      const timingPanel = retainedUi.getNode("live-timing-panel", { scope: "vj1.control.live-rail" });
+      retainedUi.activate(liveTimingUiGraph(state, transitionEntriesForState(state)), {
+        host: timingPanel.slot("content"),
+        scope: "vj1.control.live-timing",
+      });
+      return;
+    }
+    retainedUi.deactivate("vj1.control.live-timing");
+    if (hasProject && workspace === "nodes") {
+      retainedUi.activate(nodesRailUiGraph(nodeLibraryRailModel(state, editorNodePackage)), {
+        host: refs.projectRail,
+        scope: "vj1.control.nodes-rail",
+      });
+      return;
+    }
+    for (const scope of railScopes) retainedUi.deactivate(scope);
   }
 
-  function patchProjectRailSelection(state) {
-    patchSelectedItems("[data-select-component]", state.ui?.selectedComponentId);
-    patchSelectedItems("[data-select-surface]", state.ui?.selectedSurfaceId, { includeRow: true });
-    patchSelectedItems("[data-select-mapping]", state.ui?.selectedMappingId, { includeRow: true });
+  function dispatchUiNodeCommand(command) {
+    if (modals?.handleUiCommand?.(command)) return true;
+    if (command.action === "global.shortcut") {
+      if (command.payload?.id === "redo") redoProject();
+      else if (command.payload?.id === "undo") undoProject();
+      return true;
+    }
+    if (command.action === "global.interaction") {
+      const active = command.payload?.active === true;
+      if (command.payload?.kind === "pointer") {
+        activePointerCount = active ? activePointerCount + 1 : Math.max(0, activePointerCount - 1);
+      } else if (command.payload?.kind === "editor") activeEditor = active;
+      if (active) beginInteractionHold();
+      else scheduleDeferredRenderFlush();
+      return true;
+    }
+    if (command.action === "global.viewport") {
+      compactPreviewLayout = command.payload?.matches === true;
+      scheduleRenderNow(latestState, { reason: "preview-layout" });
+      return true;
+    }
+    if (command.action === "global.lifecycle") {
+      onLifecycle?.(command.payload || {});
+      return true;
+    }
+    if (command.action === "download.complete") return true;
+    if (command.action === "download.error") {
+      setStatus(`Download failed: ${command.payload?.message || "unknown error"}`);
+      return true;
+    }
+    if (command.action === "window.complete") return true;
+    if (command.action === "window.blocked") {
+      setStatus("Output window was blocked by the browser");
+      return true;
+    }
+    if (command.action === "clipboard.target") {
+      clipboard.setLocation(command.payload || {});
+      return true;
+    }
+    if (command.action === "clipboard.cut") return clipboard.cut();
+    if (command.action === "clipboard.delete") return clipboard.remove();
+    if (command.action === "clipboard.paste") {
+      clipboard.paste(command.payload || {});
+      return true;
+    }
+    if (command.action === "shell.action") return handleShellAction(String(command.payload?.id || ""), command.payload || {});
+    if (command.action === "diagnostics.clear") {
+      diagnostics?.clear?.();
+      return true;
+    }
+    if (command.action === "diagnostics.copy") {
+      const text = diagnostics?.copyText?.() || "";
+      if (!text) return true;
+      globalThis.navigator?.clipboard?.writeText?.(text)
+        .then(() => setStatus("Diagnostics copied"))
+        .catch((error) => setStatus(`Could not copy diagnostics: ${error?.message || error}`));
+      return true;
+    }
+    if (command.action === "performance.summary-action" && command.payload?.id === "edit") {
+      openComponentEditor(String(command.payload?.componentId || ""), String(command.payload?.chainItemId || ""));
+      return true;
+    }
+    if (command.action === "performance.report-close") {
+      retainedUi.updateNode("performance-report", { open: false }, { scope: "vj1.control.ui" });
+      return true;
+    }
+    if (command.action === "performance.report-action" && command.payload?.id === "download") {
+      downloadPerformanceReport(globalThis.__vj1LastProfileReport);
+      return true;
+    }
+    if (command.action === "context-menu.close") return inputs.dismissContextMenu();
+    if (command.action === "context-menu.action") {
+      return inputs.executeContextMenuAction(command.payload?.id);
+    }
+    if (command.action === "picker.open-media") {
+      modals.openMediaPicker(String(command.payload?.path || ""), String(command.payload?.accept || ""));
+      return true;
+    }
+    if (command.action === "picker.open-live-media") {
+      const payload = command.payload || {};
+      modals.openMediaPicker("", String(payload.accept || ""), (value) => {
+        store.updateLive((draft) => {
+          setLiveNodeParameterDiff(
+            draft,
+            String(payload.componentId || ""),
+            String(payload.nodeId || ""),
+            String(payload.path || ""),
+            value,
+          );
+        }, { reason: "live:media-parameter", input: "ui" });
+      });
+      return true;
+    }
+    if (command.action === "picker.open-source") {
+      modals.openSourceChoicePicker(
+        String(command.payload?.path || ""),
+        String(command.payload?.category || ""),
+        {
+          allowComponents: command.payload?.allowComponents === true,
+          ownerComponentId: String(command.payload?.ownerComponentId || ""),
+        },
+      );
+      return true;
+    }
+    if (command.action === "picker.open-element") {
+      modals.openElementPicker(
+        String(command.payload?.componentId || latestState.ui?.selectedComponentId || ""),
+        String(command.payload?.targetChainItem || ""),
+      );
+      return true;
+    }
+    if (command.action === "animation.edit") {
+      return handleParameterAnimationCommand(command.payload || {}, {
+        getState: () => latestState,
+        store,
+        setStatus,
+        triggerParameterAnimation,
+      });
+    }
+    if (command.action === "preview.zoom") {
+      nudgePreviewZoom(Number(command.payload?.multiplier) || 1);
+      return true;
+    }
+    if (command.action === "preview.toggle-diagnostics") {
+      updateUi((ui) => { ui.previewDiagnostics = ui.previewDiagnostics !== true; }, "preview-diagnostics");
+      return true;
+    }
+    if (command.action === "preview.cycle-quality") {
+      store.update((draft) => {
+        if (!["component", "scene", "mapping", "live"].includes(currentWorkspace(draft))) return;
+        draft.ui.previewQuality = nextPreviewQuality(draft.ui.previewQuality);
+      }, "preview-quality");
+      return true;
+    }
+    if (command.action === "preview.fit-world") {
+      updateUi((ui) => { updatePreviewViewportForUi(ui, resetViewport()); }, "preview-fit-world");
+      return true;
+    }
+    if (command.action === "preview.fit-frame") {
+      const previewSurface = retainedUi.getNode("preview-surface", { scope: "vj1.control.preview-surface" });
+      const previewHost = previewSurface?.slot?.("frame");
+      const stage = previewSurface?.slot?.("stage");
+      const rect = stage?.getBoundingClientRect?.();
+      updateUi((ui) => {
+        updatePreviewViewportForUi(ui, fitPreviewViewport({
+          workspace: currentWorkspace(latestState),
+          stageSize: {
+            width: Math.max(1, Math.floor(rect?.width || previewHost?.clientWidth || 960)),
+            height: Math.max(1, Math.floor(rect?.height || previewHost?.clientHeight || 540)),
+          },
+          render: latestState.render,
+        }));
+      }, "preview-fit-frame");
+      return true;
+    }
+    if (command.action === "preview.toggle-mapping-handles") {
+      store.update((draft) => {
+        draft.global.mappingHandleMode = draft.global.mappingHandleMode === "near" ? "always" : "near";
+      }, "toggle-mapping-handles");
+      return true;
+    }
+    if (command.action === "nodes.library-search" || command.action === "nodes.library-drag") return true;
+    if (command.action === "nodes.library-select") {
+      const id = String(command.payload?.id || "");
+      if (!id) return false;
+      if (command.payload?.kind === "project-group") {
+        updateUi((ui) => { ui.selectedNodeGroupId = id; }, "select-node-group");
+      } else {
+        updateUi((ui) => {
+          ui.selectedNodeDefinitionId = id;
+          ui.selectedNodeGroupId = "";
+        }, "select-node-definition");
+      }
+      return true;
+    }
+    if (command.action === "nodes.library-action") {
+      handleNodesLibraryAction(command.payload || {});
+      return true;
+    }
+    if (command.action.startsWith("nodes.graph-")) {
+      const handlers = nodeGraphCommandHandlers();
+      if (command.action === "nodes.graph-status") handlers.onStatus(command.payload?.message);
+      else if (command.action === "nodes.graph-change") handlers.onGraphChange(command.payload?.graph, command.payload?.reason);
+      else if (command.action === "nodes.graph-media-request") handlers.onMediaParameterRequest(command.payload || {});
+      else if (command.action === "nodes.graph-public-parameter-toggle") handlers.onPublicParameterToggle(command.payload || {});
+      else if (command.action === "nodes.graph-public-port-toggle") handlers.onPublicPortToggle(command.payload || {});
+      else return false;
+      return true;
+    }
+    if (command.action === "nodes.editor-save" || command.action === "nodes.editor-reset") {
+      const baseId = String(command.payload?.baseId || "");
+      const baseVersion = String(command.payload?.baseVersion || "");
+      let definition;
+      try {
+        definition = editorNodePackage?.registry?.get?.(baseId, baseVersion);
+      } catch {
+        setStatus("Node definition is no longer available");
+        return true;
+      }
+      if (!definition) return false;
+      if (command.action === "nodes.editor-reset") {
+        store.update((draft) => {
+          draft.nodes = withoutProjectNodeFork(draft.nodes, definition);
+        }, "update:node-fork-reset");
+        setStatus(`${definition.name} restored to the built-in version`);
+        return true;
+      }
+      try {
+        const nextNodes = prepareProjectNodeDefinitionEdit(
+          withProjectNodeFork(latestState.nodes, definition, command.payload?.sources || {}),
+          definition,
+          { preflight: editorNodePackage?.preflightGraphEdit },
+        );
+        store.update((draft) => { draft.nodes = nextNodes; }, "update:node-fork");
+        setStatus(`${definition.name} project version saved`);
+      } catch (error) {
+        setStatus(`${definition.name} project version was not saved: ${error?.message || "invalid source"}`);
+      }
+      return true;
+    }
+    if (command.action === "component.catalog-search") return true;
+    if (command.action === "component.catalog-action") {
+      const action = String(command.payload?.id || "");
+      if (action === "add") {
+        store.addComponent();
+        return true;
+      }
+      if (action.startsWith("sort:")) {
+        const mode = action.slice("sort:".length);
+        if (!["recent", "marker", "name", "created"].includes(mode)) return false;
+        updateUi((ui) => {
+          ui.catalogSortModes ||= {};
+          ui.catalogSortModes.component = mode;
+        }, "catalog-sort:component");
+        captureCatalogOrder("component", latestState);
+        renderProjectRail(latestState);
+        return true;
+      }
+      return false;
+    }
+    if (command.action === "live.catalog-search") return true;
+    if (command.action === "live.source-filter") {
+      const kind = command.payload?.kind === "components" ? "components" : "scenes";
+      const key = kind === "components" ? "showComponents" : "showScenes";
+      const otherKey = key === "showScenes" ? "showComponents" : "showScenes";
+      const value = command.payload?.value === true;
+      updateUi((ui) => {
+        ui.live ||= {};
+        const otherEnabled = otherKey === "showScenes"
+          ? ui.live.showScenes !== false
+          : ui.live.showComponents === true;
+        if (!value && !otherEnabled) return;
+        ui.live[key] = value;
+      }, "live-source-filter");
+      return true;
+    }
+    if (command.action === "live.catalog-action") {
+      const action = String(command.payload?.id || "");
+      if (!action.startsWith("sort:")) return false;
+      const mode = action.slice("sort:".length);
+      if (!["recent", "marker", "name", "created"].includes(mode)) return false;
+      updateUi((ui) => {
+        ui.catalogSortModes ||= {};
+        ui.catalogSortModes.live = mode;
+      }, "catalog-sort:live");
+      captureCatalogOrder("live", latestState);
+      renderProjectRail(latestState);
+      return true;
+    }
+    if (["live.source-select", "live.source-action"].includes(command.action)) {
+      const id = String(command.payload?.id || "");
+      const target = latestState.components.find((component) => component.id === id);
+      if (!target) return false;
+      if (command.action === "live.source-select") {
+        if (target.type === "scene") store.selectLiveScene(id);
+        else store.selectLiveComponent?.(id);
+        return true;
+      }
+      if (command.payload?.action === "marker") {
+        cycleCatalogMarker(target.type === "scene" ? "scene" : "component", id, refs.projectRail);
+        return true;
+      }
+      if (command.payload?.action === "reset") {
+        // The embedded monitor may retain a retimed transition endpoint even
+        // after the authored transition coordinator is cleared. Drop that
+        // presentation snapshot before the reset state is projected.
+        embeddedPreview.command("clear-live-transition");
+        store.resetLiveTarget?.(id);
+        return true;
+      }
+      return false;
+    }
+    if (command.action === "live.reset-session") {
+      store.resetLiveSession?.();
+      return true;
+    }
+    if (command.action === "live.component-view-select") {
+      const id = command.payload?.id === "elements" ? "elements" : "controls";
+      updateUi((ui) => {
+        ui.live ||= {};
+        ui.live.componentView = id;
+      }, "select-live-component-view");
+      return true;
+    }
+    if (command.action === "live.element-select") {
+      const componentId = String(getLiveSelectedTarget(latestState)?.id || "");
+      const nodeId = String(command.payload?.id || "");
+      if (!componentId || !nodeId) return false;
+      updateUi((ui) => {
+        ui.live ||= {};
+        ui.live.selectedChainItemIds ||= {};
+        ui.live.selectedChainItemIds[componentId] = nodeId;
+      }, "select-live-chain-item");
+      return true;
+    }
+    if (command.action === "live.element-action") {
+      if (command.payload?.action !== "toggle-enabled") return false;
+      return inputs.updateLiveValue({
+        componentId: String(command.payload?.componentId || ""),
+        nodeId: String(command.payload?.nodeId || command.payload?.id || ""),
+        path: String(command.payload?.path || "enabled"),
+      }, command.payload?.value === true, { phase: command.phase });
+    }
+    if (command.action === "inspector.add-element") {
+      const componentId = String(command.payload?.targetId || "");
+      if (!componentId) return false;
+      modals.openElementPicker(componentId, "");
+      return true;
+    }
+    if (command.action === "inspector.edit-component") {
+      const componentId = String(command.payload?.targetId || "");
+      if (!componentId) return false;
+      openComponentEditor(componentId);
+      return true;
+    }
+    if (command.action === "live.output-select") {
+      const id = String(command.payload?.id || "");
+      if (!id) return false;
+      store.selectLivePreviewSurface?.(id);
+      return true;
+    }
+    if (command.action === "live.output-action") {
+      const id = String(command.payload?.id || "");
+      const action = String(command.payload?.action || "");
+      if (!id || !action) return false;
+      if (action === "toggle-visibility") {
+        store.toggleLiveSurfaceVisibility?.(id);
+        return true;
+      }
+      if (action === "clear-patch" && id !== "__mapping__") {
+        store.clearLiveSurfacePatch?.(id);
+        return true;
+      }
+      if (action === "clear-overall" && id === "__mapping__") {
+        store.clearLiveOverallComponent?.();
+        return true;
+      }
+      return false;
+    }
+    if (command.action === "live.inspect-component") {
+      const id = String(command.payload?.id || "");
+      if (!id) return false;
+      updateUi((ui) => {
+        ui.live ||= {};
+        ui.live.inspectedComponentId = id;
+      }, "select-live-inspected-component");
+      return true;
+    }
+    if (command.action === "mapping.reset-surface") {
+      resetProjectMapping(String(command.payload?.surfaceId || ""));
+      return true;
+    }
+    if (command.action === "component.element-select") {
+      const nodeId = String(command.payload?.id || "");
+      if (!nodeId) return false;
+      store.selectChainItem(nodeId);
+      return true;
+    }
+    if (command.action === "component.element-action") {
+      const operation = String(command.payload?.operation || command.payload?.action || "");
+      if (operation === "toggle-enabled") {
+        return inputs.updatePersistentValue(String(command.payload?.path || ""), command.payload?.value, {
+          phase: command.phase,
+        });
+      }
+      if (operation === "remove") {
+        store.removeChainItem?.(
+          String(command.payload?.componentId || command.target?.componentId || ""),
+          String(command.payload?.nodeId || command.payload?.id || ""),
+        );
+        return true;
+      }
+      if (operation === "edit-component") {
+        openComponentEditor(String(command.payload?.componentId || ""));
+        return true;
+      }
+      return false;
+    }
+    if (command.action === "component.element-reorder") {
+      const componentId = String(command.target?.componentId || "");
+      const fromId = String(command.payload?.fromId || "");
+      const toId = String(command.payload?.toId || "");
+      const position = ["before", "inside", "after"].includes(command.payload?.position)
+        ? command.payload.position
+        : "before";
+      if (!componentId || !fromId || !toId) return false;
+      store.reorderChain(componentId, fromId, toId, position);
+      return true;
+    }
+    if (command.action === "project.set-value") {
+      return inputs.updatePersistentValue(command.address, command.payload?.value, {
+        phase: command.phase,
+      });
+    }
+    if (command.action === "project.set-range") {
+      return inputs.updatePersistentRange(command.target, command.payload?.value, {
+        phase: command.phase,
+      });
+    }
+    if (command.action === "project.set-related-value") {
+      return inputs.updatePersistentRelatedValue(command.target, command.payload, {
+        phase: command.phase,
+      });
+    }
+    if (command.action === "project.set-video-trim") {
+      return inputs.updatePersistentVideoTrim(
+        command.target,
+        command.payload?.value,
+        command.payload?.active,
+        { phase: command.phase },
+      );
+    }
+    if (command.action === "project.set-boundary-scale") {
+      return inputs.updatePersistentBoundaryScale(command.target, command.payload?.value, {
+        phase: command.phase,
+      });
+    }
+    if (command.action === "project.trigger-event") {
+      return inputs.triggerPersistentEvent(command.target);
+    }
+    if (command.action === "parameter.open-context-menu") {
+      const rangeRole = String(command.payload?.role || "");
+      const target = rangeRole && command.target?.[rangeRole]
+        ? command.target[rangeRole]
+        : command.target;
+      return inputs.openParameterContextMenu(target, {
+        x: command.payload?.x,
+        y: command.payload?.y,
+      });
+    }
+    if (command.action === "live.set-value") {
+      return inputs.updateLiveValue(command.target, command.payload?.value, {
+        phase: command.phase,
+      });
+    }
+    if (command.action === "live.set-range") {
+      return inputs.updateLiveRange(command.target, command.payload?.value, {
+        phase: command.phase,
+      });
+    }
+    if (command.action === "live.set-related-value") {
+      return inputs.updateLiveRelatedValue(command.target, command.payload, {
+        phase: command.phase,
+      });
+    }
+    if (command.action === "live.set-boundary-scale") {
+      return inputs.updateLiveBoundaryScale(command.target, command.payload?.value, {
+        phase: command.phase,
+      });
+    }
+    if (command.action === "live.trigger-event") {
+      return inputs.triggerLiveEvent(command.target);
+    }
+    if (command.action === "live.set-animation-value") {
+      return inputs.updateLiveAnimationValue(command.target, command.payload?.value, {
+        phase: command.phase,
+      });
+    }
+    if (["component.select", "component.item-action", "component.item-context"].includes(command.action)) {
+      const id = String(command.payload?.id || "");
+      if (!id) return false;
+      if (command.action === "component.select") {
+        store.selectComponent(id);
+        const selected = latestState.components.find((item) => item.id === id);
+        clipboard.setTarget({
+          kind: selected?.type === "scene" ? "scene-list" : "component-list",
+          itemId: id,
+        });
+        return true;
+      }
+      if (command.action === "component.item-context") {
+        return inputs.openComponentContextMenu(id, {
+          x: command.payload?.x,
+          y: command.payload?.y,
+        });
+      }
+      if (command.payload?.action === "remove") {
+        store.removeComponent(id);
+        return true;
+      }
+      if (command.payload?.action === "marker") {
+        const selected = latestState.components.find((item) => item.id === id);
+        cycleCatalogMarker(selected?.type === "scene" ? "scene" : "component", id, refs.projectRail);
+        return true;
+      }
+      return false;
+    }
+    if (command.action === "scene.catalog-search") return true;
+    if (command.action === "scene.catalog-action") {
+      const action = String(command.payload?.id || "");
+      if (action === "add") {
+        store.addScene?.();
+        return true;
+      }
+      if (action.startsWith("sort:")) {
+        const mode = action.slice("sort:".length);
+        if (!["recent", "marker", "name", "created"].includes(mode)) return false;
+        updateUi((ui) => {
+          ui.catalogSortModes ||= {};
+          ui.catalogSortModes.scene = mode;
+        }, "catalog-sort:scene");
+        captureCatalogOrder("scene", latestState);
+        renderProjectRail(latestState);
+        return true;
+      }
+      return false;
+    }
+    if (command.action === "surface.catalog-action" && command.payload?.id === "add") {
+      store.addSurface?.();
+      return true;
+    }
+    if (["surface.select", "surface.item-action", "surface.reorder"].includes(command.action)) {
+      const id = String(command.payload?.id || "");
+      if (command.action === "surface.reorder") {
+        const fromId = String(command.payload?.fromId || "");
+        const toId = String(command.payload?.toId || "");
+        if (!fromId || !toId) return false;
+        store.reorderSurfaces?.(fromId, toId);
+        return true;
+      }
+      if (!id) return false;
+      if (command.action === "surface.select") {
+        store.selectSurface(id);
+        clipboard.setTarget({ kind: "surface-list", itemId: id });
+        return true;
+      }
+      if (command.payload?.action === "remove") {
+        store.removeSurface(id);
+        return true;
+      }
+      if (id === "__scene_mapping__" && command.payload?.action === "toggle-scene-mapping") {
+        store.setSceneMappingInLive?.(latestState.ui?.live?.sceneMappingInLive === false);
+        return true;
+      }
+      if (command.payload?.action === "toggle-enabled") {
+        const mappingIndex = latestState.mappings.findIndex((mapping) => mapping.id === latestState.ui?.selectedMappingId);
+        const surfaceIndex = latestState.mappings[mappingIndex]?.surfaces?.findIndex((surface) => surface.id === id) ?? -1;
+        const surface = latestState.mappings[mappingIndex]?.surfaces?.[surfaceIndex];
+        if (!surface || mappingIndex < 0 || surfaceIndex < 0) return false;
+        clipboard.setTarget({ kind: "surface-list", itemId: id });
+        if (typeof store.setMappingSurfaceVisibility === "function") {
+          store.setMappingSurfaceVisibility(
+            latestState.mappings[mappingIndex].id,
+            surface.id,
+            surface.enabled === false,
+            "toggle:mapping-surface-visibility",
+          );
+          return true;
+        }
+        store.selectSurface(id);
+        return inputs.updatePersistentValue(`mappings.${mappingIndex}.surfaces.${surfaceIndex}.enabled`, surface.enabled === false);
+      }
+      return false;
+    }
+    if (command.action === "mapping.catalog-search") return true;
+    if (command.action === "mapping.catalog-action") {
+      const action = String(command.payload?.id || "");
+      if (action === "add") {
+        store.addMapping(`Map ${latestState.mappings.length + 1}`);
+        return true;
+      }
+      if (action.startsWith("sort:")) {
+        const mode = action.slice("sort:".length);
+        if (!["recent", "marker", "name", "created"].includes(mode)) return false;
+        updateUi((ui) => {
+          ui.catalogSortModes ||= {};
+          ui.catalogSortModes.mapping = mode;
+        }, "catalog-sort:mapping");
+        captureCatalogOrder("mapping", latestState);
+        renderProjectRail(latestState);
+        return true;
+      }
+      return false;
+    }
+    if (!["mapping.select", "mapping.item-action"].includes(command.action)) return false;
+    const id = String(command.payload?.id || "");
+    if (!id) return false;
+    if (command.action === "mapping.select") {
+      store.selectMapping(id);
+      clipboard.setTarget({ kind: "mapping-list", itemId: id });
+      return true;
+    }
+    if (command.action === "mapping.item-action" && command.payload?.action === "remove") {
+      store.deleteMapping(id);
+      return true;
+    }
+    return false;
   }
 
-  function patchSelectedItems(selector, selectedId, { includeRow = false } = {}) {
-    refs.projectRail?.querySelectorAll?.(selector).forEach((item) => {
-      const attribute = selector.slice(1, -1);
-      const selected = String(item.getAttribute(attribute) || "") === String(selectedId || "");
-      item.classList.toggle("is-selected", selected);
-      if (includeRow) item.closest(".text-list-item")?.classList.toggle("is-selected", selected);
+  function handleShellAction(id, payload = {}) {
+    if (id.startsWith("workspace:")) {
+      if (!hasOpenProject(latestState)) return false;
+      const workspace = id.slice("workspace:".length);
+      deepEditReturnContext = null;
+      switchWorkspace(WORKSPACES.includes(workspace) ? workspace : "scene");
+      return true;
+    }
+    if (id.startsWith("output:")) {
+      const outputId = id.slice("output:".length);
+      openOutputWindows(latestState, (latestState.render.outputs || []).filter((output) => output.id === outputId));
+      return true;
+    }
+    if (id === "open-output") {
+      const outputs = latestState.render.outputs || [];
+      if (outputs.length === 1) openOutputWindows(latestState, outputs);
+      return true;
+    }
+    if (id === "open-folder") {
+      openProjectFolder();
+      return true;
+    }
+    if (id === "close-project") {
+      closeProject();
+      return true;
+    }
+    if (id === "return") {
+      returnFromDeepEdit();
+      return true;
+    }
+    if (id === "import-files") {
+      importFiles(payload.files || []);
+      return true;
+    }
+    if (id === "toggle-preview") {
+      updateUi((ui) => {
+        ui.debugPreview = !ui.debugPreview;
+        rememberPreviewPreference(ui.debugPreview);
+      }, "toggle-preview");
+      return true;
+    }
+    if (id === "toggle-hud") {
+      store.update((draft) => { draft.global.showHud = draft.global.showHud === false; }, "toggle-output-hud");
+      return true;
+    }
+    if (id === "settings") {
+      modals.openSettings();
+      return true;
+    }
+    if (id === "diagnostics-toggle") {
+      diagnosticsOpen = !diagnosticsOpen;
+      refs.shell.setPopover("diagnostics", diagnosticsOpen);
+      return true;
+    }
+    if (id === "performance-toggle") {
+      togglePerformanceSummary();
+      return true;
+    }
+    if (id === "performance-analyze") {
+      closePerformanceSummary();
+      performanceSession.start();
+      return true;
+    }
+    if (id === "dismiss-popovers") {
+      diagnosticsOpen = false;
+      closePerformanceSummary();
+      refs.shell.setPopover("diagnostics", false);
+      return true;
+    }
+    if (id === "undo") {
+      undoProject();
+      return true;
+    }
+    if (id === "redo") {
+      redoProject();
+      return true;
+    }
+    if (id === "playback") {
+      if (!hasOpenProject(latestState)) return false;
+      store.update((draft) => { draft.global.playing = draft.global.playing === false; }, "toggle-output-playback");
+      return true;
+    }
+    if (id === "blackout") {
+      store.update((draft) => { draft.global.blackout = !draft.global.blackout; }, "blackout");
+      return true;
+    }
+    return false;
+  }
+
+  function showContextMenu(model) {
+    if (!refs?.contextMenuHost) return false;
+    retainedUi.activate(contextMenuUiGraph(model), {
+      host: refs.contextMenuHost,
+      scope: "vj1.control.context-menu",
     });
+    return true;
+  }
+
+  function closeContextMenu() {
+    retainedUi.deactivate("vj1.control.context-menu");
   }
 
   function transitionEntriesForState(state) {
@@ -1332,77 +2019,71 @@ export function createControlShell({
 
   function renderLiveProjectionRail(state) {
     const workspace = currentWorkspace(state);
-    refs.studioLayout.dataset.workspace = workspace;
-    refs.liveProjectionRail.dataset.workspace = workspace;
-    const html = hasOpenProject(state) && workspace === "live"
-      ? liveProjectionRailTemplate(state)
-      : "";
-    if (replaceHtmlIfChanged(refs.liveProjectionRail, html, { scrollKey: "live-projection-rail" })) {
-      inputs.bind(refs.liveProjectionRail);
-      refs.liveProjectionRail.querySelectorAll("[data-live-preview-surface]").forEach((button) => {
-        button.addEventListener("click", () => store.selectLivePreviewSurface?.(button.dataset.livePreviewSurface));
+    if (!hasOpenProject(state) || workspace !== "live") {
+      retainedUi.deactivate("vj1.control.live-projection-rail");
+      retainedUi.deactivate("vj1.control.live-significant");
+      return;
+    }
+    const model = liveProjectionListModel(state);
+    retainedUi.activate(liveProjectionRailUiGraph(model), {
+      host: refs.liveProjectionRail,
+      scope: "vj1.control.live-projection-rail",
+    });
+    const significantPanel = retainedUi.getNode("live-significant-panel", {
+      scope: "vj1.control.live-projection-rail",
+    });
+    if (model.hasSignificant && significantPanel) {
+      retainedUi.activate(liveSignificantUiGraph(state), {
+        host: significantPanel.slot("content"),
+        scope: "vj1.control.live-significant",
       });
-      refs.liveProjectionRail.querySelectorAll("[data-live-surface-visibility]").forEach((button) => {
-        button.addEventListener("click", () => store.toggleLiveSurfaceVisibility?.(button.dataset.liveSurfaceVisibility));
-      });
-      refs.liveProjectionRail.querySelectorAll("[data-clear-live-surface-patch]").forEach((button) => {
-        button.addEventListener("click", () => store.clearLiveSurfacePatch?.(button.dataset.clearLiveSurfacePatch));
-      });
-      refs.liveProjectionRail.querySelectorAll("[data-clear-live-overall-component]").forEach((button) => {
-        button.addEventListener("click", () => store.clearLiveOverallComponent?.());
-      });
-      refs.liveProjectionRail.querySelectorAll("[data-live-component]").forEach((button) => {
-        button.addEventListener("click", () => updateUi((ui) => {
-          ui.live ||= {};
-          ui.live.inspectedComponentId = button.dataset.liveComponent;
-        }, "select-live-inspected-component"));
-      });
+    } else {
+      retainedUi.deactivate("vj1.control.live-significant");
     }
   }
 
   function renderStudio(state) {
     const hasProject = hasOpenProject(state);
     if (!hasProject) {
+      retainedUi.deactivate("vj1.control.preview-tools");
       embeddedPreview.pause();
-      if (replaceHtmlIfChanged(refs.studio, `
-        <section class="studio-stage project-empty-stage">
-          <div class="visual-frame is-empty" data-preview-host>
-            ${projectEmptyTemplate()}
-          </div>
-        </section>
-      `)) bindStudioEvents();
+      retainedUi.activate(previewSurfaceUiGraph({ empty: true, emptyText: "Open a project folder to begin" }), {
+        host: refs.studio,
+        scope: "vj1.control.preview-surface",
+      });
       return;
     }
     if (currentWorkspace(state) === "nodes") {
+      retainedUi.deactivate("vj1.control.preview-surface");
+      retainedUi.deactivate("vj1.control.preview-tools");
       embeddedPreview.pause();
-      if (replaceHtmlIfChanged(refs.studio, nodeLibraryStudioTemplate(state, editorNodePackage), { scrollKey: "node-library-workspace" })) bindStudioEvents();
+      const model = nodeLibraryStudioModel(state, editorNodePackage);
+      retainedUi.activate(nodesWorkspaceStudioUiGraph(model), {
+        host: refs.studio,
+        scope: "vj1.control.nodes-workspace-studio",
+      });
       return;
     }
-    if (previewLayoutQuery?.matches) {
+    retainedUi.deactivate("vj1.control.nodes-workspace-studio");
+    if (compactPreviewLayout) {
+      retainedUi.deactivate("vj1.control.preview-surface");
+      retainedUi.deactivate("vj1.control.preview-tools");
       embeddedPreview.pause();
       return;
     }
-    if (!refs.studio.querySelector("[data-studio-stage]")) {
-      refs.studio.innerHTML = `
-      <section class="studio-stage" data-studio-stage>
-        <div class="visual-frame" data-preview-host>
-        </div>
-      </section>
-    `;
-      bindStudioEvents();
-    }
-    const previewHost = refs.studio.querySelector("[data-preview-host]");
-    setClass(previewHost, "is-empty", !hasProject);
-    if (!hasProject) {
-      replaceHtmlIfChanged(previewHost, projectEmptyTemplate());
-      embeddedPreview.pause();
-    }
+    retainedUi.activate(previewSurfaceUiGraph(), {
+      host: refs.studio,
+      scope: "vj1.control.preview-surface",
+    });
   }
 
   function renderPreview(state, context = {}) {
-    if (currentWorkspace(state) === "nodes" || previewLayoutQuery?.matches) return;
-    const previewHost = refs.studio.querySelector("[data-preview-host]");
-    if (!previewHost || previewHost.classList.contains("is-empty")) return;
+    if (currentWorkspace(state) === "nodes" || compactPreviewLayout) return;
+    const previewSurface = retainedUi.getNode("preview-surface", { scope: "vj1.control.preview-surface" });
+    const previewHost = previewSurface?.slot?.("frame");
+    const previewStage = previewSurface?.slot?.("stage");
+    const toolsHost = previewSurface?.slot?.("tools");
+    if (!previewHost || !previewStage || !toolsHost) return;
     const workspace = currentWorkspace(state);
     const kind = workspace === "component" || workspace === "scene"
       ? "component"
@@ -1414,63 +2095,15 @@ export function createControlShell({
       : workspace === "mapping"
         ? store.getMappingRenderState(state.ui.selectedMappingId)
         : state;
-    if (!previewHost.querySelector("[data-embedded-preview-stage]")) {
-      replaceHtmlIfChanged(previewHost, `
-        <div class="embedded-preview-stage" data-embedded-preview-stage></div>
-        <div class="preview-tools">
-          <button type="button" class="preview-tool" data-preview-zoom-out title="Zoom out" aria-label="Zoom out">${icon("remove")}</button>
-          <button type="button" class="preview-tool" data-preview-fit-world title="Fit world" aria-label="Fit world">${icon("public")}</button>
-          <button type="button" class="preview-tool" data-preview-fit-frame title="Fit outputs" aria-label="Fit outputs">${icon("fit_screen")}</button>
-          <button type="button" class="preview-tool" data-preview-zoom-in title="Zoom in" aria-label="Zoom in">${icon("add")}</button>
-          <button type="button" class="preview-tool" data-preview-diagnostics title="Preview scaling diagnostics" aria-label="Preview scaling diagnostics">${icon("developer_mode")}</button>
-          <button type="button" class="preview-tool preview-quality-tool is-hidden" data-preview-quality title="Preview resolution" aria-label="Preview resolution"><span data-preview-quality-label>Auto</span></button>
-          <button type="button" class="preview-tool" data-toggle-mapping-handles title="Toggle mapping handles" aria-label="Toggle mapping handles">${icon("control_point_duplicate")}</button>
-          <div class="preview-fps" data-preview-fps>0 fps</div>
-        </div>
-      `);
-    }
-    bindPreviewViewportTools(previewHost);
-    setClass(previewHost.querySelector("[data-preview-diagnostics]"), "is-active", state.ui?.previewDiagnostics === true);
-    const handleButton = previewHost.querySelector("[data-toggle-mapping-handles]");
-    setClass(handleButton, "is-active", state.global.mappingHandleMode !== "near");
-    setClass(handleButton, "is-hidden", kind !== "preview");
-    const qualityButton = previewHost.querySelector("[data-preview-quality]");
-    const supportsPreviewQuality = ["component", "scene", "mapping", "live"].includes(workspace);
-    const previewQuality = ["auto", "good", "low"].includes(state.ui?.previewQuality)
-      ? state.ui.previewQuality
-      : "good";
-    const qualityLabels = { auto: "Auto", good: "Good", low: "Low" };
-    const qualitySubject = workspace === "scene"
-      ? "Scene"
-      : workspace === "component"
-        ? "Component"
-        : workspace === "live"
-          ? "Live"
-          : "Mapping";
-    const qualityDescriptions = {
-      auto: `Auto: ${qualitySubject} preview adapts to its visible size`,
-      good: `Good: ${qualitySubject} preview matches the display's native density`,
-      low: `Low: ${qualitySubject} preview reduces GPU work for heavy compositions`,
-    };
-    setClass(qualityButton, "is-hidden", !supportsPreviewQuality);
-    setClass(qualityButton, "is-active", supportsPreviewQuality && previewQuality !== "auto");
-    setText(qualityButton?.querySelector("[data-preview-quality-label]"), qualityLabels[previewQuality]);
-    if (qualityButton) {
-      qualityButton.title = `${qualityDescriptions[previewQuality]}. Click to change quality.`;
-      qualityButton.setAttribute("aria-label", `${qualitySubject} preview resolution: ${qualityLabels[previewQuality]}`);
-    }
-    if (handleButton && !handleButton.dataset.bound) {
-      handleButton.dataset.bound = "true";
-      handleButton.addEventListener("click", () => {
-        store.update((draft) => {
-          draft.global.mappingHandleMode = draft.global.mappingHandleMode === "near" ? "always" : "near";
-        }, "toggle-mapping-handles");
-      });
-    }
+    retainedUi.activate(previewToolsUiGraph(state, { workspace, kind }), {
+      host: toolsHost,
+      scope: "vj1.control.preview-tools",
+    });
+    const previewHud = retainedUi.getNode("preview-hud", { scope: "vj1.control.preview-tools" });
     embeddedPreview.mount({
-      host: previewHost,
-      stage: previewHost.querySelector("[data-embedded-preview-stage]"),
-      hud: previewHost.querySelector("[data-preview-fps]"),
+      surface: previewSurface,
+      stage: previewStage,
+      hud: previewHud,
       mode: kind,
       state: previewState,
       activation: previewActivationForContext(context),
@@ -1479,7 +2112,7 @@ export function createControlShell({
 
   function updatePreviewState(state, activation = "full") {
     const workspace = currentWorkspace(state);
-    if (workspace === "nodes" || previewLayoutQuery?.matches) return;
+    if (workspace === "nodes" || compactPreviewLayout) return;
     const kind = workspace === "component" || workspace === "scene"
       ? "component"
       : workspace === "live"
@@ -1494,133 +2127,283 @@ export function createControlShell({
   }
 
   function renderInspector(state) {
-    refs.inspector.dataset.workspace = currentWorkspace(state);
+    const workspace = currentWorkspace(state);
+    deactivateArtifactInspectorScopes(artifactInspectorScope(workspace));
+    if (workspace !== "component" && workspace !== "scene") deactivateChainParameterUi();
+    if (workspace !== "live") deactivateLiveParameterUi();
+    if (workspace !== "mapping") retainedUi.deactivate("vj1.control.mapping-inspector");
+    if (workspace !== "scene") retainedUi.deactivate("vj1.control.scene-surface-inspector");
     const hasProject = hasOpenProject(state);
     if (!hasProject) {
-      rememberParamViewSelections(refs.inspector, activeParamViews);
-      replaceHtmlIfChanged(refs.inspector, "");
+      deactivateArtifactInspectorScopes();
+      retainedUi.deactivate("vj1.control.mapping-inspector");
+      deactivateChainParameterUi();
+      deactivateLiveParameterUi();
       return;
     }
     const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
     let html = "";
-    if (currentWorkspace(state) === "nodes") {
-      html = panelTemplate("schema", "Node editor", nodeLibraryInspectorTemplate(state, editorNodePackage));
-      replaceInspectorHtml(html, state);
+    if (workspace === "nodes") {
+      const editorModel = nodeLibraryInspectorModel(state, editorNodePackage);
+      renderInspectorPanel(state, {
+        targetId: "node-editor",
+        title: "Node editor",
+        kind: "Node",
+        icon: "schema",
+        contentId: "node-graph-editor",
+        secondaryId: "node-secondary-inspector",
+        contentChildren: [{
+          id: "node-graph-editor",
+          type: "node",
+          nodeType: NodeDefinitionEditorNode.id,
+          inputs: { model: editorModel },
+          commands: {
+            save: { action: "nodes.editor-save" },
+            reset: { action: "nodes.editor-reset" },
+          },
+        }],
+      });
       return;
     }
-    if (currentWorkspace(state) === "component") {
+    if (workspace === "component") {
       const selectedComponent = state.components.find((component) => component.id === state.ui.selectedComponentId) || state.components[0];
-      html = `${panelTemplate(
-        UI_ICONS.component,
-        selectedComponent?.name || "Component",
-        selectedComponent ? componentTemplate(selectedComponent, state) : emptyNote("No component"),
-        selectedComponent ? {
-          titlePath: `${pathForComponent(state, selectedComponent)}.name`,
-          headerActionHtml: componentHeaderAddButtonTemplate(selectedComponent),
-        } : {}
-      )}${selectedComponent ? componentSelectedChainSettingsTemplate(selectedComponent, state, {
-        nodeEditorHtml: selectedNodeEditorTemplate(selectedComponent, state, editorNodePackage),
-      }) : ""}`;
-      replaceInspectorHtml(html, state);
+      const selectedElementParameters = selectedComponent
+        ? componentSelectedChainSettingsModel(selectedComponent, state)
+        : null;
+      renderInspectorPanel(state, {
+        targetId: selectedComponent?.id || "",
+        title: selectedComponent?.name || "Component",
+        titleAddress: selectedComponent ? `${pathForComponent(state, selectedComponent)}.name` : "",
+        kind: "Component",
+        icon: UI_ICONS.component,
+        secondaryId: "component-parameters",
+        emptyText: "No component",
+        headerAction: selectedComponent ? {
+          action: "inspector.add-element",
+          label: "Add element",
+          icon: "add",
+        } : null,
+        contentChildren: selectedComponent ? [
+          componentOverviewUiModel(selectedComponent, state),
+          componentElementsUiModel(selectedComponent, state),
+        ] : [],
+        contentId: "component-overview",
+        secondaryLayout: selectedElementParameters ? ELEMENT_PARAMETER_SECTION_LAYOUT : undefined,
+        secondaryChildren: selectedElementParameters ? [selectedElementParameters] : [],
+      });
       return;
     }
-    if (currentWorkspace(state) === "scene") {
+    if (workspace === "scene") {
       const selectedScene = selectedSceneComponent(state);
       const selectedSceneSurface = state.ui.sceneInspectorTarget === "surface"
         ? state.surfaces?.find((surface) => surface.id === state.ui.selectedSurfaceId) || null
         : null;
-      html = `${panelTemplate(
-        UI_ICONS.scene,
-        selectedScene?.name || "Scene",
-        selectedScene ? sceneInspectorTemplate(selectedScene, state) : emptyNote("Create a scene"),
-        selectedScene ? {
-          titlePath: `${pathForComponent(state, selectedScene)}.name`,
-          headerActionHtml: componentHeaderAddButtonTemplate(selectedScene),
-        } : {}
-      )}${selectedScene && selectedSceneSurface
-        ? panelTemplate(UI_ICONS.surface, selectedSceneSurface.name || "Surface", sceneSurfaceInspectorTemplate(selectedSceneSurface, state), selectedSceneSurface.destination?.type !== "direct" ? {
-          titlePath: `${pathForSurface(state, selectedSceneSurface)}.name`,
-          className: "scene-surface-panel",
-        } : { className: "scene-surface-panel" })
-        : selectedScene ? componentSelectedChainSettingsTemplate(selectedScene, state, {
-          nodeEditorHtml: selectedNodeEditorTemplate(selectedScene, state, editorNodePackage),
-        }) : ""}`;
-      replaceInspectorHtml(html, state);
-      return;
-    }
-    if (currentWorkspace(state) === "live") {
-      html = liveInspectorTemplate(state);
-      replaceInspectorHtml(html, state);
-      return;
-    }
-    html = `
-      ${panelTemplate(UI_ICONS.surface, selectedSurface?.name || "Surface", selectedSurface ? mappingSurfaceTemplate(selectedSurface, state, {
-        sources: catalogItemsInSnapshot("source", sceneSourceNodes(state)),
-        sortMode: catalogSortMode(state, "source"),
-      }) : emptyNote("No surface"), selectedSurface && selectedSurface.destination?.type !== "direct"
-        ? { titlePath: `${pathForSurface(state, selectedSurface)}.name` }
-        : {})}
-    `;
-    replaceInspectorHtml(html, state);
-  }
-
-  function replaceInspectorHtml(html, state) {
-    rememberParamViewSelections(refs.inspector, activeParamViews);
-    if (!replaceHtmlIfChanged(refs.inspector, html, { scrollKey: `inspector:${currentWorkspace(state)}` })) return false;
-    restoreParamViewSelections(refs.inspector, activeParamViews);
-    replaceHtmlIfChanged.restoreScrollRegions(refs.inspector);
-    bindInputs(refs.inspector, state);
-    return true;
-  }
-
-  function bindRailEvents() {
-    inputs.bind(refs.projectRail);
-    bindNodeLibraryFilter(refs.projectRail);
-    refs.projectRail.querySelector("[data-scene-mapping-in-live]")?.addEventListener("click", (event) => {
-      event.stopPropagation();
-      store.setSceneMappingInLive?.(event.currentTarget.dataset.sceneMappingInLive !== "true");
-    });
-    refs.projectRail.querySelectorAll("[data-create-project-group]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const scene3d = button.dataset.createProjectGroup === "scene3d";
-        const kindName = scene3d ? "3D Group" : "Visual Group";
-        const name = globalThis.prompt?.(`${kindName} name`, scene3d ? "3D Scene Group" : "Visual Group")?.trim();
-        if (!name) return;
-        const used = new Set((latestState.nodes?.definitions || []).map((definition) => definition.id));
-        const baseId = `org.vj1.project.${packageIdentifier(name)}`;
-        let id = baseId;
-        let index = 2;
-        while (used.has(id) || editorNodePackage?.registry?.has?.(id)) id = `${baseId}-${index++}`;
-        try {
-          const definition = scene3d
-            ? nodePackage.createProjectScene3dGroupDefinition({ id, name })
-            : nodePackage.createProjectVisualGroupDefinition({ id, name });
-          store.update((draft) => {
-            draft.nodes.definitions = [...(draft.nodes.definitions || []), definition];
-            draft.ui.selectedNodeDefinitionId = id;
-            draft.ui.selectedNodeGroupId = "";
-          }, `update:create-project-${scene3d ? "scene3d" : "visual"}-group`);
-          setStatus(scene3d
-            ? `${name} created · its mesh, material, camera, Scene, and image nodes compile into retained 3D render steps`
-            : `${name} created · drag visual nodes into its graph`);
-        } catch (error) {
-          setStatus(`${kindName} was not created: ${error?.message || error}`);
-        }
+      const selectedSceneElementParameters = selectedScene && !selectedSceneSurface
+        ? componentSelectedChainSettingsModel(selectedScene, state)
+        : null;
+      renderInspectorPanel(state, {
+        targetId: selectedScene?.id || "",
+        title: selectedScene?.name || "Scene",
+        titleAddress: selectedScene ? `${pathForComponent(state, selectedScene)}.name` : "",
+        kind: "Scene",
+        icon: UI_ICONS.scene,
+        contentId: "scene-overview",
+        secondaryId: "scene-surface-or-parameters",
+        emptyText: "Create a scene",
+        headerAction: selectedScene ? {
+          action: "inspector.add-element",
+          label: "Add element",
+          icon: "add",
+        } : null,
+        contentChildren: selectedScene ? [
+          { ...componentOverviewUiModel(selectedScene, state), id: "scene-overview" },
+          componentElementsUiModel(selectedScene, state),
+        ] : [],
+        secondaryLayout: selectedSceneSurface
+          ? SURFACE_INSPECTOR_SECTION_LAYOUT
+          : selectedSceneElementParameters ? ELEMENT_PARAMETER_SECTION_LAYOUT : undefined,
+        secondaryPresentation: selectedSceneSurface ? "scene-surface-secondary" : "artifact-secondary",
+        secondaryChildren: selectedSceneSurface
+          ? [sceneSurfaceInspectorUiModel(selectedSceneSurface, state)]
+          : selectedSceneElementParameters ? [selectedSceneElementParameters] : [],
       });
+      return;
+    }
+    if (workspace === "live") {
+      renderInspectorPanel(state, {
+        ...selectedLiveInspectorModel(state),
+        contentId: "live-component-views",
+        secondaryId: "live-element-parameters",
+      });
+      return;
+    }
+    retainedUi.activate(mappingSurfaceInspectorUiGraph(selectedSurface, state), {
+      host: refs.inspector,
     });
-    refs.projectRail.querySelectorAll("[data-select-node-definition]").forEach((button) => {
-      button.addEventListener("click", () => updateUi((ui) => {
-        ui.selectedNodeDefinitionId = button.dataset.selectNodeDefinition;
-        ui.selectedNodeGroupId = "";
-      }, "select-node-definition"));
+  }
+
+  function renderInspectorPanel(state, model = {}) {
+    retainedUi.deactivate("vj1.control.mapping-inspector");
+    retainedUi.deactivate("vj1.control.scene-surface-inspector");
+    const workspace = currentWorkspace(state);
+    const scope = artifactInspectorScope(workspace);
+    if (!scope) throw new Error(`ARTIFACT_INSPECTOR_WORKSPACE_REQUIRED:${workspace}`);
+    deactivateArtifactInspectorScopes(scope);
+    const contentId = String(model.contentId || "content");
+    const secondaryId = String(model.secondaryId || "secondary-content");
+    retainedUi.activate(compileUiModel(artifactInspectorUiModel({
+      targetId: model.targetId || "",
+      title: model.title || model.kind || "Inspector",
+      titleAddress: model.titleAddress || "",
+      kind: model.kind || "Inspector",
+      icon: model.icon || "",
+      media: model.media || null,
+      emptyText: model.emptyText || "Nothing selected",
+      headerAction: model.headerAction || null,
+      contentId,
+      secondaryId,
+      primaryLayout: model.primaryLayout,
+      secondaryLayout: model.secondaryLayout,
+      secondaryPresentation: model.secondaryPresentation,
+      contentChildren: model.contentChildren,
+      secondaryChildren: model.secondaryChildren,
+    }), {
+      id: scope,
+      stateAddress: `workspaces/${workspace}/inspector`,
+    }), {
+      host: refs.inspector,
+      scope,
     });
-    refs.projectRail.querySelectorAll("[data-select-node-group]").forEach((button) => {
-      button.addEventListener("click", () => updateUi((ui) => {
-        ui.selectedNodeGroupId = button.dataset.selectNodeGroup;
-      }, "select-node-group"));
-    });
-    refs.projectRail.querySelector("[data-node-package-export]")?.addEventListener("click", async (event) => {
-      const button = event.currentTarget;
+    reconcileInspectorEmbeddedUi(state);
+  }
+
+  function deactivateArtifactInspectorScopes(activeScope = "") {
+    for (const workspace of ARTIFACT_INSPECTOR_WORKSPACES) {
+      const scope = artifactInspectorScope(workspace);
+      if (scope !== activeScope) retainedUi.deactivate(scope);
+    }
+  }
+
+  function reconcileInspectorEmbeddedUi(state) {
+    reconcileChainParameterTabsUi(state);
+    reconcileLiveComponentViewUi(state);
+    reconcileLiveChainParameterTabsUi(state);
+  }
+
+  function inspectorParameterComponent(state) {
+    const workspace = currentWorkspace(state);
+    if (workspace === "scene") return selectedSceneComponent(state);
+    if (workspace === "component") {
+      return state.components.find((item) => item.id === state.ui.selectedComponentId) || state.components[0];
+    }
+    return null;
+  }
+
+  function reconcileChainParameterTabsUi(state) {
+    const scope = "vj1.control.chain-parameter-tabs";
+    const workspace = currentWorkspace(state);
+    const inspectorScope = artifactInspectorScope(workspace);
+    const secondaryId = workspace === "scene" ? "scene-surface-or-parameters" : "component-parameters";
+    const host = retainedUi.getNode(uiModelNodeId([
+      "artifact-inspector",
+      secondaryId,
+      "selected-element-panel",
+      "chain-parameter-tabs",
+    ]), { scope: inspectorScope })?.element?.();
+    const component = inspectorParameterComponent(state);
+    const model = host && component ? selectedChainParameterTabsModel(component, state, {
+      nodeEditorModel: selectedNodeEditorModel(component, state, editorNodePackage),
+    }) : null;
+    reconcileParameterTabs(scope, host, model, state, false);
+  }
+
+  function deactivateChainParameterUi() {
+    retainedUi.deactivate("vj1.control.chain-parameter-tabs");
+  }
+
+  function reconcileLiveComponentViewUi(state) {
+    const scope = "vj1.control.live-component-view";
+    const inspectorScope = artifactInspectorScope("live");
+    const host = retainedUi.getNode(uiModelNodeId([
+      "artifact-inspector", "primary", "live-component-views",
+    ]), { scope: inspectorScope })?.element?.();
+    const model = host && currentWorkspace(state) === "live"
+      ? selectedLiveComponentViewModel(state)
+      : null;
+    if (!host || !model) {
+      retainedUi.deactivate(scope);
+      return;
+    }
+    retainedUi.activate(liveComponentViewUiGraph(model), { host, scope });
+  }
+
+  function reconcileLiveChainParameterTabsUi(state) {
+    const scope = "vj1.control.live-chain-parameter-tabs";
+    const inspectorScope = artifactInspectorScope("live");
+    const host = retainedUi.getNode(uiModelNodeId([
+      "artifact-inspector",
+      "live-element-parameters",
+      "live-element-panel",
+      "live-chain-parameter-tabs",
+    ]), { scope: inspectorScope })?.element?.();
+    const model = host ? selectedLiveParameterTabsModel(state) : null;
+    reconcileParameterTabs(scope, host, model, state, true);
+  }
+
+  function reconcileParameterTabs(scope, host, model, state, live) {
+    if (!host || !model?.views?.length) {
+      retainedUi.deactivate(scope);
+      return;
+    }
+    retainedUi.activate(parameterTabsUiGraph(model, { id: scope, live }), { host, scope });
+  }
+
+  function deactivateLiveParameterUi() {
+    retainedUi.deactivate("vj1.control.live-component-view");
+    retainedUi.deactivate("vj1.control.live-chain-parameter-tabs");
+  }
+
+  async function handleNodesLibraryAction(payload = {}) {
+    const action = String(payload.id || "");
+    const packageId = String(payload.itemId || "");
+    if (action === "create-visual-group" || action === "create-scene3d-group") {
+      const scene3d = action === "create-scene3d-group";
+      const kindName = scene3d ? "3D Group" : "Visual Group";
+      const name = globalThis.prompt?.(`${kindName} name`, scene3d ? "3D Scene Group" : "Visual Group")?.trim();
+      if (!name) return;
+      const used = new Set((latestState.nodes?.definitions || []).map((definition) => definition.id));
+      const baseId = `org.vj1.project.${packageIdentifier(name)}`;
+      let id = baseId;
+      let index = 2;
+      while (used.has(id) || editorNodePackage?.registry?.has?.(id)) id = `${baseId}-${index++}`;
+      try {
+        const definition = scene3d
+          ? nodePackage.createProjectScene3dGroupDefinition({ id, name })
+          : nodePackage.createProjectVisualGroupDefinition({ id, name });
+        store.update((draft) => {
+          draft.nodes.definitions = [...(draft.nodes.definitions || []), definition];
+          draft.ui.selectedNodeDefinitionId = id;
+          draft.ui.selectedNodeGroupId = "";
+        }, `update:create-project-${scene3d ? "scene3d" : "visual"}-group`);
+        setStatus(`${name} created`);
+      } catch (error) {
+        setStatus(`${kindName} was not created: ${error?.message || error}`);
+      }
+      return;
+    }
+    if (action === "import-package") {
+      const confirmed = typeof globalThis.confirm !== "function"
+        || globalThis.confirm("Import this node package? Node packages may contain executable JavaScript. Only import packages you trust.");
+      if (!confirmed) return;
+      try {
+        const imported = await projectService.importNodePackageFolder();
+        setStatus(`${imported.id}@${imported.version} imported; choose Install to activate it`);
+      } catch (error) {
+        if (error?.name !== "AbortError") setStatus(`Package was not imported: ${error?.message || error}`);
+      }
+      return;
+    }
+    if (action === "export-selected-package") {
       try {
         const selection = selectedProjectPackageExport(latestState, editorNodePackage);
         const suggestedId = `org.vj1.project.${packageIdentifier(latestState.project?.name || "visual")}`;
@@ -1629,249 +2412,57 @@ export function createControlShell({
         const version = globalThis.prompt?.("Exact package version", "0.1.0")?.trim();
         if (!version) return;
         const name = globalThis.prompt?.("Package name", selection.name)?.trim() || selection.name;
-        button.disabled = true;
         const encoded = nodePackage.exportProjectPackage(latestState, {
-          id,
-          version,
-          name,
+          id, version, name,
           description: `Reusable VJ1 package exported from ${selection.name}.`,
           ...selection.manifest,
         });
         const path = await projectService.writeNodePackageManifest(encoded);
         setStatus(`Package written to ${path}`);
       } catch (error) {
-        button.disabled = false;
         setStatus(`Package was not exported: ${error?.message || error}`);
       }
-    });
-    refs.projectRail.querySelector("[data-node-package-import]")?.addEventListener("click", async (event) => {
-      const button = event.currentTarget;
-      const confirmed = typeof globalThis.confirm !== "function"
-        || globalThis.confirm("Import this node package? Node packages may contain executable JavaScript. Only import packages you trust.");
-      if (!confirmed) return;
-      button.disabled = true;
-      try {
-        const imported = await projectService.importNodePackageFolder();
-        setStatus(`${imported.id}@${imported.version} imported; choose Install to activate it`);
-      } catch (error) {
-        button.disabled = false;
-        if (error?.name !== "AbortError") {
-          setStatus(`Package was not imported: ${error?.message || error}`);
-        }
-      }
-    });
-    refs.projectRail.querySelectorAll("[data-node-package-toggle]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        const packageId = button.dataset.nodePackageToggle || "";
-        const enable = button.dataset.nodePackageEnabled !== "true";
-        button.disabled = true;
-        try {
-          await projectService.setNodePackageEnabled(packageId, enable);
-          setStatus(`${packageId} ${enable ? "enabled" : "disabled"}`);
-        } catch (error) {
-          button.disabled = false;
-          setStatus(`${packageId} was not ${enable ? "enabled" : "disabled"}: ${error?.message || error}`);
-        }
-      });
-    });
-    refs.projectRail.querySelectorAll("[data-node-package-install]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        const packageId = button.dataset.nodePackageInstall || "";
-        const version = [...refs.projectRail.querySelectorAll("[data-node-package-version-select]")]
-          .find((select) => select.dataset.nodePackageVersionSelect === packageId)?.value || "";
-        button.disabled = true;
-        try {
-          await projectService.installNodePackage(packageId, version);
-          setStatus(`${packageId}@${version} is active for this project`);
-        } catch (error) {
-          button.disabled = false;
-          setStatus(`${packageId}@${version} was not installed: ${error?.message || error}`);
-        }
-      });
-    });
-    refs.projectRail.querySelectorAll("[data-node-package-export-folder]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        const packageId = button.dataset.nodePackageExportFolder || "";
-        const version = [...refs.projectRail.querySelectorAll("[data-node-package-version-select]")]
-          .find((select) => select.dataset.nodePackageVersionSelect === packageId)?.value
-          || button.dataset.nodePackageVersion
-          || "";
-        button.disabled = true;
-        try {
-          const exported = await projectService.exportNodePackageFolder(packageId, version);
-          setStatus(`${exported.id}@${exported.version} exported to ${exported.path}`);
-        } catch (error) {
-          button.disabled = false;
-          if (error?.name !== "AbortError") {
-            setStatus(`Package was not exported: ${error?.message || error}`);
-          }
-        }
-      });
-    });
-    refs.projectRail.querySelectorAll("[data-node-package-remove]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        const packageId = button.dataset.nodePackageRemove || "";
+      return;
+    }
+    if (!packageId) return;
+    try {
+      if (action === "toggle-package") {
+        const enable = String(payload.value) === "true";
+        await projectService.setNodePackageEnabled(packageId, enable);
+        setStatus(`${packageId} ${enable ? "enabled" : "disabled"}`);
+      } else if (action === "install-package") {
+        const version = String(payload.fields?.version || payload.value || "");
+        await projectService.installNodePackage(packageId, version);
+        setStatus(`${packageId}@${version} is active for this project`);
+      } else if (action === "export-package-folder") {
+        const version = String(payload.value || "");
+        const exported = await projectService.exportNodePackageFolder(packageId, version);
+        setStatus(`${exported.id}@${exported.version} exported to ${exported.path}`);
+      } else if (action === "remove-package") {
         const confirmed = typeof globalThis.confirm !== "function"
           || globalThis.confirm(`Remove ${packageId} from this project? Package files will remain in the folder.`);
         if (!confirmed) return;
-        button.disabled = true;
-        try {
-          await projectService.removeNodePackage(packageId);
-          setStatus(`${packageId} project reference removed`);
-        } catch (error) {
-          button.disabled = false;
-          setStatus(`${packageId} was not removed: ${error?.message || error}`);
-        }
-      });
-    });
-    refs.projectRail.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
-    refs.projectRail.querySelectorAll("[data-add-component]").forEach((button) => {
-      button.addEventListener("click", () => store.addComponent());
-    });
-    refs.projectRail.querySelectorAll("[data-add-surface]").forEach((button) => {
-      button.addEventListener("click", () => store.addSurface());
-    });
-    refs.projectRail.querySelector("[data-add-mapping]")?.addEventListener("click", () => {
-      const name = `Map ${latestState.mappings.length + 1}`;
-      store.addMapping(name);
-    });
-    refs.projectRail.querySelectorAll("[data-select-mapping]").forEach((button) => {
-      button.addEventListener("click", () => store.selectMapping(button.dataset.selectMapping));
-    });
-    refs.projectRail.querySelectorAll("[data-live-scene]").forEach((button) => {
-      button.addEventListener("click", () => store.selectLiveScene(button.dataset.liveScene));
-    });
-    refs.projectRail.querySelectorAll("[data-live-target-component]").forEach((button) => {
-      button.addEventListener("click", () => store.selectLiveComponent?.(button.dataset.liveTargetComponent));
-    });
-    refs.projectRail.querySelectorAll("[data-live-source-filter]").forEach((button) => {
-      button.addEventListener("click", () => updateUi((ui) => {
-        ui.live ||= {};
-        const key = button.dataset.liveSourceFilter === "components" ? "showComponents" : "showScenes";
-        const otherKey = key === "showScenes" ? "showComponents" : "showScenes";
-        const next = !ui.live[key];
-        // Keep at least one catalog visible; both may be enabled.
-        if (!next && !ui.live[otherKey]) return;
-        ui.live[key] = next;
-      }, "live-source-filter"));
-    });
-    refs.projectRail.querySelectorAll("[data-live-component]").forEach((button) => {
-      button.addEventListener("click", () => updateUi((ui) => {
-        ui.live ||= {};
-        ui.live.inspectedComponentId = button.dataset.liveComponent;
-      }, "select-live-inspected-component"));
-    });
-    refs.projectRail.querySelectorAll("[data-reset-live-target]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        store.resetLiveTarget?.(button.dataset.resetLiveTarget);
-      });
-    });
-    refs.projectRail.querySelector("[data-reset-live-session]")?.addEventListener("click", (event) => {
-      event.stopPropagation();
-      store.resetLiveSession?.();
-    });
-    refs.projectRail.querySelectorAll("[data-delete-mapping]").forEach((button) => {
-      button.addEventListener("click", () => store.deleteMapping(button.dataset.deleteMapping));
-    });
-    bindCatalogMarkerControls(refs.projectRail);
-    refs.projectRail.querySelectorAll("[data-surface-reorder-list]").forEach((list) => {
-      bindReorderList(list, {
-        onReorder: (fromId, toId) => store.reorderSurfaces?.(fromId, toId),
-      });
-    });
-  }
-
-  function bindCatalogMarkerControls(scope) {
-    scope?.querySelectorAll?.("[data-cycle-catalog-marker]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const kind = button.dataset.cycleCatalogMarker || "component";
-        const id = button.dataset.catalogMarkerId || "";
-        if (!store.cycleCatalogMarker?.(kind, id)) return;
-        if (kind !== "media") {
-          const catalog = kind === "mapping" ? "mapping" : latestState.components.find((item) => item.id === id)?.type === "scene" ? "scene" : "component";
-          captureCatalogOrder(catalog, latestState);
-          if (kind === "component") captureCatalogOrder("source", latestState);
-          if (
-            currentWorkspace(latestState) === "live" &&
-            (kind === "scene" || kind === "component")
-          ) {
-            captureCatalogOrder("live", latestState);
-          }
-        }
-        renderProjectRail(latestState);
-        if (scope === refs.inspector) renderInspector(latestState);
-      });
-    });
-  }
-
-  function bindPreviewViewportTools(previewHost) {
-    const bindButton = (selector, handler) => {
-      const button = previewHost.querySelector(selector);
-      if (!button || button.dataset.bound) return;
-      button.dataset.bound = "true";
-      button.addEventListener("click", handler);
-    };
-    bindButton("[data-preview-zoom-out]", () => nudgePreviewZoom(1 / 1.2));
-    bindButton("[data-preview-zoom-in]", () => nudgePreviewZoom(1.2));
-    bindButton("[data-preview-diagnostics]", () => {
-      updateUi((ui) => {
-        ui.previewDiagnostics = ui.previewDiagnostics !== true;
-      }, "preview-diagnostics");
-    });
-    bindButton("[data-preview-quality]", () => {
-      store.update((draft) => {
-        if (!["component", "scene", "mapping", "live"].includes(currentWorkspace(draft))) return;
-        draft.ui.previewQuality = nextPreviewQuality(draft.ui.previewQuality);
-      }, "preview-quality");
-    });
-    bindButton("[data-preview-fit-world]", () => {
-      updateUi((ui) => {
-        updatePreviewViewportForUi(ui, resetViewport());
-      }, "preview-fit-world");
-    });
-    bindButton("[data-preview-fit-frame]", () => {
-      const stage = previewHost.querySelector("[data-embedded-preview-stage]");
-      const rect = stage?.getBoundingClientRect?.();
-      updateUi((ui) => {
-        updatePreviewViewportForUi(ui, fitPreviewViewport({
-          workspace: currentWorkspace(latestState),
-          stageSize: {
-            width: Math.max(1, Math.floor(rect?.width || previewHost.clientWidth || 960)),
-            height: Math.max(1, Math.floor(rect?.height || previewHost.clientHeight || 540)),
-          },
-          render: latestState.render,
-        }));
-      }, "preview-fit-frame");
-    });
-  }
-
-  function nudgePreviewZoom(multiplier) {
-    updateUi((ui) => {
-      updatePreviewViewportForUi(ui, (viewport) => zoomViewport(viewport, multiplier));
-    }, "preview-zoom");
-  }
-
-  function updateUi(recipe, reason) {
-    if (typeof store.updateUi === "function") {
-      store.updateUi(recipe, reason);
-      return;
+        await projectService.removeNodePackage(packageId);
+        setStatus(`${packageId} project reference removed`);
+      }
+    } catch (error) {
+      if (error?.name !== "AbortError") setStatus(`${packageId}: ${error?.message || error}`);
     }
-    store.update((draft) => recipe(draft.ui), reason);
   }
 
-  function bindStudioEvents() {
-    refs.studio.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
-    refs.studio.querySelector("[data-import-files]")?.addEventListener("click", () => refs.importFiles.click());
-    refs.studio.querySelector("[data-reset-mapping]")?.addEventListener("click", () => {
-      resetProjectMapping();
-    });
-    bindNodeGraphCanvas(refs.studio, {
-      registry: editorNodePackage?.registry,
+  function nodeGraphCommandHandlers() {
+    return {
       onStatus: setStatus,
-      onMediaParameterRequest: ({ accept, apply }) => {
-        modals.openMediaPicker("", accept, apply);
+      onMediaParameterRequest: ({ nodeId, parameterId, accept }) => {
+        modals.openMediaPicker("", accept, (value) => {
+          const target = selectedNodeWorkspaceTarget(latestState, editorNodePackage);
+          const graph = target?.definition?.parts?.find((part) => part.kind === "graph");
+          if (!graph) return;
+          nodeGraphCommandHandlers().onGraphChange(
+            graphWithNodeParameter(graph, nodeId, parameterId, String(value || "")),
+            "change-parameter",
+          );
+        });
       },
       onPublicParameterToggle: ({ nodeId, parameterId, publicParameterId }) => {
         const target = selectedNodeWorkspaceTarget(latestState, editorNodePackage);
@@ -2002,76 +2593,7 @@ export function createControlShell({
           setStatus(`${target.definition.name} graph was not updated: ${error?.message || "invalid graph"}`);
         }
       },
-    });
-  }
-
-  function bindInputs(scope) {
-    inputs.bind(scope);
-    bindNodeEditorEvents(scope);
-    bindCatalogMarkerControls(scope);
-    scope.querySelectorAll("[data-live-component-view]").forEach((button) => {
-      button.addEventListener("click", () => updateUi((ui) => {
-        ui.live ||= {};
-        ui.live.componentView = button.dataset.liveComponentView === "elements" ? "elements" : "controls";
-      }, "select-live-component-view"));
-    });
-    scope.querySelectorAll("[data-live-chain-item]").forEach((button) => {
-      button.addEventListener("click", () => updateUi((ui) => {
-        ui.live ||= {};
-        ui.live.selectedChainItemIds ||= {};
-        ui.live.selectedChainItemIds[button.dataset.liveComponentId] = button.dataset.liveChainItem;
-      }, "select-live-chain-item"));
-    });
-  }
-
-  function bindNodeEditorEvents(scope) {
-    if (!editorNodePackage?.registry) return;
-    scope.querySelectorAll("[data-save-node-fork]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const editor = button.closest("[data-node-editor]");
-        if (!editor) return;
-        let definition;
-        try {
-          definition = editorNodePackage.registry.get(editor.dataset.nodeBaseId, editor.dataset.nodeBaseVersion);
-        } catch {
-          setStatus("Node definition is no longer available");
-          return;
-        }
-        const sources = {};
-        for (const input of editor.querySelectorAll("[data-node-part-source]")) {
-          if (!input.readOnly) sources[input.dataset.nodePartSource] = input.value;
-        }
-        try {
-          const nextNodes = prepareProjectNodeDefinitionEdit(
-            withProjectNodeFork(latestState.nodes, definition, sources),
-            definition,
-            { preflight: editorNodePackage?.preflightGraphEdit },
-          );
-          store.update((draft) => {
-            draft.nodes = nextNodes;
-          }, "update:node-fork");
-          setStatus(`${definition.name} project version saved`);
-        } catch (error) {
-          setStatus(`${definition.name} project version was not saved: ${error?.message || "invalid source"}`);
-        }
-      });
-    });
-    scope.querySelectorAll("[data-reset-node-fork]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const editor = button.closest("[data-node-editor]");
-        if (!editor) return;
-        let definition;
-        try {
-          definition = editorNodePackage.registry.get(editor.dataset.nodeBaseId, editor.dataset.nodeBaseVersion);
-        } catch {
-          return;
-        }
-        store.update((draft) => {
-          draft.nodes = withoutProjectNodeFork(draft.nodes, definition);
-        }, "update:node-fork-reset");
-        setStatus(`${definition.name} restored to the built-in version`);
-      });
-    });
+    };
   }
 
   function resetProjectMapping(surfaceId = "") {
@@ -2101,8 +2623,21 @@ export function createControlShell({
     }, "status");
   }
 
+  function dispose() {
+    retainedUi.dispose();
+    liveTransitionExpiryScheduler.cancel();
+    performanceSession.dispose();
+    if (signalRefreshTimer) globalThis.clearInterval(signalRefreshTimer);
+    signalRefreshTimer = 0;
+    if (renderFrame) globalThis.cancelAnimationFrame?.(renderFrame);
+    renderFrame = 0;
+    if (deferredRenderTimer) globalThis.clearTimeout(deferredRenderTimer);
+    deferredRenderTimer = 0;
+  }
+
   return {
     mount,
+    dispose,
     deliverControlSignal(payload) {
       embeddedPreview?.command(CONTROL_SIGNAL_COMMAND, payload);
     },
@@ -2135,13 +2670,6 @@ function currentWorkspace(state) {
   return WORKSPACES.includes(state.ui?.workspace) ? state.ui.workspace : "mapping";
 }
 
-function performanceComponentThumbnail(state, componentId, className) {
-  const component = state.components?.find((item) => item.id === componentId);
-  if (!component) return "";
-  const fallbackIcon = componentTypeIcon(component);
-  return `<span class="performance-component-thumbnail ${esc(className)}">${thumbnailTemplate(component.thumbnail, fallbackIcon)}</span>`;
-}
-
 function workspaceLabel(workspace) {
   if (workspace === "component") return "Components";
   if (workspace === "scene") return "Scenes";
@@ -2152,22 +2680,6 @@ function workspaceLabel(workspace) {
 
 function hasOpenProject(state) {
   return !!state?.project?.folderName;
-}
-
-function downloadPerformanceProfile(report, projectName = "vj1") {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const safeProjectName = String(projectName || "vj1")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "vj1";
-  const blob = new Blob([JSON.stringify(boundedProfileValue(report), null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${timestamp}-${safeProjectName}.profile.json`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function selectedProjectPackageExport(state, nodePackage) {
@@ -2215,50 +2727,24 @@ function formatNumber(value, precision = 1) {
   return Number.isFinite(number) ? number.toFixed(precision) : "--";
 }
 
+function diagnosticIcon(level) {
+  if (level === "error") return "error";
+  if (level === "warning") return "warning";
+  if (level === "info") return "info";
+  return "check_circle";
+}
+
+function emptyDiagnosticsSummary() {
+  return Object.freeze({
+    level: "ok",
+    counts: Object.freeze({ info: 0, warning: 0, error: 0 }),
+    entries: Object.freeze([]),
+  });
+}
+
 function formatPercent(value) {
   const number = Math.max(0, Number(value) || 0);
   return `${number > 0 && number < 10 ? number.toFixed(1) : Math.round(number)}%`;
-}
-
-function formatBytesSigned(value) {
-  const bytes = Number(value);
-  if (!Number.isFinite(bytes)) return "unknown";
-  const sign = bytes > 0 ? "+" : bytes < 0 ? "−" : "";
-  const absolute = Math.abs(bytes);
-  const amount = absolute >= 1024 * 1024 ? `${(absolute / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(absolute / 1024)} KB`;
-  return `${sign}${amount}`;
-}
-
-function performanceReadoutTemplate(iconName, label, value) {
-  return `<span class="performance-health-readout">${icon(iconName)}<span><small>${esc(label)}</small><strong>${esc(value)}</strong></span></span>`;
-}
-
-function signalLoadBreakdownTemplate(signalLoad = {}) {
-  const categories = signalLoad.categories || {};
-  return `
-    <div class="performance-signal-breakdown">
-      <strong>Signal flow per second</strong>
-      ${signalCategoryListTemplate(categories)}
-      ${signalLoad.topReasons?.length
-        ? `<small>Top: ${signalLoad.topReasons.slice(0, 3).map((item) => `${esc(item.reason)} ${Math.round(item.count)}`).join(" · ")}</small>`
-        : ""}
-    </div>`;
-}
-
-function signalCategoryListTemplate(categories = {}) {
-  const rows = [
-    ["Authored transactions", "transactions"],
-    ["Render wakeups", "invalidations"],
-    ["Graph compiles", "compiles"],
-    ["Resource revisions", "resourceRevisions"],
-    ["Cache invalidations", "cacheInvalidations"],
-    ["Cache hits", "cacheHits"],
-    ["Preview presentations", "previewPresentations"],
-    ["Output presentations", "outputPresentations"],
-  ];
-  return `<ul class="performance-signal-list">${rows.map(([label, category]) =>
-    `<li><span>${esc(label)}</span><strong>${formatNumber(categories[category], 1)}/s</strong></li>`
-  ).join("")}</ul>`;
 }
 
 export function performanceHealthStep(load) {
@@ -2267,16 +2753,6 @@ export function performanceHealthStep(load) {
     if (value < performanceHealthThresholds[index]) return index;
   }
   return performanceHealthClasses.length - 1;
-}
-
-function setPerformanceHealthDot(dot, load, available = true) {
-  if (!dot) return;
-  dot.classList.remove(...performanceHealthClasses, "is-unknown");
-  if (!available) {
-    dot.classList.add("is-unknown");
-    return;
-  }
-  dot.classList.add(performanceHealthClasses[performanceHealthStep(load)]);
 }
 
 export function activeRenderCost(state) {
@@ -2438,28 +2914,6 @@ function formatRenderCost(cost) {
   return `${percent > 0 && percent < 10 ? percent.toFixed(1) : Math.round(percent)}%`;
 }
 
-
-function bindComponentFilters(scope) {
-  scope?.querySelectorAll?.("[data-component-filter]").forEach((input) => {
-    const apply = () => applyComponentFilter(input);
-    input.addEventListener("input", apply);
-    apply();
-  });
-}
-
-function applyComponentFilter(input) {
-  const filterScope = input?.closest?.("[data-component-filter-scope]");
-  const query = String(input?.value || "").trim().toLowerCase();
-  filterScope?.querySelectorAll?.("[data-component-filter-card]").forEach((card) => {
-    card.hidden = !!query && !String(card.dataset.componentFilterCard || "").includes(query);
-  });
-}
-
-function pathForSurface(state, surface) {
-  const mappingIndex = state.mappings.findIndex((item) => item.id === state.ui.selectedMappingId);
-  const surfaceIndex = state.mappings[mappingIndex]?.surfaces?.findIndex((item) => item.id === surface.id) ?? -1;
-  return `mappings.${mappingIndex}.surfaces.${surfaceIndex}`;
-}
 
 function pathForMapping(state, mapping) {
   return `mappings.${state.mappings.findIndex((item) => item.id === mapping.id)}`;

@@ -104,7 +104,7 @@ export { renderStateComponentProgramRoots };
 export { componentPipelineSourceRequest };
 
 export class OutputRenderer {
-  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendChainBoundary, sendSurfaceRect, sendMediaRendition, sendMediaMetadata, requestMediaFiles, requestPresentationFrame, onSurfaceSelect, onChainItemSelect, onSceneSurfaceSelect, sendDmxFixture = null, controlSignals = null, screenCapture = undefined, installedNodePackages = [] }) {
+  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendChainBoundary, sendSurfaceRect, sendMediaRendition, sendMediaMetadata, requestMediaFiles, requestPresentationFrame, onSurfaceSelect, onChainItemSelect, onSceneSurfaceSelect, sendDmxFixture = null, onDownload = null, controlSignals = null, screenCapture = undefined, installedNodePackages = [] }) {
     this.mode = mode;
     this.outputId = outputId;
     this.hud = hud;
@@ -128,6 +128,7 @@ export class OutputRenderer {
     this.presentationGeometry = new PresentationGeometryRuntime(this);
     this.mappingRuntime = new OutputMappingRuntime(this, {
       sendMapping: (...args) => this.sendMapping?.(...args),
+      requestDownload: onDownload,
     });
     this.ownsControlSignalRuntime = !controlSignals;
     this.controlSignalRuntime = controlSignals || new ControlSignalRuntime({

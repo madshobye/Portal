@@ -161,11 +161,15 @@ export async function convert3dFileToImage(inputs = {}) {
   }
 }
 
-export async function createModelPreviewUrl(file) {
+export async function createModelPreviewBlob(file) {
   const converted = await convert3dFileToImage({
     source: file,
     name: file?.relativePath || file?.webkitRelativePath || file?.name || "",
     profile: "thumbnail",
   });
-  return URL.createObjectURL(new Blob([converted.image.data], { type: "image/svg+xml" }));
+  return new Blob([converted.image.data], { type: "image/svg+xml" });
+}
+
+export async function createModelPreviewUrl(file) {
+  return URL.createObjectURL(await createModelPreviewBlob(file));
 }

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>UI live source filter layout</title>
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/base.css" />
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/themes/vj.css" />
+  <style>
+    body { margin: 0; background: #111; }
+    #host { width: 280px; height: 520px; }
+  </style>
+</head>
+<body>
+  <main id="host"></main>
+  <pre id="result">running</pre>
+  <script type="module">
+    import { createUi } from "../../js/libraries/ui-engine/index.js";
+
+    const host = document.querySelector("#host");
+    createUi({
+      host,
+      model: {
+        id: "live-source-filter-smoke",
+        type: "host-region",
+        orientation: "column",
+        children: [{
+          id: "live-source-collection",
+          type: "collection",
+          title: "Sources",
+          items: [],
+          searchPlaceholder: "Filter sources",
+          hasToolSlot: true,
+          toolActions: [{ id: "sort", label: "Sort", icon: "sort" }],
+          onAction: "smoke.action",
+          children: [{
+            id: "live-source-filter-layout",
+            type: "layout",
+            slot: "tools",
+            orientation: "row",
+            sizing: "fill",
+            gap: 6,
+            presentation: "live-source-tabs",
+            children: [{
+              id: "live-source-scenes",
+              type: "toggle",
+              slot: "scenes",
+              label: "Scenes",
+              value: true,
+              icon: "landscape",
+              presentation: "live-source-toggle",
+              onChange: "smoke.toggle",
+            }, {
+              id: "live-source-components",
+              type: "toggle",
+              slot: "components",
+              label: "Parts",
+              value: false,
+              icon: "extension",
+              presentation: "live-source-toggle",
+              onChange: "smoke.toggle",
+            }],
+          }],
+        }],
+      },
+    });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const bounds = (selector) => {
+      const element = host.querySelector(selector);
+      if (!element) return null;
+      const box = element.getBoundingClientRect();
+      return { left: box.left, right: box.right, width: box.width };
+    };
+    const result = {
+      search: bounds(".ui-node-collection-search"),
+      filters: bounds(".live-source-kind-tabs"),
+      scenes: bounds('.live-source-kind-tabs button[aria-label="Scenes"]'),
+      parts: bounds('.live-source-kind-tabs button[aria-label="Parts"]'),
+      sort: bounds('[data-ui-collection-action-scope="tool"]'),
+    };
+    result.searchFilterSeparated = result.search && result.filters && result.search.right <= result.filters.left;
+    result.filterSortSeparated = result.filters && result.sort && result.filters.right <= result.sort.left;
+    result.toggleOrder = result.scenes && result.parts && result.scenes.right <= result.parts.left;
+    result.ok = Boolean(result.searchFilterSeparated && result.filterSortSeparated && result.toggleOrder);
+    document.querySelector("#result").textContent = JSON.stringify(result, null, 2);
+    document.documentElement.dataset.testStatus = result.ok ? "passed" : "failed";
+  </script>
+</body>
+</html>

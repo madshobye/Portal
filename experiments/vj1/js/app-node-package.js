@@ -88,6 +88,7 @@ import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/in
 import { MediaInputLifecycleNode } from "./libraries/media-engine/index.js";
 import { RenderDemandNode } from "./libraries/render-engine/index.js";
 import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js";
+import { UiNodeDefinitions } from "./libraries/ui-engine/index.js";
 import {
   Convert3dFileToImageGroup,
   ComposableScene3dGroup,
@@ -164,6 +165,7 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   MediaInputLifecycleNode,
   RenderDemandNode,
   VisualNodeDefinitionNode,
+  ...UiNodeDefinitions,
   ...VisualStageNodeDefinitions,
   Detect3dFormatNode,
   StlParserNode,

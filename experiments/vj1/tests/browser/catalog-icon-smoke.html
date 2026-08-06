@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Catalog icon smoke</title>
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/base.css" />
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/themes/vj.css" />
+</head>
+<body>
+  <main id="host"></main>
+  <pre id="result">running</pre>
+  <script>
+    const fail = (error) => {
+      document.documentElement.dataset.testStatus = "failed";
+      document.querySelector("#result").textContent = error?.stack || String(error);
+    };
+    window.addEventListener("error", (event) => fail(event.error || event.message));
+    window.addEventListener("unhandledrejection", (event) => fail(event.reason));
+  </script>
+  <script type="module">
+    import {
+      CatalogPickerNode,
+      defineUiGraph,
+      RetainedUiRuntime,
+      UiNodeDefinitions,
+      UiNodeRegistry,
+    } from "../../js/libraries/ui-engine/index.js";
+
+    const runtime = new RetainedUiRuntime({
+      registry: new UiNodeRegistry(UiNodeDefinitions),
+      dispatch: () => {},
+    });
+    runtime.activate(defineUiGraph({
+      id: "catalog-icon-smoke",
+      nodes: [{
+        id: "catalog",
+        type: CatalogPickerNode.id,
+        inputs: {
+          title: "Choose element",
+          actions: [{ id: "refresh", label: "Refresh media", icon: "refresh" }],
+          sections: [{
+            id: "elements",
+            label: "Elements",
+            items: [
+              { id: "generator", label: "Generator", icon: "auto_awesome", meta: "generator" },
+              { id: "effect", label: "Effect", icon: "blur_on", meta: "effect" },
+            ],
+          }],
+        },
+      }],
+    }), { host: document.querySelector("#host") });
+
+    await document.fonts.ready;
+    const icons = [...document.querySelectorAll(".ui-node-catalog-icon")];
+    const fontFamilies = icons.map((icon) => getComputedStyle(icon).fontFamily);
+    if (
+      icons.length !== 2 ||
+      icons.some((icon) => !icon.classList.contains("material-symbols-rounded")) ||
+      fontFamilies.some((family) => !family.includes("Material Symbols Rounded")) ||
+      !document.fonts.check('18px "Material Symbols Rounded"')
+    ) {
+      throw new Error(`generator and effect icons do not use the bundled Material Symbols font: ${fontFamilies.join(", ")}`);
+    }
+
+    const cards = [...document.querySelectorAll(".ui-node-catalog-card")];
+    const cardContentLefts = cards.map((card) => {
+      const expectedLeft = card.getBoundingClientRect().left + parseFloat(getComputedStyle(card).paddingLeft);
+      return [...card.children].map((child) => Math.abs(child.getBoundingClientRect().left - expectedLeft));
+    });
+    if (cardContentLefts.flat().some((offset) => offset > 0.5)) {
+      throw new Error(`catalog card content must share one left edge: ${JSON.stringify(cardContentLefts)}`);
+    }
+
+    const headerGlyphs = [...document.querySelectorAll(".ui-node-catalog-actions .ui-node-catalog-action-icon")];
+    const headerStyles = headerGlyphs.map((glyph) => getComputedStyle(glyph));
+    if (
+      headerGlyphs.length !== 2 ||
+      headerGlyphs.map((glyph) => glyph.textContent).join(" ") !== "refresh close" ||
+      headerStyles.some((style) => !style.fontFamily.includes("Material Symbols Rounded")) ||
+      new Set(headerStyles.map((style) => `${style.fontSize}/${style.lineHeight}/${style.width}`)).size !== 1
+    ) {
+      throw new Error("refresh and close must share one Material Symbols presentation");
+    }
+
+    document.querySelector("#result").textContent = "PASS catalog Material Symbols";
+    document.documentElement.dataset.testStatus = "passed";
+  </script>
+</body>
+</html>

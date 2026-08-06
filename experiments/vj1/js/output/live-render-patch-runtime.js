@@ -133,6 +133,7 @@ export class LiveRenderPatchRuntime {
       const { destination, key, active, from } = candidate;
       const to = destination.value;
       const canFade = durationMs > 0 &&
+        destination.interpolation !== "immediate" &&
         isInterpolableLiveRenderPath(destination.path, destination.nodeId) &&
         Number.isFinite(from) &&
         Number.isFinite(to);

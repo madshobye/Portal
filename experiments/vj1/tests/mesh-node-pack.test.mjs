@@ -140,7 +140,7 @@ test("Convert 3D File to Image exposes recursive prepare render and resize struc
   assert.equal(converted.renderResult.backend, "svg");
   assert.deepEqual(graph.nodes.map((node) => node.id), ["prepare", "render", "resize"]);
   assert.match(converted.image.data, /^<svg/);
-  assert.match(readFileSync(new URL("../js/services/media-library-service.js", import.meta.url), "utf8"), /libraries\/mesh-engine\/convert-3d-file-to-image\/index\.js/);
+  assert.match(readFileSync(new URL("../js/services/media-thumbnail-service.js", import.meta.url), "utf8"), /libraries\/mesh-engine\/convert-3d-file-to-image\/index\.js/);
 });
 
 test("model previews execute the declared recursive child topology", async () => {

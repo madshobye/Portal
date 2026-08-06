@@ -34,6 +34,11 @@
       import {
         OutputPresentationMetrics,
       } from "../../js/output/output-presentation-metrics.js";
+      import {
+        PresentationHudNode,
+        RetainedUiRuntime,
+        UiNodeRegistry,
+      } from "../../js/libraries/ui-engine/index.js";
 
       const render = {
         hostViewport: { width: 640, height: 360, mode: "preview" },
@@ -78,7 +83,19 @@
       metrics.presentedResolution = { width: 1280, height: 720, density: 2 };
 
       const hud = document.querySelector("#preview-hud");
-      hud.innerHTML = metrics.previewDiagnosticMarkup(60, render);
+      const runtime = new RetainedUiRuntime({
+        registry: new UiNodeRegistry([PresentationHudNode]),
+        document,
+      });
+      const hudNode = runtime.mountNode({
+        id: "preview-resolution-hud",
+        type: PresentationHudNode.id,
+        host: hud,
+      });
+      hudNode.present({
+        diagnostic: true,
+        ...metrics.previewDiagnosticModel(60, render),
+      });
       const rows = [...hud.querySelectorAll(".output-chain-row")];
       const result = {
         ok:

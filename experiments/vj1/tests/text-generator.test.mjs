@@ -253,9 +253,9 @@ test("Text host adapter consumes the compiler-supplied node module and shaders",
   assert.match(textNodeShaderSource({}, "fragment"), /uniform sampler2D textMask/);
 });
 
-test("text generator uses an ordinary retained-value graph and compact editor", async () => {
+test("text generator uses an ordinary retained-value graph and generic retained Markdown editor", async () => {
   const component = getGeneratorComponent("text");
-  const [renderer, sourceRuntime, specialized, textRuntime, artifacts, parameterView, inputController] = await Promise.all([
+  const [renderer, sourceRuntime, specialized, textRuntime, artifacts, parameterView, inputController, markdownNode, uiProgram] = await Promise.all([
     readFile(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFile(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
     readFile(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
@@ -263,6 +263,8 @@ test("text generator uses an ordinary retained-value graph and compact editor", 
     readFile(new URL("../js/output/specialized/specialized-node-artifacts.js", import.meta.url), "utf8"),
     readFile(new URL("../js/control/parameter-view.js", import.meta.url), "utf8"),
     readFile(new URL("../js/control/input-controller.js", import.meta.url), "utf8"),
+    readFile(new URL("../js/libraries/ui-engine/nodes/markdown-node.js", import.meta.url), "utf8"),
+    readFile(new URL("../js/control/control-ui-program.js", import.meta.url), "utf8"),
   ]);
   assert.equal(component.nodeDefinition.metadata.nativeRenderer, "");
   assert.doesNotMatch(sourceRuntime, /NATIVE_SOURCE_HOST_METHODS/);
@@ -276,6 +278,9 @@ test("text generator uses an ordinary retained-value graph and compact editor", 
   assert.match(textRuntime, /nodeShaderRevision/);
   assert.match(textRuntime, /textMaskImage\(canvas, mask\?\.image/);
   assert.match(textRuntime, /setUniform\("textMask", mask\.image\)/);
-  assert.match(parameterView, /data-markdown-editor/);
-  assert.match(inputController, /bindMarkdownEditors\(scope\)/);
+  assert.doesNotMatch(parameterView, /data-markdown-editor|markdownParamControlTemplate/);
+  assert.doesNotMatch(inputController, /bindMarkdownEditors|data-markdown/);
+  assert.match(markdownNode, /core\.ui\.markdown-input/);
+  assert.match(markdownNode, /emit\("style"/);
+  assert.match(uiProgram, /project\.set-related-value/);
 });

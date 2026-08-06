@@ -1621,6 +1621,33 @@ test("Live Part temporary overrides reset through the shared target contract", (
   assert.equal(store.getState().ui.live.parameterDiffs[part.id], undefined);
 });
 
+test("Live target reset immediately returns the retained program to authored values", () => {
+  const state = createInitialState();
+  const part = state.components[0];
+  state.ui.live.selectedComponentId = part.id;
+  state.ui.live.selectedSceneId = "";
+  state.ui.live.parameterDiffs = {
+    [part.id]: { [part.id]: { opacity: 0.4 } },
+  };
+  state.ui.live.transitionCoordinator = {
+    overall: { active: { id: "old-endpoint", durationMs: 5000, startedAtMs: Date.now() } },
+  };
+  const store = createGraphAppState(state);
+  let event = null;
+  store.subscribe((_snapshot, _reason, change) => { event = change; });
+
+  store.resetLiveTarget(part.id);
+
+  assert.equal(store.getState().ui.live.parameterDiffs[part.id], undefined);
+  assert.deepEqual(store.getState().ui.live.transitionCoordinator, {});
+  assert.equal(event.reason, "live:target-reset");
+  assert.deepEqual(event.effects.preview, { mode: "live-program" });
+  assert.deepEqual(event.effects.control, {
+    regions: ["project-rail", "inspector"],
+    preview: "render",
+  });
+});
+
 test("persistent component edits update matching active Live params and retain unrelated diffs", () => {
   const state = createInitialState();
   const componentId = state.components[0].id;

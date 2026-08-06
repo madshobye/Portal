@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>UI parameter inspector composition smoke</title>
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/base.css" />
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/themes/vj.css" />
+  <style>
+    body { margin: 0; background: #111; }
+    #host { width: 620px; height: 320px; }
+    #live-host { width: 620px; height: 180px; }
+    #video-host { width: 320px; height: 320px; }
+    #settings-host { width: 1200px; height: 800px; }
+  </style>
+</head>
+<body>
+  <main id="host"></main>
+  <main id="live-host"></main>
+  <main id="video-host"></main>
+  <main id="settings-host"></main>
+  <pre id="result">running</pre>
+  <script type="module">
+    import { createUi } from "../../js/libraries/ui-engine/index.js";
+    import { parameterTabsUiModel } from "../../js/control/control-ui-program.js";
+    import { settingsUiModel } from "../../js/control/settings-view.js";
+    import { createInitialState } from "../../js/domain/models.js";
+
+    const params = [
+      { id: "motionSpeed", label: "Motion speed", type: "number", defaultValue: 1, allowedRange: [0, 2] },
+      { id: "gazeRange", label: "Gaze range", type: "number", defaultValue: 1, allowedRange: [0, 2] },
+      { id: "pause", label: "Pause", type: "number", defaultValue: 0.8, allowedRange: [0, 1] },
+      { id: "jitter", label: "Jitter", type: "number", defaultValue: 0.35, allowedRange: [0, 1] },
+      { id: "accent", label: "Accent", type: "color", defaultValue: "#ff4f92ff" },
+      ...Array.from({ length: 7 }, (_, index) => ({
+        id: `detail${index}`,
+        label: `Detail ${index + 1}`,
+        type: "number",
+        defaultValue: 0.5,
+        allowedRange: [0, 1],
+      })),
+    ];
+    const component = { id: "eyeball", significantParams: [] };
+    const item = { id: "eyeball-source", kind: "source", source: { params: {} } };
+    const model = parameterTabsUiModel({
+      stateAddress: "components/eyeball/elements/eyeball-source/parameters",
+      component,
+      item,
+      nodeId: item.id,
+      views: [{
+        id: "content",
+        label: "Primary",
+        models: [{
+          id: "media",
+          type: "resourceButton",
+          label: "Media",
+          valueLabel: "Project image",
+          detail: "image.png",
+        }],
+        parameterModel: {
+          state: { components: [component] },
+          component,
+          item,
+          nodeId: item.id,
+          basePath: "components.0.chain.0.source",
+          paramView: "primary",
+          params,
+          allParams: params,
+          values: {},
+        },
+      }],
+    });
+    const host = document.querySelector("#host");
+    createUi({ host, model });
+    const liveHost = document.querySelector("#live-host");
+    createUi({
+      host: liveHost,
+      model: {
+        id: "live-component-view",
+        type: "tabs",
+        presentation: "live-component-view",
+        tabListPresentation: "live-component-view-tabs",
+        tabs: [{
+          id: "controls",
+          label: "Controls",
+          panelPresentation: "live-component-view-panel-controls",
+          children: [{
+            id: "live-parameters",
+            type: "parameters",
+            presentation: "parameter-list",
+            controls: [{ id: "opacity", type: "number", label: "Opacity", value: 1, min: 0, max: 1, step: 0.01 }],
+          }],
+        }],
+      },
+    });
+    const videoHost = document.querySelector("#video-host");
+    const videoParams = [
+      { id: "fit", label: "Fit", type: "enum", values: ["contain", "cover"], defaultValue: "contain" },
+      { id: "cutEdge", label: "Cut edge", type: "number", defaultValue: 0, allowedRange: [0, 1] },
+      { id: "feather", label: "Feather", type: "number", defaultValue: 0, allowedRange: [0, 1] },
+    ];
+    createUi({
+      host: videoHost,
+      model: parameterTabsUiModel({
+        stateAddress: "components/movie/elements/movie-source/parameters",
+        component: { id: "movie", significantParams: [] },
+        item: { id: "movie-source", kind: "source", source: { params: {} } },
+        nodeId: "movie-source",
+        views: [{
+          id: "primary",
+          label: "Primary",
+          parameterModel: {
+            state: { components: [] },
+            component: { id: "movie", significantParams: [] },
+            item: { id: "movie-source", kind: "source", source: { params: {} } },
+            nodeId: "movie-source",
+            basePath: "components.0.chain.0.source",
+            paramView: "primary",
+            params: videoParams,
+            allParams: videoParams,
+            values: {},
+          },
+          videoModel: {
+            component: { id: "movie" },
+            basePath: "components.0.chain.0.source.params",
+            trim: { start: 1.25, end: 8.5, max: 12, implicitEnd: false, available: true },
+            speed: 1,
+          },
+        }],
+      }),
+    });
+    const settingsHost = document.querySelector("#settings-host");
+    const settingsState = createInitialState();
+    settingsState.render.pixelDensity = 2;
+    let settingsCommand = null;
+    createUi({
+      host: settingsHost,
+      model: settingsUiModel(settingsState, { projectId: "browser-smoke" }),
+      onCommand: (command) => { settingsCommand = command; },
+    });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const panel = host.querySelector('[role="tabpanel"]:not([hidden])');
+    const tabs = host.querySelector(".chain-param-views");
+    const tabList = host.querySelector(".chain-param-view-tabs");
+    const resource = panel?.querySelector(".ui-node-resource-button");
+    const list = panel?.querySelector(".ui-parameter-layout");
+    const hostBox = host.getBoundingClientRect();
+    const tabsBox = tabs?.getBoundingClientRect();
+    const tabListBox = tabList?.getBoundingClientRect();
+    const resourceBox = resource?.getBoundingClientRect();
+    const tabButtons = [...(tabList?.querySelectorAll("button") || [])];
+    const firstTabBox = tabButtons[0]?.getBoundingClientRect();
+    const lastTabBox = tabButtons.at(-1)?.getBoundingClientRect();
+    const panelBox = panel?.getBoundingClientRect();
+    const listBox = list?.getBoundingClientRect();
+    const panelStyle = panel ? getComputedStyle(panel) : null;
+    const listStyle = list ? getComputedStyle(list) : null;
+    const liveParameterSurface = liveHost.querySelector(".live-component-view-controls .parameter-surface");
+    const liveParameterStyle = liveParameterSurface ? getComputedStyle(liveParameterSurface) : null;
+    const videoPanel = videoHost.querySelector('[role="tabpanel"]:not([hidden])');
+    const videoParameterList = videoPanel?.querySelector(".ui-parameter-layout");
+    const movieHeader = [...(videoPanel?.querySelectorAll(".ui-node-section-header") || [])]
+      .find((header) => header.textContent.includes("Movie segment"));
+    const movieTrim = videoParameterList?.querySelector(".ui-node-range");
+    const movieTrimLabels = movieTrim?.querySelector(".ui-node-range-labels");
+    const movieTrimSlider = movieTrim?.querySelector(".ui-node-range-slider");
+    const movieSpeed = [...(videoParameterList?.querySelectorAll(".ui-node-slider") || [])]
+      .find((control) => control.textContent.includes("Movie speed"));
+    const firstVideoParameter = videoParameterList?.querySelector(".ui-node-select");
+    const videoPanelBox = videoPanel?.getBoundingClientRect();
+    const videoParameterListBox = videoParameterList?.getBoundingClientRect();
+    const movieTrimBox = movieTrim?.getBoundingClientRect();
+    const movieTrimLabelsBox = movieTrimLabels?.getBoundingClientRect();
+    const movieTrimSliderBox = movieTrimSlider?.getBoundingClientRect();
+    const movieSpeedBox = movieSpeed?.getBoundingClientRect();
+    const firstVideoParameterBox = firstVideoParameter?.getBoundingClientRect();
+    const densityInput = settingsHost.querySelector('input[type="number"][aria-label="Pixel density"]');
+    const grayscaleInput = settingsHost.querySelector('input[type="number"][aria-label="Grayscale amount"]');
+    if (densityInput) {
+      densityInput.value = "1.75";
+      densityInput.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    const colorInput = list?.querySelector('.ui-node-color input[type="color"]');
+    const colorAlpha = list?.querySelector('.ui-node-color input[type="range"]');
+    const colorLabel = list?.querySelector('.ui-node-color > .ui-node-control-label');
+    const sliderLabel = list?.querySelector('.ui-node-slider > .ui-node-control-label');
+    const colorInputBox = colorInput?.getBoundingClientRect();
+    const colorAlphaBox = colorAlpha?.getBoundingClientRect();
+    const colorControlBox = colorInput?.closest(".ui-node-color")?.getBoundingClientRect();
+    const sliderControlBox = sliderLabel?.closest(".ui-node-slider")?.getBoundingClientRect();
+    const colorLabelStyle = colorLabel ? getComputedStyle(colorLabel) : null;
+    const sliderLabelStyle = sliderLabel ? getComputedStyle(sliderLabel) : null;
+    const panelContentWidth = panelBox
+      ? panelBox.width - parseFloat(panelStyle.paddingLeft || 0) - parseFloat(panelStyle.paddingRight || 0)
+      : 0;
+    const parameterContentWidth = listBox
+      ? listBox.width - parseFloat(listStyle.paddingLeft || 0) - parseFloat(listStyle.paddingRight || 0)
+      : 0;
+    const controlWidths = [...(list?.querySelectorAll(".ui-node-control") || [])]
+      .map((control) => control.getBoundingClientRect().width);
+    const controlHeights = [...(list?.querySelectorAll(".ui-node-control") || [])]
+      .map((control) => control.getBoundingClientRect().height);
+    const result = {
+      controlCount: list?.querySelectorAll(".ui-node-control").length || 0,
+      nestedPanelCount: panel?.querySelectorAll(".ui-node-panel").length || 0,
+      hostHeight: hostBox.height,
+      tabsHeight: tabsBox?.height || 0,
+      panelHeight: panelBox?.height || 0,
+      panelClientHeight: panel?.clientHeight || 0,
+      panelScrollHeight: panel?.scrollHeight || 0,
+      resourceHeight: resourceBox?.height || 0,
+      parameterTop: listBox?.top || 0,
+      parameterHeight: listBox?.height || 0,
+      panelWidth: panelBox?.width || 0,
+      panelContentWidth,
+      panelPaddingTop: parseFloat(panelStyle?.paddingTop || 0),
+      panelPaddingRight: parseFloat(panelStyle?.paddingRight || 0),
+      panelPaddingBottom: parseFloat(panelStyle?.paddingBottom || 0),
+      panelPaddingLeft: parseFloat(panelStyle?.paddingLeft || 0),
+      parameterWidth: listBox?.width || 0,
+      parameterContentWidth,
+      controlWidths,
+      controlHeights,
+      liveParameterBackground: liveParameterStyle?.backgroundColor || "",
+      movieTrimHeight: movieTrimBox?.height || 0,
+      movieSpeedHeight: movieSpeedBox?.height || 0,
+      densityInputValue: densityInput?.value || "",
+      colorValue: colorInput?.value || "",
+      colorPickerWidth: colorInputBox?.width || 0,
+      colorPickerHeight: colorInputBox?.height || 0,
+      colorAlphaWidth: colorAlphaBox?.width || 0,
+      colorControlGap: (colorInputBox?.left || 0) - (colorAlphaBox?.right || 0),
+      colorControlHeight: colorControlBox?.height || 0,
+      sliderControlHeight: sliderControlBox?.height || 0,
+    };
+    result.fillsContent = Math.abs(result.parameterWidth - result.panelContentWidth) <= 1;
+    result.controlsFillContent = controlWidths.every((width) => Math.abs(width - parameterContentWidth) <= 1);
+    result.fillsHeight = Math.abs(result.tabsHeight - result.hostHeight) <= 1 && result.panelHeight > result.hostHeight / 2;
+    const panelContentTop = (panelBox?.top || 0) + parseFloat(panelStyle?.paddingTop || 0);
+    const panelContentHeight = panelBox
+      ? panelBox.height - parseFloat(panelStyle.paddingTop || 0) - parseFloat(panelStyle.paddingBottom || 0)
+      : 0;
+    const panelContentBottom = panelContentTop + panelContentHeight;
+    result.specializedControlFlowsAboveParameters = Math.abs((resourceBox?.top || 0) - panelContentTop) <= 1
+      && (resourceBox?.height || 0) > 0
+      && (resourceBox?.height || 0) < panelContentHeight / 2
+      && (resourceBox?.bottom || 0) <= result.parameterTop + 1;
+    result.parameterFillsPanel = result.parameterHeight > panelContentHeight / 2
+      && Math.abs((listBox?.bottom || 0) - panelContentBottom) <= 1;
+    result.controlsKeepNaturalHeight = controlHeights.every((height) => height >= 30);
+    result.panelIsScrollable = result.panelScrollHeight > result.panelClientHeight;
+    result.tabsUseFullWidth = Math.abs((firstTabBox?.left || 0) - (tabListBox?.left || 0)) <= 1
+      && Math.abs((lastTabBox?.right || 0) - (tabListBox?.right || 0)) <= 1;
+    result.parameterSectionUsesFullWidth = Math.abs((panelBox?.left || 0) - (tabListBox?.left || 0)) <= 1
+      && Math.abs((panelBox?.right || 0) - (tabListBox?.right || 0)) <= 1;
+    result.parameterInsetsAreCompact = result.panelPaddingTop === 4
+      && result.panelPaddingRight === 4
+      && result.panelPaddingBottom === 6
+      && result.panelPaddingLeft === 4;
+    result.liveParametersUseDarkSurface = liveParameterStyle?.paddingTop === "4px"
+      && liveParameterStyle?.paddingRight === "4px"
+      && liveParameterStyle?.paddingBottom === "6px"
+      && liveParameterStyle?.paddingLeft === "4px"
+      && liveParameterStyle?.backgroundColor !== "rgba(0, 0, 0, 0)";
+    result.movieSegmentIsOrdinaryParameter = !movieHeader
+      && movieTrim?.dataset.uiPresentation === "parameter"
+      && movieTrim?.parentElement?.parentElement === movieSpeed?.parentElement?.parentElement
+      && movieSpeed?.parentElement?.parentElement === firstVideoParameter?.parentElement?.parentElement
+      && (movieTrimBox?.height || 0) > 0
+      && (movieSpeedBox?.height || 0) > 0
+      && (movieTrimLabelsBox?.bottom || 0) <= (movieTrimSliderBox?.top || 0) + 1
+      && Math.abs((movieTrimSliderBox?.width || 0) - (movieTrimBox?.width || 0)) <= 1
+      && (movieTrimBox?.bottom || 0) <= (movieSpeedBox?.top || 0) + 1
+      && (movieSpeedBox?.bottom || 0) <= (firstVideoParameterBox?.top || 0) + 1
+      && Math.abs((movieTrimBox?.width || 0) - (firstVideoParameterBox?.width || 0)) <= 1
+      && (videoParameterListBox?.width || 0) > 0;
+    result.settingsUseNumericInputs = densityInput?.min === "0.5"
+      && densityInput?.max === "4"
+      && densityInput?.step === "0.25"
+      && settingsCommand?.action === "settings.change"
+      && settingsCommand?.address === "render.pixelDensity"
+      && settingsCommand?.payload?.value === 1.75
+      && Boolean(grayscaleInput)
+      && settingsHost.querySelectorAll('input[type="range"]').length === 0;
+    result.colorPickerIsVisible = Math.abs(result.colorPickerWidth - 32) <= 1
+      && Math.abs(result.colorPickerHeight - parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ui-parameter-height"))) <= 1
+      && result.colorAlphaWidth > result.colorPickerWidth
+      && Math.abs(result.colorControlGap - 8) <= 1
+      && Math.abs(result.colorControlHeight - result.sliderControlHeight) <= 1
+      && result.colorValue === "#ff4f92";
+    result.colorLabelMatchesParameters = colorLabelStyle?.fontFamily === sliderLabelStyle?.fontFamily
+      && colorLabelStyle?.fontSize === sliderLabelStyle?.fontSize
+      && colorLabelStyle?.fontWeight === sliderLabelStyle?.fontWeight
+      && colorLabelStyle?.lineHeight === sliderLabelStyle?.lineHeight
+      && colorLabelStyle?.color === sliderLabelStyle?.color;
+    result.ok = result.controlCount === params.length
+      && result.nestedPanelCount === 0
+      && result.fillsContent
+      && result.controlsFillContent
+      && result.fillsHeight
+      && result.specializedControlFlowsAboveParameters
+      && result.parameterFillsPanel
+      && result.controlsKeepNaturalHeight
+      && result.panelIsScrollable
+      && result.tabsUseFullWidth
+      && result.parameterSectionUsesFullWidth
+      && result.parameterInsetsAreCompact
+      && result.liveParametersUseDarkSurface
+      && result.movieSegmentIsOrdinaryParameter
+      && result.settingsUseNumericInputs
+      && result.colorPickerIsVisible
+      && result.colorLabelMatchesParameters;
+    document.querySelector("#result").textContent = JSON.stringify(result, null, 2);
+    document.documentElement.dataset.testStatus = result.ok ? "passed" : "failed";
+  </script>
+</body>
+</html>

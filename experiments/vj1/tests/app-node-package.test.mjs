@@ -47,7 +47,7 @@ import { migrateProjectData } from "../js/domain/project-migrations.js";
 import { componentLayerProjection } from "../js/domain/component-layer-projection.js";
 import {
   prepareProjectNodeDefinitionEdit,
-  selectedNodeEditorTemplate,
+  selectedNodeEditorModel,
   withProjectGroupGraph,
   withProjectNodeFork,
   withProjectNodeGraph,
@@ -55,7 +55,7 @@ import {
 } from "../js/control/node-editor-view.js";
 import { nodeGraphCanvasTemplate } from "../js/control/node-graph-canvas.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/index.js";
-import { nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "../js/control/node-library-view.js";
+import { nodeLibraryInspectorModel, nodeLibraryRailModel, nodeLibraryStudioModel, selectedNodeWorkspaceTarget } from "../js/control/node-library-view.js";
 import {
   compileJavaScriptNodeModule,
   createProjectNodeFork,
@@ -92,9 +92,9 @@ function retainedRenderContext(target, time = 0) {
   };
 }
 
-function nodeLibraryItemTag(html, definitionId) {
-  const escapedId = String(definitionId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return html.match(new RegExp(`<button[^>]*data-node-library-definition="${escapedId}"[^>]*>`))?.[0] || "";
+function nodeLibraryModelItem(model, itemId) {
+  return model.sections.flatMap((section) => section.items || [])
+    .find((item) => item.id === itemId) || null;
 }
 
 function graphGroupWithNodeConfiguration(group, nodeId, configuration) {
@@ -207,14 +207,16 @@ test("installed package definitions and resources are honestly projected into th
 
   assert.equal(editorPackage.registry.has(definition.id, definition.version), true);
   assert.equal(editorPackage.packageForDefinition(definition)?.id, installedPackage.id);
-  const rail = nodeLibraryRailTemplate(state, editorPackage);
-  assert.match(rail, /Package repository/);
-  assert.match(rail, /data-node-package-import/);
-  assert.match(rail, /data-node-package-export-folder="org\.example\.controls"/);
-  assert.match(rail, /Example Controls/);
-  assert.match(rail, /docs\/gain\.md/);
-  assert.match(rail, /data-node-package-toggle="org\.example\.controls"/);
-  assert.match(nodeLibraryStudioTemplate(state, editorPackage), /Example Controls/);
+  const rail = nodeLibraryRailModel(state, editorPackage);
+  const packageSection = rail.sections.find((section) => section.id === "packages");
+  const packageItem = nodeLibraryModelItem(rail, "org.example.controls");
+  assert.equal(packageSection.label, "Package repository");
+  assert.equal(packageSection.actions.some((action) => action.id === "import-package"), true);
+  assert.equal(packageItem.label, "Example Controls");
+  assert.match(packageItem.search, /docs\/gain\.md/);
+  assert.equal(packageItem.actions.some((action) => action.id === "export-package-folder"), true);
+  assert.equal(packageItem.actions.some((action) => action.id === "toggle-package"), true);
+  assert.equal(nodeLibraryStudioModel(state, editorPackage).contextLabel, "Example Controls");
 
   const disabled = packageRoot.editorContext([]);
   assert.equal(disabled.registry.has(definition.id, definition.version), false);
@@ -1563,14 +1565,11 @@ test("Terrain exposes its ordinary editable graph while retaining explicit pass 
       selectedNodeGroupId: "",
     },
   });
-  const editableStudio = nodeLibraryStudioTemplate(editableState, packageRoot);
-  assert.match(editableStudio, /data-nodes-editable="true"/);
-  assert.match(editableStudio, /data-connections-editable="true"/);
-  assert.match(editableStudio, /data-parameters-editable="true"/);
-  assert.match(
-    editableStudio,
-    /data-node-provider-select="geometry"(?![^>]*disabled)/,
-  );
+  const editableStudio = nodeLibraryStudioModel(editableState, packageRoot);
+  assert.equal(editableStudio.graphOptions.nodesEditable, true);
+  assert.equal(editableStudio.graphOptions.connectionsEditable, true);
+  assert.equal(editableStudio.graphOptions.parametersEditable, true);
+  assert.equal(editableStudio.graphOptions.providersEditable, true);
   return;
   const disabledWireGraph = {
     ...graph,
@@ -1724,16 +1723,12 @@ test("Terrain exposes its ordinary editable graph while retaining explicit pass 
       selectedNodeGroupId: "",
     },
   });
-  const specializedStudio = nodeLibraryStudioTemplate(specializedState, packageRoot);
-  assert.match(specializedStudio, /data-nodes-editable="false"/);
-  assert.match(specializedStudio, /data-connections-editable="false"/);
-  assert.match(specializedStudio, /data-parameters-editable="true"/);
-  assert.match(specializedStudio, /data-providers-editable="true"/);
-  assert.match(
-    specializedStudio,
-    /data-node-provider-select="geometry"(?![^>]*disabled)/,
-    "supported provider substitutions remain editable while compiler-owned topology stays locked",
-  );
+  const specializedStudio = nodeLibraryStudioModel(specializedState, packageRoot);
+  assert.equal(specializedStudio.graphOptions.nodesEditable, false);
+  assert.equal(specializedStudio.graphOptions.connectionsEditable, false);
+  assert.equal(specializedStudio.graphOptions.parametersEditable, true);
+  assert.equal(specializedStudio.graphOptions.providersEditable, true,
+    "supported provider substitutions remain editable while compiler-owned topology stays locked");
 });
 
 test("compiled visual compounds give every public parameter a semantic child owner", () => {
@@ -2916,25 +2911,23 @@ test("the Nodes workspace selects persisted project programs and preserves their
   const target = selectedNodeWorkspaceTarget(state, packageRoot);
   assert.equal(target.kind, "project-group");
   assert.equal(target.id, groupIds[0]);
-  assert.match(nodeLibraryRailTemplate(state, packageRoot), /Project programs/);
-  assert.match(nodeLibraryStudioTemplate(state, packageRoot), /data-topology-editable="true"/);
-  assert.match(nodeLibraryInspectorTemplate(state, packageRoot), /Visual compiler · editable/);
+  assert.equal(nodeLibraryRailModel(state, packageRoot).sections.some((section) => section.label === "Project programs"), true);
+  assert.equal(nodeLibraryStudioModel(state, packageRoot).graphOptions.topologyEditable, true);
+  assert.equal(nodeLibraryInspectorModel(state, packageRoot).sections[0].rows.find((row) => row.label === "Topology").value, "Visual compiler · editable");
 
   const sceneState = { ...state, ui: { ...state.ui, selectedNodeGroupId: "vj1.mapping.working" } };
-  assert.match(nodeLibraryStudioTemplate(sceneState, packageRoot), /data-connections-editable="true"/);
-  assert.match(nodeLibraryStudioTemplate(sceneState, packageRoot), /data-nodes-editable="false"/);
-  assert.match(nodeLibraryInspectorTemplate(sceneState, packageRoot), /Compiler nodes · connections editable/);
+  assert.equal(nodeLibraryStudioModel(sceneState, packageRoot).graphOptions.connectionsEditable, true);
+  assert.equal(nodeLibraryStudioModel(sceneState, packageRoot).graphOptions.nodesEditable, false);
+  assert.equal(nodeLibraryInspectorModel(sceneState, packageRoot).sections[0].rows.find((row) => row.label === "Topology").value, "Compiler nodes · connections editable");
 
   const applicationState = { ...state, ui: { ...state.ui, selectedNodeGroupId: "vj1.application.program" } };
-  const applicationStudio = nodeLibraryStudioTemplate(applicationState, packageRoot);
-  assert.match(applicationStudio, /data-node-graph-port="state\.\$service"/);
-  assert.match(applicationStudio, /data-node-graph-port="state\.snapshot"/);
-  assert.match(applicationStudio, /data-node-graph-port="live\.\$dependency\.data-store"/);
-  assert.match(applicationStudio, /data-node-graph-port="storage\.value"/);
-  assert.match(applicationStudio, /\["service","state"\]/);
-  assert.match(applicationStudio, /data-edge-editable="true"/);
-  assert.match(applicationStudio, /data-edge-editable="false"/);
-  assert.match(nodeLibraryInspectorTemplate(applicationState, packageRoot), /Executable wiring · editable/);
+  const applicationStudio = nodeLibraryStudioModel(applicationState, packageRoot);
+  assert.ok(applicationStudio.graph.nodes.some((node) => node.id === "state"));
+  assert.ok(applicationStudio.graph.nodes.some((node) => node.id === "live"));
+  assert.ok(applicationStudio.graph.nodes.some((node) => node.id === "storage"));
+  assert.ok(applicationStudio.graph.connections.length > 0);
+  assert.deepEqual(applicationStudio.graphOptions.editableConnectionTypes, ["service", "state"]);
+  assert.equal(nodeLibraryInspectorModel(applicationState, packageRoot).sections[0].rows.find((row) => row.label === "Topology").value, "Executable wiring · editable");
 
   const payload = buildProjectPayload(state, "2026-07-20T00:00:00.000Z");
   assert.equal(payload.ui.selectedNodeGroupId, groupIds[0]);
@@ -2962,23 +2955,25 @@ test("project-owned visual Groups join the shared Nodes registry and expose an e
   assert.deepEqual(Object.keys(registered.inlets), ["texture"]);
   assert.deepEqual(Object.keys(registered.outlets), ["texture"]);
   assert.deepEqual(graph.nodes, []);
-  assert.match(nodeLibraryRailTemplate(state, editor), /data-create-visual-group/);
-  assert.match(nodeLibraryRailTemplate(state, editor), /data-create-project-group="scene3d"/);
-  const studio = nodeLibraryStudioTemplate({
+  const actions = nodeLibraryRailModel(state, editor).sections
+    .find((section) => section.id === "project-programs").actions;
+  assert.equal(actions.some((action) => action.id === "create-visual-group"), true);
+  assert.equal(actions.some((action) => action.id === "create-scene3d-group"), true);
+  const studio = nodeLibraryStudioModel({
     ...state,
     ui: { ...state.ui, selectedNodeDefinitionId: definition.id, selectedNodeGroupId: "" },
   }, editor);
-  assert.match(studio, /data-nodes-editable="true"/);
-  assert.match(studio, /data-visual-program="true"/, "new visual Groups insert compiler-owned visual nodes");
-  assert.match(studio, /data-public-interface-editable="true"/);
-  assert.match(studio, /data-authoring-target="visual-graph"/);
-  const rail = nodeLibraryRailTemplate({
+  assert.equal(studio.graphOptions.nodesEditable, true);
+  assert.equal(studio.graphOptions.visualProgram, true, "new visual Groups insert compiler-owned visual nodes");
+  assert.equal(studio.graphOptions.publicInterfaceEditable, true);
+  assert.equal(studio.graphOptions.authoringTarget, "visual-graph");
+  const rail = nodeLibraryRailModel({
     ...state,
     ui: { ...state.ui, selectedNodeDefinitionId: definition.id, selectedNodeGroupId: "" },
   }, editor);
-  assert.match(nodeLibraryItemTag(rail, "vj1.visual.generator.gradient"), /draggable="true"/);
-  assert.match(nodeLibraryItemTag(rail, "core.composition.layer-group"), /draggable="true"/);
-  assert.match(nodeLibraryItemTag(rail, "core.scene3d.material"), /draggable="false"/);
+  assert.equal(nodeLibraryModelItem(rail, "vj1.visual.generator.gradient").draggable, true);
+  assert.equal(nodeLibraryModelItem(rail, "core.composition.layer-group").draggable, true);
+  assert.equal(nodeLibraryModelItem(rail, "core.scene3d.material").draggable, false);
 });
 
 test("project-owned 3D Groups validate with the Scene compiler and render through the ordinary visual compiler", () => {
@@ -3002,7 +2997,7 @@ test("project-owned 3D Groups validate with the Scene compiler and render throug
   const editor = packageRoot.editorContext([], [], state.nodes.definitions);
   const registered = editor.registry.get(definition.id, definition.version);
   const graph = registered.parts.find((part) => part.kind === "graph");
-  const studio = nodeLibraryStudioTemplate(state, editor);
+  const studio = nodeLibraryStudioModel(state, editor);
 
   assert.equal(registered.compiler.id, "vj1.scene-3d.direct-program");
   assert.equal(registered.compiler.target, "scene-3d");
@@ -3013,17 +3008,15 @@ test("project-owned 3D Groups validate with the Scene compiler and render throug
   assert.equal(graph.nodes.some((node) => node.type === "core.scene3d.material"), true);
   assert.equal(graph.nodes.some((node) => node.type === "core.scene3d.perspective-camera"), true);
   assert.equal(graph.nodes.some((node) => node.type === "core.scene3d.render"), true);
-  assert.match(studio, /data-nodes-editable="true"/);
-  assert.match(studio, /data-visual-program="false"/, "3D Group internals accept typed mesh and Scene nodes");
-  assert.match(studio, /data-authoring-target="scene-3d-graph"/);
-  assert.match(studio, /data-node-graph-publish-parameter="renderMode"/);
-  assert.match(studio, /data-node-graph-parameter="position"/, "unwired transform inlets expose editable literals");
-  assert.match(studio, /data-node-graph-parameter="surfaceColor"/, "material inlet colors are editable");
-  assert.match(studio, /data-node-graph-parameter="shaderSource"/, "material shader source is editable");
-  assert.match(studio, /data-node-graph-parameter="background"/, "Scene background inlet is editable");
-  const rail = nodeLibraryRailTemplate(state, editor);
-  assert.match(nodeLibraryItemTag(rail, "core.scene3d.material"), /draggable="true"/);
-  assert.match(nodeLibraryItemTag(rail, "vj1.visual.generator.gradient"), /draggable="false"/);
+  assert.equal(studio.graphOptions.nodesEditable, true);
+  assert.equal(studio.graphOptions.visualProgram, false, "3D Group internals accept typed mesh and Scene nodes");
+  assert.equal(studio.graphOptions.authoringTarget, "scene-3d-graph");
+  assert.equal(studio.graphOptions.publicInterfaceEditable, true);
+  assert.ok(studio.graph.nodes.some((node) => node.type === "core.scene3d.material"));
+  assert.ok(studio.graph.nodes.some((node) => node.type === "core.scene3d.render"));
+  const rail = nodeLibraryRailModel(state, editor);
+  assert.equal(nodeLibraryModelItem(rail, "core.scene3d.material").draggable, true);
+  assert.equal(nodeLibraryModelItem(rail, "vj1.visual.generator.gradient").draggable, false);
   assert.equal(editor.preflightGraphEdit({
     kind: "definition",
     definition: registered,
@@ -3402,15 +3395,15 @@ test("the selected task editor exposes node parts and saves a live project shade
     ui: { selectedChainItemId: "gradient-a" },
     nodes: {},
   });
-  const html = selectedNodeEditorTemplate(component, state, packageRoot);
+  const editorModel = selectedNodeEditorModel(component, state, packageRoot);
   const definition = packageRoot.registry.get("vj1.visual.generator.gradient");
   const shader = definition.parts.find((part) => part.kind === "shader");
   const edited = `${shader.source}\n// edited in project`;
 
-  assert.match(html, /data-node-editor/);
-  assert.match(html, /Shaders/);
-  assert.match(html, /data-node-part-source="fragment-shader"/);
-  assert.match(html, /visual graphs retain their specialized compiler path/);
+  assert.equal(editorModel.id, "vj1.visual.generator.gradient");
+  assert.equal(editorModel.sources.some((source) => source.label.includes("Shaders")), true);
+  assert.equal(editorModel.sources.some((source) => source.id === "fragment-shader"), true);
+  assert.match(editorModel.note, /visual graphs retain their specialized compiler path/);
 
   state = {
     ...state,
@@ -3433,18 +3426,19 @@ test("composition root is instantiated only by the control application branch", 
 test("the Nodes workspace renders the registered library, group structure, and editable shader", () => {
   const packageRoot = createVj1NodePackage();
   const state = packageRoot.prepareProjectState(createInitialState());
-  const rail = nodeLibraryRailTemplate(state, packageRoot);
+  const rail = nodeLibraryRailModel(state, packageRoot);
   const groupState = { ...state, ui: { ...state.ui, selectedNodeDefinitionId: "core.mesh.parse-3d-object" } };
   const shaderState = { ...state, ui: { ...state.ui, selectedNodeDefinitionId: "vj1.visual.generator.gradient" } };
 
-  assert.match(rail, /Node library/);
-  assert.match(rail, /Test Pattern/);
-  assert.match(rail, /Parse 3D Object/);
-  assert.match(rail, /Planar Grid Mesh/);
-  assert.match(nodeLibraryStudioTemplate(groupState, packageRoot), /Graph canvas/);
-  assert.match(nodeLibraryStudioTemplate(groupState, packageRoot), /data-node-graph-edge/);
-  assert.match(nodeLibraryStudioTemplate(groupState, packageRoot), /STL Parser/);
-  const inspector = nodeLibraryInspectorTemplate(shaderState, packageRoot);
-  assert.match(inspector, /data-node-editor/);
-  assert.match(inspector, /data-node-part-source="fragment-shader"/);
+  assert.equal(rail.title, "Node library");
+  assert.equal(nodeLibraryModelItem(rail, "vj1.visual.generator.testPattern").label, "Test Pattern");
+  assert.equal(nodeLibraryModelItem(rail, "core.mesh.parse-3d-object").label, "Parse 3D Object");
+  assert.equal(nodeLibraryModelItem(rail, "core.scene3d.planar-grid-mesh").label, "Planar Grid Mesh");
+  const studio = nodeLibraryStudioModel(groupState, packageRoot);
+  assert.ok(studio.graph);
+  assert.ok(studio.graph.connections.length > 0);
+  assert.equal(studio.definition.name, "Parse 3D Object");
+  const inspector = nodeLibraryInspectorModel(shaderState, packageRoot);
+  assert.equal(inspector.id, "vj1.visual.generator.gradient");
+  assert.equal(inspector.sources.some((source) => source.id === "fragment-shader"), true);
 });

@@ -18,8 +18,8 @@ const manifest = Object.freeze({
     category: "ai",
     runtime: timeParamRuntime("autoSpeed"),
     params: [
-      createTextParam("imageAId", "Image A", ""),
-      createTextParam("imageBId", "Image B", ""),
+      createTextParam("imageAId", "Image A", "", { ui: "media", rows: 1 }),
+      createTextParam("imageBId", "Image B", "", { ui: "media", rows: 1 }),
       createNumberParam("morph", "Morph", { min: 0, max: 1, step: 0.001, defaultValue: 0 }),
       createNumberParam("autoSpeed", "Auto speed", { min: 0, max: 2, step: 0.01, defaultValue: 0 }),
       createNumberParam("warpStrength", "Warp strength", { min: 0, max: 2, step: 0.01, defaultValue: 1 }),

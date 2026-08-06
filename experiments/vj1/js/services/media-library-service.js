@@ -1,17 +1,16 @@
 import { uid } from "../domain/models.js";
 import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js";
-import { createModelPreviewUrl } from "../libraries/mesh-engine/convert-3d-file-to-image/index.js";
+import { createMediaThumbnailHandler } from "./media-thumbnail-service.js";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 const MODEL_RE = /\.(stl|obj)$/i;
 const SHADER_RE = /\.(frag|glsl|fs|vs)$/i;
 
-export function createMediaLibrary() {
+export function createMediaLibrary({ thumbnailHandler = createMediaThumbnailHandler() } = {}) {
   const files = new Map();
   const sourceRevisions = new Map();
   const renditions = new Map();
-  const previewUrls = new Map();
   const listeners = new Set();
   let publishSuspended = 0;
 
@@ -33,16 +32,11 @@ export function createMediaLibrary() {
   }
 
   function releasePreviewUrl(id) {
-    const entry = previewUrls.get(id);
-    if (!entry) return;
-    previewUrls.delete(id);
-    entry.released = true;
-    if (entry.url) URL.revokeObjectURL(entry.url);
-    else entry.promise?.then((url) => URL.revokeObjectURL(url)).catch(() => {});
+    thumbnailHandler.release(id);
   }
 
   function releasePreviewUrls() {
-    for (const id of previewUrls.keys()) releasePreviewUrl(id);
+    thumbnailHandler.clear();
   }
 
   function getMeta(file, explicitPath = "") {
@@ -82,7 +76,7 @@ export function createMediaLibrary() {
             previousRevision &&
             previousRevision !== nextRevision
           ) {
-            releasePreviewUrl(meta.id);
+            thumbnailHandler.invalidate(meta.id);
           }
           files.set(meta.id, file);
           sourceRevisions.set(meta.id, nextRevision);
@@ -126,7 +120,7 @@ export function createMediaLibrary() {
         imported = await api.importFiles(incoming);
         for (const id of Array.from(files.keys())) {
           if (sourceIds.has(id)) continue;
-          releasePreviewUrl(id);
+          thumbnailHandler.invalidate(id);
           files.delete(id);
           sourceRevisions.delete(id);
           for (const [key, rendition] of renditions) {
@@ -147,7 +141,7 @@ export function createMediaLibrary() {
     },
     remove(id) {
       if (!id) return false;
-      releasePreviewUrl(id);
+      thumbnailHandler.invalidate(id);
       const removed = files.delete(id);
       sourceRevisions.delete(id);
       for (const [key, entry] of renditions) {
@@ -157,33 +151,14 @@ export function createMediaLibrary() {
       return removed;
     },
     acquirePreviewUrl(id) {
-      const existing = previewUrls.get(id);
-      if (existing) return existing.url || existing.promise;
       const file = files.get(id);
-      if (!file) return "";
-      if (!MODEL_RE.test(id)) {
-        const url = URL.createObjectURL(file);
-        previewUrls.set(id, { url, promise: null, released: false });
-        return url;
-      }
-      const entry = { url: "", promise: null, released: false };
-      entry.promise = createModelPreviewUrl(file).then((url) => {
-        entry.url = url;
-        return url;
-      }).catch((error) => {
-        previewUrls.delete(id);
-        console.warn("[VJ1_MODEL_PREVIEW_FAILED]", {
-          mediaId: id,
-          fallback: "show model placeholder icon",
-          message: error?.message || String(error),
-        });
-        return "";
-      });
-      previewUrls.set(id, entry);
-      return entry.promise;
+      return thumbnailHandler.acquire(id, file);
     },
     releasePreviewUrl,
     releasePreviewUrls,
+    setThumbnailStorage(storage) {
+      thumbnailHandler.setStorage(storage);
+    },
     getAllFiles() {
       return getAllFiles();
     },
@@ -207,7 +182,7 @@ export function createMediaLibrary() {
     },
     clear() {
       const changed = files.size > 0 || sourceRevisions.size > 0 || renditions.size > 0;
-      releasePreviewUrls();
+      thumbnailHandler.clear();
       files.clear();
       sourceRevisions.clear();
       renditions.clear();

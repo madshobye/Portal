@@ -1,32 +1,31 @@
 import { createProjectNodeFork, materializeProjectNodeFork, validateProjectNodeFork } from "../libraries/node-engine/node-editor.js";
 import { compileSdf2dSketchSource } from "../libraries/procedural-2d/compiler.js";
-import { esc, icon } from "./template-utils.js";
 
-export function selectedNodeEditorTemplate(component, state, nodePackage) {
-  if (!component || !nodePackage?.registry) return "";
+export function selectedNodeEditorModel(component, state, nodePackage) {
+  if (!component || !nodePackage?.registry) return null;
   const group = (state?.nodes?.groups || []).find((item) => item.componentId === component.id);
   const topology = findTopologyNode(group?.nodes || [], state?.ui?.selectedChainItemId);
-  if (!topology) return "";
+  if (!topology) return null;
   let baseDefinition;
   try {
     baseDefinition = nodePackage.registry.get(topology.nodeId, topology.nodeVersion);
   } catch {
-    return "";
+    return null;
   }
   const graph = topology.nodes?.length
     ? { nodes: topology.nodes, connections: topology.connections || [] }
     : null;
-  return nodeDefinitionEditorTemplate(baseDefinition, state, nodePackage, {
+  return nodeDefinitionEditorModel(baseDefinition, state, nodePackage, {
     graph,
     parameterValues: topology.parameters,
   });
 }
 
-export function nodeDefinitionEditorTemplate(baseDefinition, state, nodePackage, {
+export function nodeDefinitionEditorModel(baseDefinition, state, nodePackage, {
   graph = null,
   parameterValues = {},
 } = {}) {
-  if (!baseDefinition || !nodePackage?.registry) return "";
+  if (!baseDefinition || !nodePackage?.registry) return null;
   const fork = activeForkFor(state?.nodes, baseDefinition);
   const definition = materializeForkSafely(baseDefinition, fork);
   const projection = nodePackage.editorProjection(definition, { projectForks: state?.nodes?.forks || [] });
@@ -36,33 +35,90 @@ export function nodeDefinitionEditorTemplate(baseDefinition, state, nodePackage,
   const graphPanel = projection.panel("graph");
   const editablePanels = [...sourcePanels, ...(graphPanel?.available ? [graphPanel] : [])];
   const editable = editablePanels.some((panel) => panel.data.parts.some((part) => part.editable !== false));
-  return `
-    <div class="node-editor-projection" data-node-editor data-node-base-id="${esc(baseDefinition.id)}" data-node-base-version="${esc(baseDefinition.version)}">
-      <div class="node-editor-identity">
-        <span>${icon(definition.implementation.kind === "shader" ? "code_blocks" : definition.implementation.kind === "group" ? "account_tree" : "data_object")}</span>
-        <span><strong>${esc(definition.name)}</strong><small>${esc(definition.id)} · v${esc(definition.version)}${fork ? " · project version" : ""}</small></span>
-      </div>
-      <p class="node-editor-description">${esc(definition.description)}</p>
-      <p class="soft-note">${esc(authoringActivationLabel(definition))}</p>
-      ${portSection("Inlets", definition.inlets)}
-      ${portSection("Outlets", definition.outlets)}
-      ${parameterSection(definition.parameters, parameterValues)}
-      ${visibleGraph ? graphSection(visibleGraph) : ""}
-      ${graphPanel?.available ? graphPanelTemplate(graphPanel) : ""}
-      ${sourcePanels.map(sourcePanelTemplate).join("")}
-      <details class="node-editor-section">
-        <summary>Version and capabilities</summary>
-        <div class="node-editor-tags">${(definition.capabilities || []).map((value) => `<span>${esc(value)}</span>`).join("") || "<span>none</span>"}</div>
-      </details>
-      ${editable ? `
-        <div class="node-editor-actions">
-          <button type="button" data-save-node-fork>${fork ? "Save project version" : "Create project version"}</button>
-          ${fork ? `<button type="button" class="secondary" data-reset-node-fork>Use built-in version</button>` : ""}
-        </div>
-        <p class="soft-note">Shader and executable JavaScript edits become live after saving. Edited utility graphs use the call-driven node program; visual graphs retain their specialized compiler path.</p>
-      ` : ""}
-    </div>
-  `;
+  return {
+    baseId: baseDefinition.id,
+    baseVersion: baseDefinition.version,
+    name: definition.name,
+    id: definition.id,
+    version: definition.version,
+    icon: definition.implementation.kind === "shader" ? "code_blocks"
+      : definition.implementation.kind === "group" ? "account_tree"
+        : "data_object",
+    description: definition.description,
+    activation: authoringActivationLabel(definition),
+    forked: Boolean(fork),
+    sections: [
+      editorPortModel("Inlets", definition.inlets),
+      editorPortModel("Outlets", definition.outlets),
+      editorParameterModel(definition.parameters, parameterValues),
+      visibleGraph ? editorGraphModel(visibleGraph) : null,
+    ].filter(Boolean),
+    sources: [
+      ...(graphPanel?.available ? graphPanel.data.parts.map((part) => ({
+        id: part.id,
+        label: `${graphPanel.name} · ${part.name || part.id}`,
+        value: JSON.stringify({
+          nodes: part.nodes || [],
+          connections: part.connections || [],
+          publicInlets: part.publicInlets || {},
+          publicOutlets: part.publicOutlets || {},
+        }, null, 2),
+        readOnly: part.editable === false,
+        open: false,
+      })) : []),
+      ...sourcePanels.flatMap((panel) => panel.data.parts.map((part) => ({
+        id: part.id,
+        label: `${panel.name} · ${part.name || part.id}`,
+        value: part.source || "",
+        readOnly: part.editable === false,
+        open: panel.id === "shaders",
+      }))),
+    ],
+    capabilities: definition.capabilities || [],
+    editable,
+    saveLabel: fork ? "Save project version" : "Create project version",
+    resetLabel: fork ? "Use built-in version" : "",
+    note: editable
+      ? "Shader and executable JavaScript edits become live after saving. Edited utility graphs use the call-driven node program; visual graphs retain their specialized compiler path."
+      : "",
+  };
+}
+
+function editorPortModel(label, ports = {}) {
+  const entries = Object.values(ports || {});
+  if (!entries.length) return null;
+  return {
+    id: label.toLowerCase(),
+    label: `${label} · ${entries.length}`,
+    rows: entries.map((port) => ({
+      label: port.label || port.id,
+      value: `${typeName(port.type)}${rangeLabel(port)}`,
+    })),
+  };
+}
+
+function editorParameterModel(parameters = {}, values = {}) {
+  const entries = Object.values(parameters || {});
+  if (!entries.length) return null;
+  return {
+    id: "parameters",
+    label: `Parameters · ${entries.length}`,
+    rows: entries.map((parameter) => ({
+      label: parameter.label || parameter.id,
+      value: `${typeName(parameter.type)}${rangeLabel(parameter)} · ${formatValue(values?.[parameter.id] ?? parameter.defaultValue)}`,
+    })),
+  };
+}
+
+function editorGraphModel(graph = {}) {
+  const nodes = graph.nodes || [];
+  return {
+    id: "internal-graph",
+    label: `Internal graph · ${nodes.length} nodes`,
+    rows: nodes.map((node) => ({ label: node.id, value: node.nodeId || node.type || "node" })),
+    connections: (graph.connections || []).map((edge) => `${edge.from} → ${edge.to}`),
+    emptyText: "Code-owned relationships",
+  };
 }
 
 function authoringActivationLabel(definition = {}) {
@@ -514,66 +570,6 @@ function findTopologyNode(nodes, id) {
     if (nested) return nested;
   }
   return null;
-}
-
-function portSection(label, ports = {}) {
-  const entries = Object.values(ports || {});
-  if (!entries.length) return "";
-  return `
-    <details class="node-editor-section">
-      <summary>${esc(label)} · ${entries.length}</summary>
-      <div class="node-editor-port-list">${entries.map((port) => `
-        <div><strong>${esc(port.label || port.id)}</strong><span>${esc(typeName(port.type))}${rangeLabel(port)}</span></div>
-      `).join("")}</div>
-    </details>`;
-}
-
-function parameterSection(parameters = {}, values = {}) {
-  const entries = Object.values(parameters || {});
-  if (!entries.length) return "";
-  return `
-    <details class="node-editor-section">
-      <summary>Parameters · ${entries.length}</summary>
-      <div class="node-editor-port-list">${entries.map((parameter) => `
-        <div><strong>${esc(parameter.label || parameter.id)}</strong><span>${esc(typeName(parameter.type))}${rangeLabel(parameter)} · ${esc(formatValue(values?.[parameter.id] ?? parameter.defaultValue))}</span></div>
-      `).join("")}</div>
-    </details>`;
-}
-
-function graphSection(graph) {
-  const nodes = graph.nodes || [];
-  const connections = graph.connections || [];
-  return `
-    <details class="node-editor-section">
-      <summary>Internal graph · ${nodes.length} nodes</summary>
-      <div class="node-editor-graph">
-        ${nodes.map((node) => `<div><strong>${esc(node.id)}</strong><span>${esc(node.nodeId || node.type || "node")}</span></div>`).join("") || `<div><span>Code-owned relationships</span></div>`}
-        ${connections.map((edge) => `<code>${esc(edge.from)} → ${esc(edge.to)}</code>`).join("")}
-      </div>
-    </details>`;
-}
-
-function sourcePanelTemplate(panel) {
-  return panel.data.parts.map((part) => `
-    <details class="node-editor-section node-editor-source" ${panel.id === "shaders" ? "open" : ""}>
-      <summary>${esc(panel.name)} · ${esc(part.name || part.id)}</summary>
-      <textarea spellcheck="false" data-node-part-source="${esc(part.id)}" ${part.editable === false ? "readonly" : ""}>${esc(part.source || "")}</textarea>
-    </details>
-  `).join("");
-}
-
-function graphPanelTemplate(panel) {
-  return panel.data.parts.map((part) => `
-    <details class="node-editor-section node-editor-source">
-      <summary>${esc(panel.name)} · ${esc(part.name || part.id)}</summary>
-      <textarea spellcheck="false" data-node-part-source="${esc(part.id)}" ${part.editable === false ? "readonly" : ""}>${esc(JSON.stringify({
-        nodes: part.nodes || [],
-        connections: part.connections || [],
-        publicInlets: part.publicInlets || {},
-        publicOutlets: part.publicOutlets || {},
-      }, null, 2))}</textarea>
-    </details>
-  `).join("");
 }
 
 function typeName(type) {

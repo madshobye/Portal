@@ -408,6 +408,7 @@ test("project folder service creates only functional asset/cache folders and can
   assert.ok(source.includes("async function closeProject()"));
   assert.ok(source.includes("store.replace(createInitialState(), \"project-close\")"));
   assert.ok(source.includes("clearProjectDirectoryHandle"));
+  assert.match(source, /setThumbnailStorage\?\.\(Object\.freeze\(\{[\s\S]*?readMediaThumbnail[\s\S]*?writeMediaThumbnail/);
 });
 
 test("undo history is bounded and ordinary saves use the session index", () => {

@@ -2543,7 +2543,7 @@ test("standalone output permanently rejects calibration markers", () => {
   assert.equal(renderer.mappingRuntime.isCalibrating(), false);
 });
 
-test("output diagnostics remain DOM-only and never add text to the GL surface path", () => {
+test("output diagnostics remain UI-node-only and never add text to the GL surface path", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const metricsSource = readFileSync(new URL("../js/output/output-presentation-metrics.js", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
@@ -2551,7 +2551,8 @@ test("output diagnostics remain DOM-only and never add text to the GL surface pa
   assert.equal(rendererSource.includes("renderOutputFrameOverlay"), false);
   assert.equal(rendererSource.includes("showLabels"), false);
   assert.ok(metricsSource.includes("this.resolutionLabel()"));
-  assert.ok(appSource.includes('class="output-fps"'));
+  assert.ok(appSource.includes("createOutputSurfaceUi({ host: root })"));
+  assert.equal(appSource.includes("root.innerHTML"), false);
 });
 
 test("standalone output consumes its handshake baseline without requesting duplicate snapshots after setup", () => {
@@ -3203,14 +3204,12 @@ test("Output HUD presents every authored render-chain allocation on its own line
     },
   ];
 
-  const markup = renderer.presentationMetrics.outputChainMarkup(60);
+  const model = renderer.presentationMetrics.outputChainModel(60);
 
-  assert.match(markup, /60 fps/);
-  assert.match(markup, /Main Scene/);
-  assert.match(markup, /Camera &lt;A&gt;/);
-  assert.match(markup, /1920x1080/);
-  assert.match(markup, /960x540/);
-  assert.equal((markup.match(/output-chain-row/g) || []).length, 2);
+  assert.equal(model.summary[0].text, "60 fps");
+  assert.deepEqual(model.chains.map((item) => item.name), ["Main Scene", "Camera <A>"]);
+  assert.deepEqual(model.chains.map((item) => item.resolution), ["1920x1080", "960x540"]);
+  assert.equal(model.chains.length, 2);
 });
 
 test("Preview diagnostics append the shared render-chain allocation list", () => {
@@ -3242,14 +3241,12 @@ test("Preview diagnostics append the shared render-chain allocation list", () =>
     },
   ];
 
-  const markup = renderer.presentationMetrics.previewDiagnosticMarkup(60);
+  const model = renderer.presentationMetrics.previewDiagnosticModel(60);
 
-  assert.match(markup, /preview-debug-line/);
-  assert.match(markup, /Cow Component/);
-  assert.match(markup, /brown-Guernsey-cow\.webp/);
-  assert.match(markup, /1280x720/);
-  assert.match(markup, /960x540/);
-  assert.equal((markup.match(/output-chain-row/g) || []).length, 2);
+  assert.equal(model.lines.length, 4);
+  assert.deepEqual(model.chains.map((item) => item.name), ["Cow Component", "brown-Guernsey-cow.webp"]);
+  assert.deepEqual(model.chains.map((item) => item.resolution), ["1280x720", "960x540"]);
+  assert.equal(model.chains.length, 2);
 });
 
 test("cached Components replay their retained resolution trace without rerendering it", () => {
@@ -3298,17 +3295,18 @@ test("Good embedded preview reports its final render-chain request at 2x", () =>
   assert.deepEqual(renderer.presentationMetrics.resolutionSize(render), { width: 2000, height: 1000, density: 2 });
   assert.equal(renderer.presentationMetrics.resolutionLabel(render), "2000x1000 @2x");
   assert.equal(renderer.presentationGeometry.viewportLabel(), "1.25x view");
-  const diagnostic = renderer.presentationMetrics.previewDiagnosticMarkup(60, {
+  const diagnostic = renderer.presentationMetrics.previewDiagnosticModel(60, {
     ...render,
     previewViewportZoom: 1.25,
     hostViewport: { width: 1000, height: 500 },
   });
-  assert.match(diagnostic, /render 2000x1000 @2x/);
-  assert.match(diagnostic, /1\.25x view/);
-  assert.match(diagnostic, /p5 canvas/);
-  assert.match(diagnostic, /windowWidth/);
-  assert.match(diagnostic, /density param 1x/);
-  assert.match(diagnostic, /p5 2x/);
+  const labels = diagnostic.lines.flat().map((item) => item.text);
+  assert.ok(labels.includes("render 2000x1000 @2x"));
+  assert.ok(labels.includes("1.25x view"));
+  assert.ok(labels.some((label) => label.startsWith("p5 canvas")));
+  assert.ok(labels.some((label) => label.startsWith("windowWidth")));
+  assert.ok(labels.includes("density param 1x"));
+  assert.ok(labels.includes("p5 2x"));
 });
 
 test("preview viewport changes only retained p5 presentation state", () => {

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>UI List state smoke</title>
+  <style>
+    #list-host { width: 240px; }
+    .ui-node-list { height: 180px; overflow: auto; }
+    .ui-node-list-item { min-height: 30px; }
+  </style>
+</head>
+<body>
+  <div id="list-host"></div>
+  <pre id="result">running</pre>
+  <script type="module">
+    import {
+      createUiStateController,
+      createUiStateStore,
+      ListNode,
+      RetainedUiRuntime,
+      UiNodeDefinitions,
+      UiNodeRegistry,
+    } from "../../js/libraries/ui-engine/index.js";
+
+    const params = new URLSearchParams(location.search);
+    const child = params.get("child");
+    const storageKey = "ui-list-state-smoke:ui-state@1";
+
+    if (!child) {
+      sessionStorage.removeItem(storageKey);
+      const writeFrame = document.createElement("iframe");
+      writeFrame.src = `${location.pathname}?child=write`;
+      document.body.append(writeFrame);
+      addEventListener("message", (event) => {
+        if (event.data?.type === "ui-list-written") {
+          const readFrame = document.createElement("iframe");
+          readFrame.src = `${location.pathname}?child=read`;
+          document.body.append(readFrame);
+          return;
+        }
+        if (event.data?.type !== "ui-list-read") return;
+        document.querySelector("#result").textContent = JSON.stringify(event.data.result, null, 2);
+        document.documentElement.dataset.testStatus = event.data.result.ok ? "passed" : "failed";
+      });
+    } else {
+      const state = createUiStateController({
+        session: createUiStateStore({ namespace: "ui-list-state-smoke", storage: sessionStorage }),
+      });
+      const runtime = new RetainedUiRuntime({
+        registry: new UiNodeRegistry(UiNodeDefinitions),
+        state,
+      });
+      runtime.mountNode({
+        id: "presets",
+        type: ListNode.id,
+        host: document.querySelector("#list-host"),
+        stateAddress: "synth/preset-browser",
+        inputs: {
+          label: "Presets",
+          items: Array.from({ length: 60 }, (_, index) => ({
+            id: `preset-${index}`,
+            label: `Preset ${index}`,
+          })),
+        },
+      });
+      const list = document.querySelector("[data-ui-list-root]");
+      if (child === "write") {
+        list.querySelector('[data-ui-list-select="preset-30"]').click();
+        list.scrollTop = 420;
+        list.dispatchEvent(new Event("scroll"));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        parent.postMessage({ type: "ui-list-written" }, location.origin);
+      } else {
+        const restoredSelection = list.querySelector('[data-ui-list-item="preset-30"]')?.getAttribute("aria-selected") === "true";
+        const restoredScroll = list.scrollTop;
+        list.focus();
+        list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+        list.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        const keyboardSelection = list.querySelector('[data-ui-list-item="preset-31"]')?.getAttribute("aria-selected") === "true";
+        parent.postMessage({
+          type: "ui-list-read",
+          result: {
+            ok: restoredSelection && restoredScroll > 0 && keyboardSelection,
+            restoredSelection,
+            restoredScroll,
+            keyboardSelection,
+          },
+        }, location.origin);
+      }
+    }
+  </script>
+</body>
+</html>

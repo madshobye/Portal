@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Scene Surface inspector smoke</title>
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/base.css" />
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/themes/vj.css" />
+  <style>
+    body { margin: 0; background: #111; }
+    .studio-layout { width: 360px; height: 760px; padding: 12px; }
+    .studio-inspector { width: 330px; height: 720px; }
+  </style>
+</head>
+<body>
+  <main class="studio-layout" data-workspace="scene">
+    <section id="inspector" class="studio-inspector"></section>
+  </main>
+  <pre id="result">running</pre>
+  <script type="module">
+    import {
+      compileUiModel,
+      RetainedUiRuntime,
+      UiNodeDefinitions,
+      UiNodeRegistry,
+    } from "../../js/libraries/ui-engine/index.js";
+    import {
+      artifactInspectorUiModel,
+      sceneSurfaceInspectorUiModel,
+    } from "../../js/control/control-ui-program.js";
+    import { createInitialState, createSceneComponent } from "../../js/domain/models.js";
+
+    const state = createInitialState();
+    const scene = createSceneComponent(0, state.components[0].id);
+    const surface = state.surfaces[0];
+    state.components.push(scene);
+    state.ui.workspace = "scene";
+    state.ui.selectedComponentId = scene.id;
+    state.ui.selectedSurfaceId = surface.id;
+    state.ui.selectedChainItemId = "";
+    state.ui.sceneInspectorTarget = "surface";
+
+    const model = artifactInspectorUiModel({
+      targetId: scene.id,
+      title: scene.name,
+      kind: "Scene",
+      secondaryId: "scene-surface-or-parameters",
+      secondaryPresentation: "scene-surface-secondary",
+      secondaryLayout: {
+        fill: false,
+        grow: 0,
+        shrink: 0,
+        basis: "auto",
+        overflow: "visible",
+      },
+      secondaryChildren: [sceneSurfaceInspectorUiModel(surface, state)],
+    });
+    const runtime = new RetainedUiRuntime({
+      registry: new UiNodeRegistry(UiNodeDefinitions),
+    });
+    runtime.activate(compileUiModel(model, {
+      id: "vj1.control.scene-artifact-inspector",
+      stateAddress: "workspaces/scene/inspector",
+    }), {
+      host: document.querySelector("#inspector"),
+      scope: "vj1.control.scene-artifact-inspector",
+    });
+
+    const secondary = document.querySelector(".scene-surface-inspector-host");
+    const panel = document.querySelector(".scene-surface-panel");
+    const result = {
+      secondaryVisible: secondary?.getBoundingClientRect().height > 0,
+      panelVisible: panel?.getBoundingClientRect().height > 0,
+      panelHasControls: panel?.querySelectorAll(".ui-node-control").length === 7,
+      naturalHeight: getComputedStyle(secondary).height !== "0px",
+    };
+    result.ok = Object.values(result).every(Boolean);
+    document.querySelector("#result").textContent = JSON.stringify(result, null, 2);
+    document.documentElement.dataset.testStatus = result.ok ? "passed" : "failed";
+  </script>
+</body>
+</html>

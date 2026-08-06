@@ -10,9 +10,11 @@ import { cornersRect } from "./component-render-layout.js";
 // retained mapper and materialized Surface records directly; project state
 // reconciliation and editor acknowledgement never enter the render plan.
 export class OutputMappingRuntime {
-  constructor(host, { sendMapping } = {}) {
+  constructor(host, { sendMapping, requestDownload = null } = {}) {
     this.host = host;
     this.sendMapping = sendMapping;
+    this.requestDownload = requestDownload;
+    this.downloadSequence = 0;
     this.mapper = null;
     this.surfaces = new Map();
     this.mappingSignature = "";
@@ -343,12 +345,15 @@ export class OutputMappingRuntime {
   }
 
   export() {
-    downloadJson(
-      this.host.presentationGeometry.mappingFromMode(
-        this.mapper?.exportData?.() || {},
-      ),
-      "vj1-mapping.json",
+    const data = this.host.presentationGeometry.mappingFromMode(
+      this.mapper?.exportData?.() || {},
     );
+    this.requestDownload?.({
+      id: `mapping:${++this.downloadSequence}`,
+      filename: "vj1-mapping.json",
+      mime: "application/json",
+      text: JSON.stringify(data, null, 2),
+    });
   }
 
   resize() {
@@ -381,16 +386,4 @@ function mappingSignature(mapping) {
     });
     return "";
   }
-}
-
-function downloadJson(data, filename) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

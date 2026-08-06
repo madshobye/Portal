@@ -13,7 +13,6 @@ import {
 } from "../js/libraries/visual-nodes/index.js";
 import { NODE_PART_KINDS } from "../js/libraries/node-engine/index.js";
 import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
-import { generatorImageMediaControlTemplate } from "../js/control/generator-media-view.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
 import { SpecializedSourceRuntime } from "../js/output/specialized/specialized-source-runtime.js";
 
@@ -148,13 +147,7 @@ test("Tile Repeat is a reusable ordinary shader effect", () => {
 test("Tile Texture retains its existing catalog controls and media dependency", () => {
   const source = createGeneratorSource("tileTexture", { imageId: "tiles.png", repeat: 8 });
   assert.equal(source.params.imageId, "tiles.png");
-  const controls = generatorImageMediaControlTemplate("components.0.source", source, {
-    media: [{ id: "tiles.png", name: "media/textures/Tiles.png", path: "media/textures/Tiles.png", type: "image" }],
-  });
-  assert.match(controls, /data-media-path="components\.0\.source\.params\.imageId"/);
-  assert.match(controls, />Tiles\.png</);
-  assert.doesNotMatch(controls, /<small>/);
-  assert.doesNotMatch(controls, />media\/textures\//);
+  assert.equal(getGeneratorNodeComponent("tileTexture").params.find((param) => param.id === "imageId")?.ui, "media");
 
   const renderer = new OutputRenderer({ mode: "component" });
   assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true);

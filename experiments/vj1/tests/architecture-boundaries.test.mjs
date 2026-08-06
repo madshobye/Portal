@@ -13,6 +13,40 @@ const modules = collectModules(jsRoot);
 const moduleSet = new Set(modules);
 const graph = new Map(modules.map((filename) => [filename, localImports(filename)]));
 
+test("VJ control application constructs UI only through semantic UI nodes", () => {
+  const controlRoot = resolve(jsRoot, "control");
+  const controlModules = modules.filter((filename) => filename.startsWith(`${controlRoot}${sep}`));
+  const forbidden = [
+    ["HTML template", /<(?:div|span|button|input|select|textarea|section|header|main|aside|nav|label|img)\b/i],
+    ["HTML mutation", /\.(?:innerHTML|outerHTML|insertAdjacentHTML)\b/],
+    ["DOM creation", /\b(?:document|window)\.(?:createElement|querySelector|querySelectorAll|open)\b/],
+    ["DOM traversal or mutation", /\.(?:querySelector|querySelectorAll|replaceChildren|appendChild|classList|dataset|setAttribute|removeAttribute|addEventListener|removeEventListener)\b/],
+    ["VJ CSS class contract", /\b(?:className|selectClassName|slotClassName|tabClassName|contentClassName|surfaceClassName)\s*:/],
+    ["generic host escape", /\badoptHost\b/],
+    ["legacy presenter import", /(?:template-utils|view-primitives|dom-utils)\.js/],
+  ];
+  const violations = [];
+  for (const filename of controlModules) {
+    const source = readFileSync(filename, "utf8");
+    for (const [label, pattern] of forbidden) {
+      if (pattern.test(source)) violations.push(`${moduleName(filename)}: ${label}`);
+    }
+  }
+  assert.deepEqual(violations, [], violations.join("\n"));
+});
+
+test("Output and embedded Preview expose visible presentation only through UI nodes", () => {
+  const outputApp = readFileSync(resolve(jsRoot, "output/output-app.js"), "utf8");
+  const embeddedPreview = readFileSync(resolve(jsRoot, "output/embedded-preview-app.js"), "utf8");
+  const metrics = readFileSync(resolve(jsRoot, "output/output-presentation-metrics.js"), "utf8");
+  assert.match(outputApp, /createOutputSurfaceUi\(\{ host: root \}\)/);
+  assert.doesNotMatch(outputApp, /root\.(?:innerHTML|outerHTML|replaceChildren|classList)/);
+  assert.doesNotMatch(embeddedPreview, /\.(?:innerHTML|outerHTML)\b/);
+  assert.doesNotMatch(embeddedPreview, /\b(?:host|surface)\?*\.classList\b/);
+  assert.doesNotMatch(metrics, /\.(?:innerHTML|outerHTML|classList)\b/);
+  assert.match(metrics, /host\.hud\.present\?\.\(\{/);
+});
+
 test("JavaScript modules have an acyclic static dependency graph", () => {
   const cycles = findCycles(graph);
   assert.deepEqual(cycles, [], cycles.map((cycle) => cycle.map(moduleName).join(" -> ")).join("\n"));
@@ -127,8 +161,7 @@ test("browser source loading bypasses caches for the complete native module grap
   assert.match(index, /controllerchange/);
   assert.match(index, /VJ1_SOURCE_COHERENCE_BLOCKED/);
   assert.match(index, /import\("\.\/js\/app\.js"\)/);
-  assert.match(index, /data-vj1-startup-status/);
-  assert.match(index, /Loading application modules/);
+  assert.doesNotMatch(index, /data-vj1-startup-status|app-startup-status|document\.querySelector/);
   assert.match(
     index,
     /if \(controllerMatches\(\)\) \{[\s\S]*?registration\.update\(\)\.catch[\s\S]*?\} else \{[\s\S]*?registration\.update\(\)/,
@@ -607,9 +640,102 @@ test("orchestration shells delegate extracted cache, shader-target, history, der
   assert.match(projectService, /new ProjectDerivedAssetStore\(/);
   assert.doesNotMatch(projectService, /(?:async )?function (?:listRevisionEntries|pruneRevisionEntries|readRedoIndex|writeRedoIndex|writeMediaRendition|loadIndexedRenditions|writeComponentThumbnail|loadComponentThumbnails)\b/);
   assert.match(controlShell, /createControlPerformanceSession\(/);
-  assert.match(controlShell, /createControlDiagnosticsController\(/);
-  assert.match(controlShell, /projectRailTemplate\(/);
+  assert.match(controlShell, /diagnostics\?\.subscribe\?\.\(/);
+  assert.match(controlShell, /retainedUi\.updateNode\("diagnostics"/);
+  assert.match(controlShell, /retainedUi\.activate\((?:componentCatalogUiGraph|sceneRailUiGraph|mappingRailUiGraph|liveRailUiGraph)\(/);
+  assert.match(controlShell, /retainedUi\.activate\(liveProjectionRailUiGraph\(/);
   assert.doesNotMatch(controlShell, /function (?:railToolsTemplate|componentToolsTemplate|canvasToolsTemplate|sceneToolsTemplate|liveToolsTemplate|mappingToolsTemplate)\b/);
+});
+
+test("migrated thumbnail catalogs cross the application boundary as semantic data only", () => {
+  const projectionSource = readFileSync(resolve(jsRoot, "control/project-rail-view.js"), "utf8");
+  const programSource = readFileSync(resolve(jsRoot, "control/control-ui-program.js"), "utf8");
+  const compositionSource = readFileSync(resolve(jsRoot, "libraries/ui-engine/compositions/thumbnail-catalog.js"), "utf8");
+  const start = projectionSource.indexOf("export function componentCatalogListItems");
+  const end = projectionSource.indexOf("export function liveSourceListItems", start);
+  const componentCatalogProjection = projectionSource.slice(start, end);
+  const helperStart = programSource.indexOf("export function thumbnailCatalogUiModel");
+  const helperEnd = programSource.indexOf("export function sceneSurfaceListItems", helperStart);
+  const thumbnailCatalogModel = programSource.slice(helperStart, helperEnd);
+
+  assert.doesNotMatch(componentCatalogProjection, /<\w|className|selectClassName|copyClassName|labelClassName|labelIconClassName|\.media\b/);
+  assert.match(componentCatalogProjection, /thumbnail:/);
+  assert.match(componentCatalogProjection, /variant: `marker-\$\{marker\.marker\}`/);
+  assert.doesNotMatch(thumbnailCatalogModel, /className|listClassName|<\w/);
+  assert.match(thumbnailCatalogModel, /createThumbnailCatalogModel\(/);
+  assert.match(compositionSource, /presentation: "rail-catalog"/);
+  assert.match(compositionSource, /listPresentation: "thumbnail-grid"/);
+  assert.match(compositionSource, /itemNode: "thumbnail-button"/);
+});
+
+test("VJ workspace graphs have no generic host escape hatch", () => {
+  const programSource = readFileSync(resolve(jsRoot, "control/control-ui-program.js"), "utf8");
+  const controllerSource = readFileSync(resolve(jsRoot, "control/control-shell-controller.js"), "utf8");
+  const libraryViewSource = readFileSync(resolve(jsRoot, "control/node-library-view.js"), "utf8");
+  const uiModelSource = readFileSync(resolve(jsRoot, "libraries/ui-engine/ui-model.js"), "utf8");
+  const displayNodesSource = readFileSync(resolve(jsRoot, "libraries/ui-engine/nodes/display-nodes.js"), "utf8");
+
+  assert.doesNotMatch(programSource, /type:\s*["']host["']/);
+  assert.doesNotMatch(controllerSource, /type:\s*["']host["']/);
+  assert.doesNotMatch(uiModelSource, /["']host["']|SpecializedHostNode/);
+  assert.doesNotMatch(displayNodesSource, /SpecializedHostNode|specialized-host/);
+  assert.match(programSource, /type:\s*LibraryCatalogNode\.id/);
+  const modelStart = libraryViewSource.indexOf("export function nodeLibraryRailModel");
+  const modelEnd = libraryViewSource.indexOf("export function nodeLibraryStudioModel", modelStart);
+  assert.ok(modelStart >= 0 && modelEnd > modelStart);
+  assert.doesNotMatch(libraryViewSource.slice(modelStart, modelEnd), /<\w|innerHTML|createElement|className/);
+});
+
+test("settings cross the VJ boundary as a semantic model only", () => {
+  const modelSource = readFileSync(resolve(jsRoot, "control/settings-view.js"), "utf8");
+  const controllerSource = readFileSync(resolve(jsRoot, "control/modal-controller.js"), "utf8");
+  const forbidden = /innerHTML|outerHTML|insertAdjacentHTML|createElement|replaceChildren|querySelector|addEventListener|classList|className|<\w/;
+
+  assert.doesNotMatch(modelSource, forbidden);
+  assert.doesNotMatch(controllerSource, forbidden);
+  assert.match(modelSource, /type:\s*"modal"/);
+  assert.match(modelSource, /type:\s*"tabs"/);
+  assert.match(modelSource, /action:\s*"settings\.change"/);
+  assert.match(controllerSource, /command\.action === "settings\.change"/);
+});
+
+test("migrated workspace and rail projections expose presentations instead of CSS classes", () => {
+  const programSource = readFileSync(resolve(jsRoot, "control/control-ui-program.js"), "utf8");
+  const railSource = readFileSync(resolve(jsRoot, "control/project-rail-view.js"), "utf8");
+  const forbidden = /innerHTML|outerHTML|insertAdjacentHTML|createElement|replaceChildren|querySelector|addEventListener|classList|className|ClassName|<\w/;
+
+  assert.doesNotMatch(programSource, forbidden);
+  assert.doesNotMatch(railSource, forbidden);
+  assert.match(programSource, /presentation:\s*"workspace"/);
+  assert.match(programSource, /presentation:\s*"artifact-inspector"/);
+  assert.match(railSource, /presentation:\s*"live-output-row"/);
+});
+
+test("Live Controls and Elements tabs are one semantic retained hierarchy", () => {
+  const liveSource = readFileSync(resolve(jsRoot, "control/mapping-live-view.js"), "utf8");
+  const programSource = readFileSync(resolve(jsRoot, "control/control-ui-program.js"), "utf8");
+  const controllerSource = readFileSync(resolve(jsRoot, "control/control-shell-controller.js"), "utf8");
+  const forbidden = /innerHTML|outerHTML|insertAdjacentHTML|createElement|replaceChildren|querySelector|addEventListener|classList|className|ClassName|<\w/;
+
+  const modelStart = liveSource.indexOf("export function selectedLiveInspectorModel");
+  const modelEnd = liveSource.indexOf("export function liveNavigableComponents", modelStart);
+  const itemsStart = liveSource.indexOf("function liveLayerOutlineItems");
+  const itemsEnd = liveSource.indexOf("export function selectedLiveParameterTabsModel", itemsStart);
+  const graphStart = programSource.indexOf("export function liveComponentViewUiGraph");
+  const graphEnd = programSource.indexOf("export function artifactInspectorUiGraph", graphStart);
+  const reconcileStart = controllerSource.indexOf("  function reconcileLiveComponentViewUi");
+  const reconcileEnd = controllerSource.indexOf("  function deactivateLiveParameterUi", reconcileStart);
+
+  for (const section of [
+    liveSource.slice(modelStart, modelEnd),
+    liveSource.slice(itemsStart, itemsEnd),
+    programSource.slice(graphStart, graphEnd),
+    controllerSource.slice(reconcileStart, reconcileEnd),
+  ]) assert.doesNotMatch(section, forbidden);
+  assert.match(programSource.slice(graphStart, graphEnd), /type: ListNode\.id/);
+  assert.match(programSource.slice(graphStart, graphEnd), /parameterUiNodes\(/);
+  assert.match(controllerSource, /command\.action === "live\.element-select"/);
+  assert.match(controllerSource, /command\.action === "live\.element-action"/);
 });
 
 function collectModules(directory) {

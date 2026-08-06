@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UI Analysis Report Smoke</title>
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/base.css">
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/themes/vj.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #101010; font: 13px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; }
+  </style>
+</head>
+<body>
+  <main id="host"></main>
+  <script type="module">
+    import { AnalysisReportNode } from "../../js/libraries/ui-engine/index.js";
+
+    const thumbnail = "data:image/svg+xml," + encodeURIComponent(`<svg width="80" height="64"><rect width="80" height="64" fill="#050505"/><circle cx="40" cy="32" r="22" fill="#8a3d00"/><circle cx="40" cy="32" r="9" fill="#48a98e"/></svg>`);
+    const categories = [
+      ["Authored transactions", "0.0/s"], ["Render wakeups", "0.0/s"],
+      ["Graph compiles", "0.0/s"], ["Resource revisions", "0.0/s"],
+      ["Cache invalidations", "0.0/s"], ["Cache hits", "456.8/s"],
+      ["Preview presentations", "57.0/s"], ["Output presentations", "0.0/s"],
+    ].map(([label, value]) => ({ label, value }));
+    const rows = Array.from({ length: 12 }, (_, index) => ({
+      rank: index + 1,
+      pass: { label: index ? "Cellular Circles" : "Comp 33", detail: index ? "source / generator" : "component", media: { src: thumbnail } },
+      avg: `${Math.max(0.1, 2.5 - index * 0.25).toFixed(1)} ms`,
+      p95: `${Math.max(0.2, 3 - index * 0.25).toFixed(1)} ms`,
+      max: `${Math.max(0.3, 3 - index * 0.2).toFixed(1)} ms`,
+      samples: 21,
+    }));
+    const instance = AnalysisReportNode.moduleExports.createUiInstance({
+      host: document.querySelector("#host"),
+      document,
+      emit() {},
+      inputs: {
+        open: true,
+        title: "Performance analysis",
+        subtitle: "10 second sampled report · 21 metric samples",
+        cards: [
+          ["FPS average", "60.0"], ["CPU frame p95", "3.2 ms"], ["GPU timer average", "3.3 ms"], ["Frame budget p95", "19%"],
+          ["UI rebuild p95", "—"], ["Main-thread blocks", "0"], ["Event-loop lag p95", "2.4 ms"], ["Render cache reuse", "50%"],
+          ["Signal pressure avg", "0.0/s"],
+        ].map(([label, value]) => ({ label, value })),
+        sections: [
+          { title: "Signal flow", description: "Per-second architectural activity. Presentations and cache hits are throughput and do not increase the pressure light.", items: categories },
+          {
+            title: "Attributed CPU hotspots",
+            description: "Average, p95, and maximum duration for the bounded diagnostic pass samples. Component rows include their child work.",
+            table: {
+              columns: [{ id: "rank", label: "#" }, { id: "pass", label: "Pass" }, { id: "avg", label: "Avg" }, { id: "p95", label: "P95" }, { id: "max", label: "Max" }, { id: "samples", label: "N" }],
+              rows,
+            },
+          },
+          { title: "Observations", items: ["surfaces · 10 active surfaces increase per-frame mapping work.", "render · Pixel density 2 multiplies canvas work."] },
+          { title: "Host / UI activity", description: "0 UI reconciliations · 20 state notifications · no long tasks observed", items: ["preview-metrics · 20"] },
+        ],
+        note: "GPU time is an aggregate of completed non-overlapping WebGL timer queries.",
+        actions: [{ id: "close", label: "Close" }, { id: "download", label: "Download report", icon: "download" }],
+      },
+    });
+    instance.mount();
+    const root = document.querySelector(".ui-node-analysis-report");
+    const panel = document.querySelector(".ui-node-analysis-report-panel");
+    const body = document.querySelector(".ui-node-analysis-report-body");
+    const footer = document.querySelector(".ui-node-analysis-report-actions");
+    const rootRect = root.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    const footerRect = footer.getBoundingClientRect();
+    root.dataset.smoke = JSON.stringify({
+      coversViewport: rootRect.width === innerWidth && rootRect.height === innerHeight,
+      centered: Math.abs(panelRect.left + panelRect.width / 2 - innerWidth / 2) < 1 && Math.abs(panelRect.top + panelRect.height / 2 - innerHeight / 2) < 1,
+      bounded: panelRect.width <= 900 && panelRect.height <= 720,
+      scrollsBody: body.scrollHeight > body.clientHeight,
+      footerVisible: footerRect.bottom <= panelRect.bottom && footerRect.top >= panelRect.top,
+      cardColumns: getComputedStyle(document.querySelector(".ui-node-analysis-report-cards")).gridTemplateColumns.split(" ").length,
+    });
+  </script>
+</body>
+</html>

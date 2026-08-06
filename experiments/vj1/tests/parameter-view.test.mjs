@@ -2,140 +2,94 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { colorParamControlTemplate, componentParamViews, paramControlTemplate, paramControlsTemplate, screenInputParamControlTemplate } from "../js/control/parameter-view.js";
-import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-utils.js";
+import {
+  componentParamViews,
+  retainedParameterControlEligible,
+} from "../js/control/parameter-view.js";
+import { parameterUiNodes } from "../js/libraries/ui-engine/parameter-graph.js";
+import {
+  ButtonNode,
+  ColorPickerNode,
+  RangeUiNode,
+  SelectUiNode,
+  SliderUiNode,
+  TextInputNode,
+  ToggleNode,
+} from "../js/libraries/ui-engine/nodes/control-nodes.js";
 
-test("shared standalone sliders expose the declared-parameter reset contract", () => {
-  const html = rangeTemplate("Movie speed", "components.0.chain.0.source.speed", 1.5, 0, 4, 0.01, 1);
-  assert.match(html, /data-param-context-path="components\.0\.chain\.0\.source\.speed"/);
-  assert.match(html, /data-param-default="1"/);
-});
+function controlNode(control) {
+  return parameterUiNodes({ id: "parameters", controls: [control] })
+    .find((node) => node.id === control.id);
+}
 
 test("parameter views tolerate a file-backed node while its definition is pending", () => {
   assert.deepEqual(componentParamViews(null), { primary: [], details: [] });
 });
 
-test("parameter view owns reusable inspector controls outside the controller", () => {
-  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
-  const componentView = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const sceneLiveView = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
-  const range = paramControlTemplate({ id: "gain", label: "Gain", type: "number", min: 0, max: 2, step: 0.1 }, "params.gain", 1);
-  const controls = paramControlsTemplate([
-    { id: "seed", label: "Seed", type: "number", min: 0, max: 1, defaultValue: 0 },
-    { id: "enabled", label: "Enabled", type: "boolean", defaultValue: true },
-  ]);
-
-  assert.match(range, /class="field range-field chain-param param-context-target"/);
-  assert.match(range, /data-param-context-path="params\.gain"/);
-  assert.match(range, /data-update="params\.gain"/);
-  assert.doesNotMatch(controls, /Seed/);
-  assert.match(controls, /Enabled/);
-  assert.match(componentView, /from "\.\/parameter-view\.js"/);
-  assert.match(sceneLiveView, /from "\.\/parameter-view\.js"/);
-  assert.doesNotMatch(controller, /function paramControlTemplate\(/);
-  assert.doesNotMatch(controller, /function paramControlsTemplate\(/);
+test("parameter projection omits internal seed and render-quality declarations", () => {
+  const views = componentParamViews({ params: [
+    { id: "seed", type: "number" },
+    { id: "renderQuality", type: "number" },
+    { id: "gain", type: "number" },
+  ] });
+  assert.deepEqual(views.primary.map((param) => param.id), ["gain"]);
+  assert.equal(retainedParameterControlEligible({ id: "seed", type: "number" }), false);
+  assert.equal(retainedParameterControlEligible({ id: "gain", type: "number" }), true);
 });
 
-test("color params place the shared slider label above an alpha track with the swatch on the right", () => {
-  const control = colorParamControlTemplate({ id: "sky", label: "Sky", type: "color" }, "params.sky", "#12345680");
-  const alphaIndex = control.indexOf("data-color-alpha");
-  const swatchIndex = control.indexOf("data-color-rgb");
-
-  assert.match(control, /class="field range-field color-param chain-param/);
-  assert.match(control, /<span>Sky<\/span>[\s\S]*?class="param-control-track color-param-row"/);
-  assert.ok(alphaIndex > 0);
-  assert.ok(swatchIndex > alphaIndex);
+test("parameter declarations map to explicit reusable UI nodes", () => {
+  assert.equal(controlNode({ id: "gain", kind: "number", value: 0.5 }).type, SliderUiNode.id);
+  assert.equal(controlNode({ id: "enabled", kind: "boolean", value: true }).type, ToggleNode.id);
+  assert.equal(controlNode({ id: "mode", kind: "enum", value: "a", options: ["a"] }).type, SelectUiNode.id);
+  assert.equal(controlNode({ id: "color", kind: "color", value: "#ffffffff" }).type, ColorPickerNode.id);
+  assert.equal(controlNode({ id: "name", kind: "text", value: "Visual" }).type, TextInputNode.id);
+  assert.equal(controlNode({ id: "trigger", kind: "event" }).type, ButtonNode.id);
+  assert.equal(controlNode({ id: "range", kind: "range", value: { min: 0.2, max: 0.8 } }).type, RangeUiNode.id);
 });
 
-test("persistent and Live params expose reset metadata with explicit ownership modes", () => {
-  const persistent = paramControlTemplate({ id: "gain", label: "Gain", type: "number", min: 0, max: 2, defaultValue: 0.75 }, "components.0.chain.0.params.gain", 1, "data-update", { significant: true });
-  const live = paramControlTemplate({ id: "gain", label: "Gain", type: "number", min: 0, max: 2, defaultValue: 0.75 }, "chain.0.params.gain", 1, 'data-live-component-id="component-7" data-live-update');
-  assert.match(persistent, /is-significant/);
-  assert.match(persistent, /data-param-default="0\.75"/);
-  assert.match(persistent, /data-param-context-mode="state"/);
-  assert.match(live, /data-param-context-path="chain\.0\.params\.gain"/);
-  assert.match(live, /data-param-default="0\.75"/);
-  assert.match(live, /data-param-context-mode="live"/);
-  assert.match(live, /data-param-context-component-id="component-7"/);
-});
-
-test("parameter controls retain an explicit context opt-out", () => {
-  const html = paramControlTemplate(
-    { id: "local", label: "Local", type: "number", min: 0, max: 1, defaultValue: 0.5 },
-    "local",
-    0.5,
-    "data-update",
-    { context: false }
-  );
-  assert.doesNotMatch(html, /data-param-context-path/);
-});
-
-test("parameter dropdowns use the shared compact select component", () => {
-  const html = paramControlTemplate(
-    { id: "mode", label: "Mode", type: "enum", values: ["one", "two"], defaultValue: "one" },
-    "params.mode",
-    "two"
-  );
-  assert.match(html, /<select class="param-select" data-update="params\.mode">/);
-});
-
-test("ISF booleans use the shared toggle button instead of a checkbox", () => {
-  const persistent = paramControlTemplate(
-    { id: "freeze", label: "Freeze", type: "boolean", isfUniformType: "bool", defaultValue: false },
-    "components.0.chain.2.params.freeze",
-    true
-  );
-  const live = paramControlTemplate(
-    { id: "freeze", label: "Freeze", type: "boolean", isfUniformType: "bool", defaultValue: false },
-    "chain.2.params.freeze",
-    false,
-    'data-live-component-id="component-7" data-live-node-id="item-freeze" data-live-update'
-  );
-
-  assert.match(persistent, /class="param-toggle-button is-enabled"/);
-  assert.match(persistent, /data-toggle-path="components\.0\.chain\.2\.params\.freeze"/);
-  assert.match(persistent, /data-toggle-value="true"/);
-  assert.match(persistent, /aria-pressed="true"/);
-  assert.doesNotMatch(persistent, /type="checkbox"/);
-  assert.match(live, /class="param-toggle-button"/);
-  assert.match(live, /data-live-component-id="component-7"/);
-  assert.match(live, /data-live-node-id="item-freeze"/);
-  assert.match(live, /data-live-toggle="chain\.2\.params\.freeze"/);
-  assert.match(live, /data-toggle-value="false"/);
-  assert.doesNotMatch(live, /type="checkbox"/);
-});
-
-test("ordinary boolean parameters retain their existing checkbox control", () => {
-  const html = paramControlTemplate(
-    { id: "enabled", label: "Enabled", type: "boolean", defaultValue: false },
-    "params.enabled",
-    false
-  );
-  assert.match(html, /type="checkbox"/);
-  assert.doesNotMatch(html, /param-toggle-button/);
-});
-
-test("screen input params keep stable IDs while presenting session names and dimensions", () => {
-  const param = { id: "inputId", label: "Input", type: "text", ui: "screen-input", defaultValue: "" };
-  const inputs = [
-    { id: "screen-one", name: "Slides", width: 1920, height: 1080 },
-    { id: "screen-two", name: "Browser", width: 1280, height: 720 },
-  ];
-  const html = screenInputParamControlTemplate(param, "source.params.inputId", "screen-two", "data-update", { inputs });
-  assert.match(html, /value="screen-one"[^>]*>Slides · 1920 × 1080/);
-  assert.match(html, /value="screen-two" selected>Browser · 1280 × 720/);
-  assert.match(html, /data-update="source\.params\.inputId"/);
-});
-
-test("paired persistent range handles retain independent parameter context metadata", () => {
-  const html = paramRangePairTemplate({
-    minParam: { id: "low", label: "Range", min: 0, max: 1, step: 0.01, defaultValue: 0.2 },
-    maxParam: { id: "high", min: 0, max: 1, step: 0.01, defaultValue: 0.8 },
-    minPath: "components.0.chain.0.params.low",
-    maxPath: "components.0.chain.0.params.high",
-    minValue: 0.25,
-    maxValue: 0.75,
+test("parameter commands carry authored addresses and reset metadata without DOM attributes", () => {
+  const node = controlNode({
+    id: "gain",
+    label: "Gain",
+    kind: "number",
+    address: "nodes.groups.0.nodes.1.configuration.params.gain",
+    value: 1,
+    defaultValue: 0.75,
+    action: "project.set-value",
+    contextTarget: {
+      mode: "state",
+      path: "nodes.groups.0.nodes.1.configuration.params.gain",
+      defaultValue: 0.75,
+    },
   });
-  assert.match(html, /data-param-context-path="components\.0\.chain\.0\.params\.low" data-param-default="0\.2"/);
-  assert.match(html, /data-param-context-path="components\.0\.chain\.0\.params\.high" data-param-default="0\.8"/);
+  assert.equal(node.stateAddress, "nodes.groups.0.nodes.1.configuration.params.gain");
+  assert.equal(node.commands.change.action, "project.set-value");
+  assert.deepEqual(node.commands.context.target, {
+    mode: "state",
+    path: "nodes.groups.0.nodes.1.configuration.params.gain",
+    defaultValue: 0.75,
+  });
+});
+
+test("paired ranges keep one atomic value and one semantic command", () => {
+  const node = controlNode({
+    id: "hue",
+    label: "Hue",
+    kind: "range",
+    value: { min: 200, max: 260 },
+    min: 0,
+    max: 360,
+    step: 1,
+    display: "degrees",
+    rangeKind: "hue",
+    action: "project.set-range",
+  });
+  assert.deepEqual(node.inputs.value, { min: 200, max: 260 });
+  assert.equal(node.inputs.display, "degrees");
+  assert.equal(node.commands.change.action, "project.set-range");
+});
+
+test("the VJ parameter projection contains no HTML or DOM presentation APIs", () => {
+  const source = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /<\w|innerHTML|createElement|querySelector|addEventListener|className|data-/);
 });

@@ -19,6 +19,7 @@ import {
 
 import { applyLiveRenderPatches, applyLiveRenderPatchesImmutable, createComponentRenderPatch, createRenderStatePatch, resolveLiveRenderPatches } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
+import { createMediaThumbnailHandler } from "../js/services/media-thumbnail-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
 import { produceStructuralShare } from "../js/libraries/data-store/data-store/structural-sharing.js";
@@ -539,7 +540,7 @@ test("SVG media rasterizes at active demand and content scale upgrades the retai
   }
 });
 
-test("media-library preview URLs are leased once and released as a group", async () => {
+test("media-library image thumbnails are derived once and retained across picker claims", async () => {
   const previousCreateUrl = URL.createObjectURL;
   const previousRevokeUrl = URL.revokeObjectURL;
   let creates = 0;
@@ -547,17 +548,20 @@ test("media-library preview URLs are leased once and released as a group", async
   URL.createObjectURL = () => `blob:preview-${++creates}`;
   URL.revokeObjectURL = (url) => revoked.push(url);
   try {
-    const library = createMediaLibrary();
+    const thumbnailHandler = createMediaThumbnailHandler({
+      createThumbnail: async (file) => new Blob([`thumbnail:${file.name}`], { type: "image/webp" }),
+    });
+    const library = createMediaLibrary({ thumbnailHandler });
     const file = { name: "large.png", size: 10, lastModified: 1, type: "image/png" };
     await library.importFiles([file]);
-    assert.equal(library.acquirePreviewUrl("large.png"), "blob:preview-1");
-    assert.equal(library.acquirePreviewUrl("large.png"), "blob:preview-1");
+    assert.equal(await library.acquirePreviewUrl("large.png"), "blob:preview-1");
+    assert.equal(await library.acquirePreviewUrl("large.png"), "blob:preview-1");
     assert.equal(creates, 1);
     library.releasePreviewUrl("large.png");
-    assert.deepEqual(revoked, ["blob:preview-1"]);
-    assert.equal(library.acquirePreviewUrl("large.png"), "blob:preview-2");
+    assert.deepEqual(revoked, []);
+    assert.equal(await library.acquirePreviewUrl("large.png"), "blob:preview-1");
     library.releasePreviewUrls();
-    assert.deepEqual(revoked, ["blob:preview-1", "blob:preview-2"]);
+    assert.deepEqual(revoked, ["blob:preview-1"]);
   } finally {
     URL.createObjectURL = previousCreateUrl;
     URL.revokeObjectURL = previousRevokeUrl;
@@ -621,11 +625,106 @@ test("model media produces a bounded SVG preview only when demanded", async () =
     assert.equal(created.length, 1);
     assert.equal(created[0].type, "image/svg+xml");
     library.releasePreviewUrl("shape.stl");
-    assert.deepEqual(revoked, ["blob:model-preview-1"]);
+    assert.deepEqual(revoked, [], "closing a picker does not invalidate generated model thumbnails");
+    assert.equal(await library.acquirePreviewUrl("shape.stl"), "blob:model-preview-1");
+    assert.equal(created.length, 1, "reopening a picker reuses the generated thumbnail");
+    library.clear();
+    assert.deepEqual(revoked, ["blob:model-preview-1"], "project media cleanup owns final URL revocation");
   } finally {
     URL.createObjectURL = previousCreateUrl;
     URL.revokeObjectURL = previousRevokeUrl;
   }
+});
+
+test("media thumbnail handler centralizes image video STL and OBJ generation lifecycle", async () => {
+  let generations = 0;
+  const revoked = [];
+  const handler = createMediaThumbnailHandler({
+    createThumbnail: async (_file, { kind }) => ({ url: `blob:${kind}-${++generations}` }),
+    createObjectUrl: (value) => value.url,
+    revokeObjectUrl: (url) => revoked.push(url),
+  });
+
+  assert.equal(await handler.acquire("photo.png", {}), "blob:image-1");
+  handler.release("photo.png");
+  assert.equal(await handler.acquire("photo.png", {}), "blob:image-1");
+  assert.equal(await handler.acquire("clip.mp4", {}), "blob:video-2");
+  handler.release("clip.mp4");
+  assert.equal(await handler.acquire("clip.mp4", {}), "blob:video-2");
+  assert.equal(await handler.acquire("mesh.stl", {}), "blob:model-3");
+  handler.release("mesh.stl");
+  assert.equal(await handler.acquire("mesh.stl", {}), "blob:model-3");
+  assert.equal(await handler.acquire("mesh.obj", {}), "blob:model-4");
+  handler.release("mesh.obj");
+  assert.equal(await handler.acquire("mesh.obj", {}), "blob:model-4");
+  assert.equal(generations, 4, "each unchanged media source is generated only once");
+
+  handler.invalidate("mesh.stl");
+  assert.deepEqual(revoked, ["blob:model-3"]);
+  assert.equal(await handler.acquire("mesh.stl", {}), "blob:model-5");
+  handler.clear();
+  assert.deepEqual(revoked.sort(), ["blob:image-1", "blob:model-3", "blob:model-4", "blob:model-5", "blob:video-2"]);
+});
+
+test("media thumbnail handler restores every revision-matched media type from project thumbnail storage", async () => {
+  const cached = new Map();
+  let generations = 0;
+  let writes = 0;
+  const files = [
+    ["media/photo.png", { name: "photo.png", size: 12, lastModified: 7, type: "image/png" }],
+    ["media/clip.mp4", { name: "clip.mp4", size: 24, lastModified: 8, type: "video/mp4" }],
+    ["media/shape.obj", { name: "shape.obj", size: 42, lastModified: 9, type: "text/plain" }],
+  ];
+  const storage = {
+    read: async (id, revision) => cached.get(`${id}:${revision}`) || null,
+    write: async (id, revision, blob) => {
+      writes++;
+      cached.set(`${id}:${revision}`, blob);
+    },
+  };
+  const options = {
+    createThumbnail: async (_file, { kind }) => ({ token: `${kind}-${++generations}` }),
+    createObjectUrl: (blob) => `blob:${blob.token}`,
+    revokeObjectUrl: () => {},
+  };
+
+  const firstSession = createMediaThumbnailHandler(options);
+  firstSession.setStorage(storage);
+  for (const [id, file] of files) await firstSession.acquire(id, file);
+  firstSession.clear();
+
+  const reopenedSession = createMediaThumbnailHandler(options);
+  reopenedSession.setStorage(storage);
+  assert.deepEqual(
+    await Promise.all(files.map(([id, file]) => reopenedSession.acquire(id, file))),
+    ["blob:image-1", "blob:video-2", "blob:model-3"],
+  );
+  assert.equal(generations, 3, "a clean reload uses the project cache for every media type");
+  assert.equal(writes, 3);
+});
+
+test("media thumbnail handler bounds concurrent cache-miss generation", async () => {
+  let active = 0;
+  let peak = 0;
+  const handler = createMediaThumbnailHandler({
+    maxConcurrentGenerations: 2,
+    createThumbnail: async (_file, { id }) => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 4));
+      active--;
+      return { id };
+    },
+    createObjectUrl: (blob) => `blob:${blob.id}`,
+    revokeObjectUrl: () => {},
+  });
+
+  const ids = ["a.stl", "b.stl", "c.webm", "d.mp4", "e.png"];
+  assert.deepEqual(
+    await Promise.all(ids.map((id) => handler.acquire(id, { name: id, size: 1, lastModified: 1 }))),
+    ids.map((id) => `blob:${id}`),
+  );
+  assert.equal(peak, 2);
 });
 
 test("video import stays metadata-only until an active render acquires it", () => {
@@ -3143,6 +3242,35 @@ test("Live numeric patches preserve target truth while the renderer interpolates
   assert.equal(params.amount, 0.25, "retargeting continues from the currently displayed value");
   renderer.livePatchRuntime.restoreFrame();
   assert.equal(params.amount, 0);
+});
+
+test("directly manipulated Live parameters bypass Param fade during pointer input", () => {
+  const renderer = new OutputRenderer({ mode: "output" });
+  renderer.state = {
+    components: [{ id: "component-a" }],
+    nodes: { groups: [{
+      generatedBy: "vj1-component-compiler",
+      componentId: "component-a",
+      nodes: [{ id: "item-a", configuration: { params: { amount: 0 } } }],
+    }] },
+    frames: [],
+    surfaces: [],
+    ui: { live: { paramFadeDuration: 1 } },
+  };
+  renderer.componentProgramRuntime.rebuildLookups();
+
+  const params = renderer.state.nodes.groups[0].nodes[0].configuration.params;
+  const result = renderer.livePatchRuntime.applyLive([
+    createComponentRenderPatch("component-a", "item-a", "params.amount", 1, {
+      interpolation: "immediate",
+    }),
+  ], 100);
+
+  assert.equal(result.applied, true);
+  assert.equal(params.amount, 1);
+  assert.equal(renderer.livePatchRuntime.fades.size, 0);
+  renderer.livePatchRuntime.applyFrame(600);
+  assert.equal(params.amount, 1, "the render frame presents the current drag sample immediately");
 });
 
 test("Structural resolution patches bypass param fading in both directions", () => {

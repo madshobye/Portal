@@ -136,6 +136,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     mediaLibrary,
     onMediaFilesChanged: () => bridge.sendMediaFiles(mediaLibrary.getAllFiles()),
   });
+  mediaLibrary.setThumbnailStorage?.(Object.freeze({
+    read: (mediaId, sourceRevision) => derivedAssets.readMediaThumbnail(mediaId, sourceRevision),
+    write: (mediaId, sourceRevision, blob) => derivedAssets.writeMediaThumbnail(mediaId, sourceRevision, blob),
+  }));
 
   async function openFolder() {
     if (!window.showDirectoryPicker) {

@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>UI engine smoke</title>
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/base.css" />
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/themes/vj.css" />
+</head>
+<body>
+  <main id="host"></main>
+  <main id="parameter-host"></main>
+  <main id="model-host"></main>
+  <aside id="secondary-host"></aside>
+  <section id="preview-host"><div id="preview-stage"></div><div id="preview-tools"></div></section>
+  <pre id="result">running</pre>
+  <script>
+    window.addEventListener("error", (event) => {
+      document.documentElement.dataset.testStatus = "failed";
+      document.querySelector("#result").textContent = event.error?.stack || event.message;
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      document.documentElement.dataset.testStatus = "failed";
+      document.querySelector("#result").textContent = event.reason?.stack || String(event.reason);
+    });
+  </script>
+  <script type="module">
+    import {
+      ButtonNode,
+      CatalogPickerNode,
+      CollectionNode,
+      ColorPickerNode,
+      createUi,
+      defineUiGraph,
+      LayoutNode,
+      ModalNode,
+      MarkdownInputNode,
+      parameterUiGraph,
+      PanelNode,
+      RangeUiNode,
+      RetainedUiRuntime,
+      TabsNode,
+      TextNode,
+      TextInputNode,
+      ToggleNode,
+      UiNodeDefinitions,
+      UiNodeRegistry,
+    } from "../../js/libraries/ui-engine/index.js";
+    import { previewToolsUiGraph } from "../../js/control/control-ui-program.js";
+
+    sessionStorage.removeItem("ui-session:ui-state@1");
+
+    const commands = [];
+    const runtime = new RetainedUiRuntime({
+      registry: new UiNodeRegistry(UiNodeDefinitions),
+      dispatch: (command) => commands.push(command),
+    });
+    const parameterRuntime = new RetainedUiRuntime({
+      registry: new UiNodeRegistry(UiNodeDefinitions),
+      dispatch: (command) => commands.push(command),
+    });
+    const host = document.querySelector("#host");
+    const graph = (slots) => defineUiGraph({
+      id: "ui-engine-smoke",
+      nodes: [
+        {
+          id: "layout",
+          type: LayoutNode.id,
+          inputs: { slots: slots.map((id) => ({ id })) },
+        },
+        { id: "first", type: ButtonNode.id, parent: "layout", slot: "first", inputs: { label: "First" } },
+        { id: "second", type: ButtonNode.id, parent: "layout", slot: "second", inputs: { label: "Second" } },
+        { id: "media-panel", type: PanelNode.id, parent: "layout", slot: "panel", inputs: {
+          title: "Preview",
+          media: { key: "preview-1", fallbackIcon: "image", className: "material-symbols-rounded" },
+        } },
+        { id: "color", type: ColorPickerNode.id, parent: "layout", slot: "color", stateAddress: "theme/accent", inputs: { label: "Accent", value: "#33669980" } },
+        { id: "modal", type: ModalNode.id, parent: "layout", slot: "modal", inputs: { title: "Settings", open: true } },
+        {
+          id: "range",
+          type: RangeUiNode.id,
+          parent: "layout",
+          slot: "range",
+          stateAddress: "synth/filter-band",
+          inputs: { label: "Filter band", value: { min: 25, max: 75 }, min: 0, max: 100, step: 1 },
+          commands: { change: "synth.set-filter-band" },
+        },
+        {
+          id: "markdown",
+          type: MarkdownInputNode.id,
+          parent: "layout",
+          slot: "markdown",
+          stateAddress: "composition/title",
+          inputs: {
+            label: "Title",
+            value: "# Portal",
+            styleControls: [{ id: "bold", label: "B", title: "Bold", value: false }],
+          },
+          commands: {
+            change: "composition.set-title",
+            style: "composition.set-title-style",
+          },
+        },
+        {
+          id: "tabs",
+          type: TabsNode.id,
+          parent: "layout",
+          slot: "tabs",
+          stateAddress: "inspector/selected-item/views",
+          inputs: {
+            items: [
+              { id: "content", label: "Content" },
+              { id: "details", label: "Details" },
+            ],
+          },
+          commands: { select: "view.select" },
+        },
+        {
+          id: "catalog",
+          type: CatalogPickerNode.id,
+          parent: "layout",
+          slot: "catalog",
+          stateAddress: "synth/browser/source-picker",
+          inputs: {
+            title: "Choose source",
+            filters: [{ id: "oscillator", label: "Oscillators" }, { id: "effect", label: "Effects" }],
+            sections: [{
+              id: "modules",
+              label: "Modules",
+              items: [
+                { id: "sine", label: "Sine", categories: "oscillator", value: { type: "oscillator", shape: "sine" } },
+                { id: "delay", label: "Delay", categories: "effect", value: { type: "effect", id: "delay" } },
+              ],
+            }],
+          },
+          commands: { select: "synth.choose-module", filter: "synth.filter-modules", search: "synth.search-modules" },
+        },
+        {
+          id: "collection",
+          type: CollectionNode.id,
+          parent: "layout",
+          slot: "collection",
+          stateAddress: "dj/track-browser",
+          inputs: {
+            title: "Tracks",
+            searchPlaceholder: "Search tracks",
+            items: [
+              { id: "one", label: "First track", searchText: "first ambient", actions: [{ id: "mute", label: "Mute", icon: "M", position: "leading" }] },
+              { id: "two", label: "Second track", searchText: "second techno" },
+            ],
+            reorderable: true,
+            pasteScope: "track-list",
+            hasTitleSlot: true,
+            hasToolSlot: true,
+            headerActions: [{ id: "add", label: "Add track", icon: "+" }],
+          },
+          commands: { select: "dj.select-track", action: "dj.track-action", itemContext: "dj.track-context", search: "dj.search-tracks", reorder: "dj.reorder-tracks" },
+        },
+        {
+          id: "collection-title",
+          type: TextInputNode.id,
+          parent: "collection",
+          slot: "title",
+          inputs: { label: "Collection title", value: "Editable tracks", labelHidden: true },
+        },
+        {
+          id: "collection-tool",
+          type: ToggleNode.id,
+          parent: "collection",
+          slot: "tools",
+          inputs: { label: "Audition", value: true },
+        },
+      ],
+    });
+
+    runtime.activate(graph(["first", "second", "panel", "color", "range", "markdown", "modal", "tabs", "catalog", "collection"]), { host });
+    parameterRuntime.activate(parameterUiGraph({
+      id: "smoke.parameters",
+      controls: [
+        { id: "amount", kind: "number", address: "smoke.amount", label: "Amount", value: 0.4, min: 0, max: 1, step: 0.01 },
+        { id: "fit", kind: "enum", address: "smoke.fit", label: "Fit", value: "cover", options: ["cover", "contain", "stretch"] },
+        { id: "enabled", kind: "boolean", address: "smoke.enabled", label: "Enabled", value: true },
+      ],
+      changeAction: "smoke.set-parameter",
+    }), { host: document.querySelector("#parameter-host"), scope: "smoke.parameters" });
+    runtime.activate(defineUiGraph({
+      id: "secondary-scope",
+      nodes: [{ id: "status", type: TextNode.id, inputs: { text: "Independent" } }],
+    }), { host: document.querySelector("#secondary-host") });
+    const firstSlot = host.querySelector('[data-ui-slot="first"]');
+    const secondSlot = host.querySelector('[data-ui-slot="second"]');
+    if (!firstSlot || !secondSlot) throw new Error("both configured slots must survive child mounting");
+    runtime.activate(graph(["second", "first", "panel", "color", "range", "markdown", "modal", "tabs", "catalog", "collection"]), { host });
+    if (document.querySelector("#secondary-host").textContent !== "Independent") {
+      throw new Error("activating one graph scope must not prune another scope");
+    }
+    const reordered = [...host.querySelectorAll("[data-ui-slot]")];
+    if (reordered[0] !== secondSlot || reordered[1] !== firstSlot) throw new Error("slot reconfiguration must move retained identities");
+    const mediaHost = host.querySelector(".ui-node-panel-media");
+    const asynchronousImage = document.createElement("img");
+    asynchronousImage.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+    mediaHost.replaceChildren(asynchronousImage);
+    runtime.activate(graph(["second", "first", "panel", "color", "range", "markdown", "modal", "tabs", "catalog", "collection"]), { host });
+    if (host.querySelector(".ui-node-panel-media img") !== asynchronousImage) {
+      throw new Error("panel reconciliation must retain asynchronously projected media for an unchanged key");
+    }
+    firstSlot.querySelector("button").click();
+    if (commands.length !== 1 || commands[0].nodeId !== "first" || commands[0].type !== "activate") {
+      throw new Error("control DOM must emit one semantic command");
+    }
+    const colorSlot = host.querySelector('[data-ui-slot="color"]');
+    const colorInputs = colorSlot.querySelectorAll("input");
+    colorInputs[1].value = "1";
+    colorInputs[1].dispatchEvent(new Event("change", { bubbles: true }));
+    if (commands[1]?.address !== "theme/accent" || commands[1]?.payload?.value !== "#336699ff") {
+      throw new Error("color node must normalize RGBA and retain its semantic address");
+    }
+    const rangeMin = host.querySelector('[data-ui-range-input="min"]');
+    const rangeMax = host.querySelector('[data-ui-range-input="max"]');
+    rangeMin.value = "90";
+    rangeMin.dispatchEvent(new Event("input", { bubbles: true }));
+    const pairedRangeCommand = commands.find((command) =>
+      command.nodeId === "range" && command.action === "synth.set-filter-band"
+    );
+    if (rangeMax.value !== "90" || pairedRangeCommand?.phase !== "change" || pairedRangeCommand?.payload?.value?.max !== 90) {
+      throw new Error("range node must constrain crossing and emit one atomic paired value");
+    }
+    const markdownEditor = host.querySelector(".ui-node-markdown-editor");
+    markdownEditor.innerHTML = "<h1>Retained title</h1><div>Second line</div>";
+    markdownEditor.dispatchEvent(new Event("input", { bubbles: true }));
+    const markdownCommand = commands.find((command) =>
+      command.nodeId === "markdown" && command.action === "composition.set-title"
+    );
+    if (markdownCommand?.payload?.value !== "# Retained title\nSecond line" || markdownCommand.phase !== "change") {
+      throw new Error("markdown node must serialize private editor DOM into one semantic value");
+    }
+    host.querySelector('[data-ui-markdown-style="bold"]').click();
+    const markdownStyleCommand = commands.find((command) =>
+      command.nodeId === "markdown" && command.action === "composition.set-title-style"
+    );
+    if (markdownStyleCommand?.payload?.id !== "bold" || markdownStyleCommand?.payload?.value !== true) {
+      throw new Error("markdown styles must emit semantic related-value commands");
+    }
+    host.querySelector('[data-ui-node-owned="modal"]').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    if (!commands.some((command) => command.nodeId === "modal" && command.type === "close")) {
+      throw new Error("modal Escape must emit one close command");
+    }
+    const detailsTab = host.querySelector('[role="tab"][data-ui-tab="details"]');
+    detailsTab.click();
+    const selectedDetailsCommand = commands.find((command) =>
+      command.nodeId === "tabs" &&
+      command.action === "view.select" &&
+      command.payload?.id === "details"
+    );
+    if (detailsTab.getAttribute("aria-selected") !== "true" || !selectedDetailsCommand) {
+      throw new Error("tabs must own semantic selection and emit one configured command");
+    }
+    const catalogSearch = host.querySelector(".ui-node-catalog-search input");
+    catalogSearch.value = "delay";
+    catalogSearch.dispatchEvent(new Event("input", { bubbles: true }));
+    host.querySelector('[data-ui-catalog-filter="effect"]').click();
+    if (host.querySelector('[data-ui-catalog-item="sine"]').hidden !== true || host.querySelector('[data-ui-catalog-item="delay"]').hidden === true) {
+      throw new Error("catalog picker must own combined search and filter visibility");
+    }
+    const collectionList = host.querySelector('.ui-node-collection .ui-node-list');
+    const firstTrack = collectionList.querySelector('[data-ui-list-item="one"]');
+    const secondTrack = collectionList.querySelector('[data-ui-list-item="two"]');
+    const secondTrackSelect = secondTrack.querySelector("[data-ui-list-select]");
+    const selectionCommandsBeforePress = commands.filter((command) => command.action === "dj.select-track").length;
+    secondTrackSelect.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    secondTrackSelect.click();
+    if (commands.filter((command) => command.action === "dj.select-track").length !== selectionCommandsBeforePress + 1) {
+      throw new Error("a List press followed by click must emit one semantic selection");
+    }
+    const transfer = new DataTransfer();
+    const dragEvent = (type, { cancelable = false } = {}) => {
+      const event = new Event(type, { bubbles: true, cancelable });
+      Object.defineProperty(event, "dataTransfer", { value: transfer });
+      return event;
+    };
+    firstTrack.dispatchEvent(dragEvent("dragstart"));
+    secondTrack.dispatchEvent(dragEvent("dragover", { cancelable: true }));
+    secondTrack.dispatchEvent(dragEvent("drop", { cancelable: true }));
+    firstTrack.dispatchEvent(dragEvent("dragend"));
+    secondTrack.querySelector("[data-ui-list-select]").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 12, clientY: 24 }));
+    const reorderCommand = commands.find((command) => command.action === "dj.reorder-tracks");
+    const contextCommand = commands.find((command) => command.action === "dj.track-context");
+    if (
+      collectionList.dataset.pasteScope !== "track-list" ||
+      !firstTrack.draggable ||
+      firstTrack.firstElementChild?.dataset.uiListAction !== "mute" ||
+      reorderCommand?.payload?.fromId !== "one" ||
+      reorderCommand?.payload?.toId !== "two" ||
+      contextCommand?.payload?.id !== "two" ||
+      !host.querySelector('[data-ui-slot="collection"] .ui-node-collection-title-slot input') ||
+      !host.querySelector('[data-ui-slot="collection"] .ui-node-collection-tools-slot [aria-pressed="true"]')
+    ) throw new Error("collection List must own composed slots, context, leading actions, paste scope, and semantic reordering");
+    const collectionSearch = host.querySelector('.ui-node-collection-search input');
+    collectionSearch.value = "techno";
+    collectionSearch.dispatchEvent(new Event("input", { bubbles: true }));
+    if (host.querySelector('[data-ui-list-select="one"]') || !host.querySelector('[data-ui-list-select="two"]')) {
+      throw new Error("collection must filter its composed List without an application DOM handler");
+    }
+    const previewState = { ui: { previewQuality: "good", previewDiagnostics: false }, global: { mappingHandleMode: "near" } };
+    const previewHost = document.querySelector("#preview-host");
+    const previewStage = document.querySelector("#preview-stage");
+    const previewToolsHost = document.querySelector("#preview-tools");
+    runtime.activate(previewToolsUiGraph(previewState, { workspace: "mapping", kind: "preview" }), {
+      host: previewToolsHost,
+      scope: "vj1.control.preview-tools",
+    });
+    const previewLayout = runtime.getNode("preview-tools-layout", { scope: "vj1.control.preview-tools" });
+    const previewHud = previewLayout.slot("hud");
+    const zoomButton = previewLayout.slot("zoom-in").querySelector("button");
+    zoomButton.click();
+    const zoomCommand = commands.find((command) => command.action === "preview.zoom" && command.payload?.multiplier > 1);
+    if (!zoomCommand) throw new Error("preview toolbar must emit semantic zoom commands");
+    runtime.activate(previewToolsUiGraph({ ui: { previewQuality: "low", previewDiagnostics: true }, global: { mappingHandleMode: "always" } }, { workspace: "mapping", kind: "preview" }), {
+      host: previewToolsHost,
+      scope: "vj1.control.preview-tools",
+    });
+    const updatedPreviewLayout = runtime.getNode("preview-tools-layout", { scope: "vj1.control.preview-tools" });
+    if (
+      document.querySelector("#preview-stage") !== previewStage ||
+      updatedPreviewLayout.slot("hud") !== previewHud ||
+      updatedPreviewLayout.slot("zoom-in").querySelector("button") !== zoomButton ||
+      !updatedPreviewLayout.slot("diagnostics").querySelector(".is-active")
+    ) throw new Error("preview toolbar updates must retain stage, HUD, and control identities");
+    detailsTab.focus();
+    detailsTab.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    const contentTab = host.querySelector('[role="tab"][data-ui-tab="content"]');
+    if (contentTab.getAttribute("aria-selected") !== "true" || document.activeElement !== contentTab) {
+      throw new Error("tabs must own roving keyboard focus and selection");
+    }
+    detailsTab.click();
+    const detailsPanel = host.querySelector('[role="tabpanel"][data-ui-slot="details"]');
+    detailsPanel.style.cssText = "height:40px;overflow:auto";
+    detailsPanel.innerHTML = '<div style="height:400px">Retained panel content</div>';
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    detailsPanel.scrollTop = 83;
+    detailsPanel.dispatchEvent(new Event("scroll", { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (detailsPanel.scrollTop !== 83) {
+      throw new Error(`test panel must be scrollable before restoration (${detailsPanel.scrollTop})`);
+    }
+    runtime.deactivate("ui-engine-smoke");
+    runtime.activate(graph(["second", "first", "panel", "color", "range", "markdown", "modal", "tabs", "catalog", "collection"]), { host });
+    const restoredDetailsTab = host.querySelector('[role="tab"][data-ui-tab="details"]');
+    const restoredDetailsPanel = host.querySelector('[role="tabpanel"][data-ui-slot="details"]');
+    restoredDetailsPanel.style.cssText = "height:40px;overflow:auto";
+    restoredDetailsPanel.innerHTML = '<div style="height:400px">Restored panel content</div>';
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (restoredDetailsTab.getAttribute("aria-selected") !== "true" || restoredDetailsPanel.scrollTop !== 83) {
+      throw new Error(`tabs must restore semantic selection and panel scroll state (${restoredDetailsPanel.scrollTop}; ${JSON.stringify(runtime.state.snapshot())})`);
+    }
+    const restoredCatalogSearch = host.querySelector(".ui-node-catalog-search input");
+    const restoredEffectFilter = host.querySelector('[data-ui-catalog-filter="effect"]');
+    if (restoredCatalogSearch.value !== "delay" || restoredEffectFilter.getAttribute("aria-selected") !== "true") {
+      throw new Error("catalog picker must restore search and filter state by semantic address");
+    }
+    const restoredCollectionSearch = host.querySelector('.ui-node-collection-search input');
+    if (restoredCollectionSearch.value !== "techno" || host.querySelector('[data-ui-list-select="one"]')) {
+      throw new Error("collection must restore search state and its filtered List projection");
+    }
+
+    const modelHost = document.querySelector("#model-host");
+    const modelCommands = [];
+    const synthModel = (value) => ({
+      id: "synth",
+      type: "layout",
+      children: [{
+        id: "views",
+        type: "tabs",
+        tabs: [{
+          id: "oscillator",
+          label: "Oscillator",
+          children: [{
+            id: "frequency",
+            type: "slider",
+            label: "Frequency",
+            min: 20,
+            max: 20000,
+            value,
+            binding: {
+              action: "synth.set-parameter",
+              address: "oscillator.frequency",
+              target: { sectionId: "oscillator", parameterId: "frequency" },
+            },
+          }],
+        }, {
+          id: "effects",
+          label: "Effects",
+          children: [],
+        }],
+      }, {
+        id: "preview",
+        type: "host",
+        role: "renderer",
+      }],
+    });
+    const modelUi = createUi({
+      host: modelHost,
+      model: synthModel(440),
+      onCommand: (command) => modelCommands.push(command),
+    });
+    const retainedSlider = modelUi.getElement(["synth", "views", "oscillator", "frequency"]);
+    const retainedPreview = modelUi.getElement(["synth", "preview"]);
+    const previewCanvas = document.createElement("canvas");
+    retainedPreview.replaceChildren(previewCanvas);
+    modelUi.update(synthModel(880));
+    if (
+      modelUi.getElement(["synth", "views", "oscillator", "frequency"]) !== retainedSlider ||
+      modelUi.getElement(["synth", "preview"]) !== retainedPreview ||
+      retainedPreview.firstElementChild !== previewCanvas ||
+      retainedSlider.querySelector('input[type="range"]').value !== "880"
+    ) throw new Error("hierarchical model updates must retain compatible controls and specialized host children");
+    const modelRange = retainedSlider.querySelector('input[type="range"]');
+    modelRange.value = "1760";
+    modelRange.dispatchEvent(new Event("input", { bubbles: true }));
+    if (
+      modelCommands.at(-1)?.action !== "synth.set-parameter" ||
+      modelCommands.at(-1)?.address !== "oscillator.frequency" ||
+      modelCommands.at(-1)?.payload?.value !== 1760
+    ) throw new Error("createUi must expose hierarchical controls through semantic commands");
+    modelUi.dispose();
+    if (modelHost.childElementCount !== 0) throw new Error("createUi dispose must release the hierarchical graph");
+    runtime.dispose();
+    if (host.childElementCount !== 0) throw new Error("dispose must release the retained graph");
+    document.querySelector("#result").textContent = JSON.stringify({ ok: true, commands }, null, 2);
+    document.documentElement.dataset.testStatus = "passed";
+  </script>
+</body>
+</html>

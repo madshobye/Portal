@@ -3,6 +3,8 @@ import {
   THUMBNAIL_DIR,
   THUMBNAIL_ROOT,
   componentThumbnailFilename,
+  mediaThumbnailExtension,
+  mediaThumbnailFilename,
   parseComponentThumbnailFilename,
   thumbnailExtension,
   thumbnailValueToBlob,
@@ -114,6 +116,42 @@ export class ProjectDerivedAssetStore {
   async renditionDirectory(projectHandle) {
     const root = await projectHandle.getDirectoryHandle(RENDITION_ROOT, { create: true });
     return await root.getDirectoryHandle(RENDITION_DIR, { create: true });
+  }
+
+  async readMediaThumbnail(mediaId, sourceRevision, extensions = ["webp", "png", "svg"]) {
+    const directory = await this.thumbnailDirectory();
+    if (!directory) return null;
+    for (const extension of extensions) {
+      try {
+        const handle = await directory.getFileHandle(mediaThumbnailFilename(mediaId, sourceRevision, extension));
+        return await handle.getFile();
+      } catch (error) {
+        if (!isNotFoundError(error)) throw error;
+      }
+    }
+    return null;
+  }
+
+  async writeMediaThumbnail(mediaId, sourceRevision, blob) {
+    const projectHandle = this.getProjectDirectory?.();
+    if (!projectHandle || !mediaId || !sourceRevision || !blob) return false;
+    const directory = await this.thumbnailDirectory({ create: true, projectHandle });
+    const filename = mediaThumbnailFilename(mediaId, sourceRevision, mediaThumbnailExtension(blob));
+    const handle = await directory.getFileHandle(filename, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    if (!this.isCurrentProject(projectHandle)) return false;
+    const prefix = `${encodeURIComponent(String(mediaId))}__media__`;
+    for await (const candidate of directory.values()) {
+      if (candidate.kind !== "file" || candidate.name === filename || !candidate.name.startsWith(prefix)) continue;
+      try {
+        await directory.removeEntry(candidate.name);
+      } catch (error) {
+        if (!isNotFoundError(error)) console.warn("[VJ1_STALE_MEDIA_THUMBNAIL_REMOVE_FAILED]", { filename: candidate.name, message: error?.message || String(error) });
+      }
+    }
+    return true;
   }
 
   async writeComponentThumbnail(componentId, surfaceId, thumbnail) {

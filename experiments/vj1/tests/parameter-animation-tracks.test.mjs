@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 
 import { createAppState } from "../js/app-state.js";
 import { createVj1NodePackage } from "../js/app-node-package.js";
-import { parameterAnimationViewTemplate } from "../js/control/animation-view.js";
-import { componentSelectedChainSettingsTemplate } from "../js/control/component-view.js";
-import { setLiveAnimationOverride } from "../js/control/input-controller.js";
+import { parameterAnimationUiModel } from "../js/control/animation-view.js";
+import { renderParameterAnimationEditor } from "../js/libraries/ui-engine/nodes/parameter-animation-node.js";
+import { componentSelectedChainSettingsModel, selectedChainParameterTabsModel } from "../js/control/component-view.js";
+import { setLiveAnimationOverride } from "../js/control/control-command-controller.js";
 import {
-  liveInspectorTemplate,
-  liveProgramSignificantControlsTemplate,
   liveSignificantParameterAssignments,
   significantParameterValueFromUnit,
 } from "../js/control/mapping-live-view.js";
+import { liveSignificantUiGraph } from "../js/control/control-ui-program.js";
 import {
   createComponentEffect,
   createInitialState,
@@ -41,6 +41,10 @@ import {
   getGeneratorNodeComponent,
 } from "../js/libraries/visual-nodes/index.js";
 
+function parameterAnimationViewTemplate(options) {
+  return renderParameterAnimationEditor(parameterAnimationUiModel(options));
+}
+
 function plasmaState() {
   const packageRoot = createVj1NodePackage();
   const initial = createInitialState();
@@ -59,6 +63,14 @@ function plasmaState() {
     componentId: component.id,
     targetNodeId: source.id,
   };
+}
+
+function componentSettingsProjection(component, state) {
+  const shell = componentSelectedChainSettingsModel(component, state);
+  const model = selectedChainParameterTabsModel(component, state);
+  return `${JSON.stringify(shell)}${(model?.views || []).map((view) =>
+    `<button>${view.label}</button>${view.animationModel ? renderParameterAnimationEditor(view.animationModel) : ""}`
+  ).join("")}`;
 }
 
 test("Animation tracks author the existing Component control graph and restore its generated value binding", () => {
@@ -1316,9 +1328,9 @@ test("Component and Scene inspectors share one Animation tab before General", ()
   const fixture = plasmaState();
   let state = fixture.state;
   let component = state.components.find((entry) => entry.id === fixture.componentId);
-  let html = componentSelectedChainSettingsTemplate(component, state);
-  assert.match(html, />Animation<\/label>/);
-  assert.ok(html.indexOf(">Animation</label>") < html.indexOf(">General</label>"));
+  let html = componentSettingsProjection(component, state);
+  assert.match(html, />Animation<\/button>/);
+  assert.ok(html.indexOf(">Animation</button>") < html.indexOf(">General</button>"));
   assert.match(html, /data-animation-new-parameter/);
   assert.match(html, /value="speed"/);
   assert.match(html, /value="\$general\.opacity"/);
@@ -1337,7 +1349,7 @@ test("Component and Scene inspectors share one Animation tab before General", ()
       duration: 2,
     }),
   };
-  html = componentSelectedChainSettingsTemplate(component, state);
+  html = componentSettingsProjection(component, state);
   assert.match(html, /class="parameter-animation-track is-enabled"/);
   assert.match(html, /<strong>Motion amount<\/strong>/);
   assert.match(html, /data-animation-track-field="mode"/);
@@ -1362,7 +1374,7 @@ test("Component and Scene inspectors share one Animation tab before General", ()
       },
     }),
   };
-  html = componentSelectedChainSettingsTemplate(component, state);
+  html = componentSettingsProjection(component, state);
   assert.match(html, /data-animation-trigger-source/);
   assert.match(html, /data-toggle-animation-return/);
   assert.match(html, /data-animation-track-field="triggerBehavior"/);
@@ -1389,8 +1401,8 @@ test("Component and Scene inspectors share one Animation tab before General", ()
   };
   const prepared = fixture.packageRoot.prepareProjectState(withEffect);
   component = prepared.components.find((entry) => entry.id === scene.id);
-  html = componentSelectedChainSettingsTemplate(component, prepared);
-  assert.match(html, />Animation<\/label>/);
+  html = componentSettingsProjection(component, prepared);
+  assert.match(html, />Animation<\/button>/);
   assert.match(html, /value="amount"/);
 });
 
@@ -1484,10 +1496,12 @@ test("numeric animation controls can be significant and become temporary Live/MI
   ]);
   assert.equal(assignments[0].kind, "animation");
   assert.equal(significantParameterValueFromUnit(assignments[0], 0.5), 30.05);
-  const liveHtml = liveProgramSignificantControlsTemplate(state);
-  assert.match(liveHtml, /Comp 1 · Cycle duration/);
-  assert.match(liveHtml, /data-live-animation-update="duration"/);
-  assert.match(liveHtml, /value="7\.5"/);
+  const liveControl = liveSignificantUiGraph(state).nodes.find((node) =>
+    node.commands.change?.target.field === "duration"
+  );
+  assert.equal(liveControl.inputs.label, "Comp 1 · Cycle duration");
+  assert.equal(liveControl.commands.change.action, "live.set-animation-value");
+  assert.equal(liveControl.inputs.value, 7.5);
 
   const rendered = createLiveRenderState(state);
   const [liveTrack] = parameterAnimationTracks(

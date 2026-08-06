@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>UI workspace hierarchy smoke</title>
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/base.css" />
+</head>
+<body>
+  <main id="inspector"></main>
+  <pre id="result">running</pre>
+  <script type="module">
+    import {
+      compileUiModel,
+      RetainedUiRuntime,
+      UiNodeDefinitions,
+      UiNodeRegistry,
+      uiModelNodeId,
+    } from "../../js/libraries/ui-engine/index.js";
+    import { artifactInspectorUiModel } from "../../js/control/control-ui-program.js";
+
+    const host = document.querySelector("#inspector");
+    const runtime = new RetainedUiRuntime({
+      registry: new UiNodeRegistry(UiNodeDefinitions),
+    });
+    const panelId = uiModelNodeId(["artifact-inspector", "primary"]);
+    const model = ({ title, media = null }) => artifactInspectorUiModel({
+      targetId: title.toLowerCase(),
+      title,
+      kind: title,
+      media,
+      contentId: "content",
+    });
+    const graph = (workspace, inspectorModel) => compileUiModel(inspectorModel, {
+      id: `vj1.control.${workspace}-artifact-inspector`,
+      stateAddress: `workspaces/${workspace}/inspector`,
+    });
+
+    const liveScope = "vj1.control.live-artifact-inspector";
+    runtime.activate(graph("live", model({
+      title: "Live",
+      media: {
+        fallbackIcon: "extension",
+        className: "component-thumbnail component-card-empty material-symbols-rounded",
+      },
+    })), { host, scope: liveScope });
+    const livePanel = runtime.getNode(panelId, { scope: liveScope }).element();
+    const liveMedia = livePanel.querySelector(".ui-node-panel-media");
+
+    runtime.deactivate(liveScope);
+    const sceneScope = "vj1.control.scene-artifact-inspector";
+    runtime.activate(graph("scene", model({ title: "Scene" })), { host, scope: sceneScope });
+    const scenePanelNode = runtime.getNode(panelId, { scope: sceneScope });
+    const scenePanel = scenePanelNode.element();
+    const sceneMedia = scenePanel.querySelector(".ui-node-panel-media");
+    const scenePanelBeforeUpdate = scenePanel;
+    runtime.activate(graph("scene", model({ title: "Scene renamed" })), { host, scope: sceneScope });
+    const scenePanelAfterUpdate = runtime.getNode(panelId, { scope: sceneScope }).element();
+
+    const result = {
+      crossWorkspaceInstanceReplaced: scenePanel !== livePanel && !livePanel.isConnected,
+      sameWorkspaceInstanceRetained: scenePanelBeforeUpdate === scenePanelAfterUpdate,
+      liveMediaWasPresented: liveMedia.classList.contains("component-thumbnail"),
+      sceneMediaHidden: sceneMedia.hidden && getComputedStyle(sceneMedia).display === "none",
+      sceneMediaClassesReset: sceneMedia.className === "ui-node-panel-media",
+      sceneStateRoot: runtime.graphs.get(sceneScope)?.graph.nodes.every((node) => node.stateAddress.startsWith("workspaces/scene/inspector")),
+    };
+    result.ok = Object.values(result).every(Boolean);
+    document.querySelector("#result").textContent = JSON.stringify(result, null, 2);
+    document.documentElement.dataset.testStatus = result.ok ? "passed" : "failed";
+  </script>
+</body>
+</html>

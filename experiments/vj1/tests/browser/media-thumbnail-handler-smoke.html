@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Media thumbnail handler smoke</title>
+<style>
+  body { margin: 20px; background: #181818; color: #eee; font: 14px system-ui; }
+  #previews { display: flex; gap: 12px; margin-top: 12px; }
+  img { width: 220px; height: 124px; object-fit: contain; background: #242424; }
+</style>
+<strong id="status">RUNNING</strong>
+<div id="previews"></div>
+<script type="module">
+  import {
+    createMediaThumbnailBlob,
+    createMediaThumbnailHandler,
+  } from "../../js/services/media-thumbnail-service.js";
+
+  const status = document.querySelector("#status");
+  const previews = document.querySelector("#previews");
+  const cache = new Map();
+  let generations = 0;
+  const storage = {
+    read: async (id, revision) => cache.get(`${id}:${revision}`) || null,
+    write: async (id, revision, blob) => cache.set(`${id}:${revision}`, blob),
+  };
+
+  try {
+    const image = await imageFile();
+    const svgNamespace = "http" + "://www.w3.org/2000/svg";
+    const vector = new File([
+      `<svg xmlns="${svgNamespace}" viewBox="0 0 640 360"><rect width="640" height="360" fill="#59257d"/><circle cx="320" cy="180" r="110" fill="#fff"/></svg>`,
+    ], "vector.svg", { type: "image/svg+xml", lastModified: 5 });
+    const video = await videoFile();
+    const model = new File([`solid preview
+facet normal 0 0 1
+outer loop
+vertex 0 0 0
+vertex 1 0 0
+vertex 0 1 0
+endloop
+endfacet
+endsolid preview`], "shape.stl", { type: "model/stl", lastModified: 3 });
+    const object = new File([`v 0 0 0
+v 1 0 0
+v 0 1 0
+f 1 2 3`], "shape.obj", { type: "text/plain", lastModified: 4 });
+    const media = [["photo.png", image], ["vector.svg", vector], ["clip.webm", video], ["shape.stl", model], ["shape.obj", object]];
+    const options = {
+      createThumbnail: async (...args) => {
+        generations++;
+        return createMediaThumbnailBlob(...args);
+      },
+    };
+    const first = createMediaThumbnailHandler(options);
+    first.setStorage(storage);
+    const firstUrls = await Promise.all(media.map(([id, file]) => first.acquire(id, file)));
+    await Promise.all(firstUrls.map(showPreview));
+    first.clear();
+
+    const reopened = createMediaThumbnailHandler(options);
+    reopened.setStorage(storage);
+    const cachedUrls = await Promise.all(media.map(([id, file]) => reopened.acquire(id, file)));
+    if (generations !== 5 || cachedUrls.some((url) => !url) || cache.size !== 5) {
+      throw new Error(`unexpected lifecycle generations=${generations} cache=${cache.size}`);
+    }
+    status.textContent = "PASS image SVG video STL OBJ cached";
+    status.dataset.result = "pass";
+  } catch (error) {
+    status.textContent = `FAIL ${error.message || error}`;
+    status.dataset.result = "fail";
+    console.error(error);
+  }
+
+  async function imageFile() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 360;
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#9b4100";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "white";
+    context.font = "80px system-ui";
+    context.fillText("IMAGE", 170, 210);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    return new File([blob], "photo.png", { type: "image/png", lastModified: 1 });
+  }
+
+  async function videoFile() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 360;
+    const context = canvas.getContext("2d");
+    const stream = canvas.captureStream(10);
+    const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+    const chunks = [];
+    recorder.ondataavailable = (event) => event.data.size && chunks.push(event.data);
+    const stopped = new Promise((resolve) => recorder.addEventListener("stop", resolve, { once: true }));
+    recorder.start();
+    context.fillStyle = "#135d67";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "white";
+    context.font = "80px system-ui";
+    context.fillText("VIDEO", 165, 210);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    recorder.stop();
+    await stopped;
+    stream.getTracks().forEach((track) => track.stop());
+    return new File(chunks, "clip.webm", { type: "video/webm", lastModified: 2 });
+  }
+
+  async function showPreview(url) {
+    const image = document.createElement("img");
+    image.src = url;
+    previews.append(image);
+    await image.decode();
+  }
+</script>
