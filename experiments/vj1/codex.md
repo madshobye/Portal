@@ -365,7 +365,10 @@ Scene3d is typed data, not a second renderer. Mesh readiness is atomic. Geometry
 detail selects retained mesh LOD through output/ROI demand; draw mode is a pass
 over that selected topology. STL/OBJ preparation, simplification, winding repair,
 derived caches, transforms, clipping, and material parameters belong to
-`mesh-engine`, not generator-specific host branches.
+`mesh-engine`, not generator-specific host branches. The model worker prepares
+the highest-detail interleaved surface payload and the project model cache
+retains it; a Live transition must not perform that CPU expansion in its first
+target frame.
 
 ISF is a portable shader format, not the center of the application architecture.
 Built-in, exact installed-package, and project libraries merge into one resolved

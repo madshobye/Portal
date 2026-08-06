@@ -24,6 +24,10 @@ export function modelTriangleNormal(vertices = []) {
 export function buildParsedModelSurfaceVertices(mesh = {}) {
   const triangleCount = modelTriangleCount(mesh);
   if (!triangleCount) return new Float32Array(0);
+  if (
+    mesh.surfaceVertices instanceof Float32Array &&
+    mesh.surfaceVertices.length === triangleCount * 18
+  ) return mesh.surfaceVertices;
   const vertices = new Float32Array(triangleCount * 18);
   if (mesh.positions instanceof Float32Array && mesh.faceNormals instanceof Float32Array) {
     let write = 0;

@@ -2,10 +2,10 @@ import { loadProjectDirectoryHandle } from "../../services/directory-handle-stor
 
 const CACHE_ROOT = "vj1-cache";
 const CACHE_DIRECTORY = "models";
-// The format includes the automatic LOD policy. V5 normalizes inconsistent
-// triangle winding before simplification, so older derived geometry must be
-// regenerated rather than retaining topology-locked LODs.
-const CACHE_FORMAT = "meshopt-0.25-qem-v5";
+// The format includes the automatic LOD policy. V6 also retains the worker-
+// prepared highest-detail surface payload, so an old cache cannot defer that
+// expansion to the first presentation frame.
+const CACHE_FORMAT = "meshopt-0.25-qem-v6-surface";
 const MAGIC = new Uint8Array([86, 74, 49, 77, 79, 68, 76, 49]); // VJ1MODL1
 const HEADER_OFFSET = 12;
 
@@ -73,6 +73,7 @@ export function serializeDerivedModel(mesh = {}, cacheKey = "") {
     lods: lods.map((lod) => ({
       positionsLength: lod.positions.length,
       normalsLength: lod.faceNormals.length,
+      surfaceLength: validSurfaceVertices(lod)?.length || 0,
       triangleCount: Math.max(0, Math.floor(Number(lod.triangleCount) || lod.positions.length / 9)),
       bounds: lod.bounds,
       sourceBounds: lod.sourceBounds,
@@ -85,7 +86,8 @@ export function serializeDerivedModel(mesh = {}, cacheKey = "") {
   };
   const headerBytes = new TextEncoder().encode(JSON.stringify(header));
   const dataOffset = align4(HEADER_OFFSET + headerBytes.length);
-  const arrayBytes = lods.reduce((total, lod) => total + lod.positions.byteLength + lod.faceNormals.byteLength, 0);
+  const arrayBytes = lods.reduce((total, lod) =>
+    total + lod.positions.byteLength + lod.faceNormals.byteLength + (validSurfaceVertices(lod)?.byteLength || 0), 0);
   const buffer = new ArrayBuffer(dataOffset + arrayBytes);
   const bytes = new Uint8Array(buffer);
   bytes.set(MAGIC, 0);
@@ -97,6 +99,11 @@ export function serializeDerivedModel(mesh = {}, cacheKey = "") {
     offset += lod.positions.byteLength;
     bytes.set(new Uint8Array(lod.faceNormals.buffer, lod.faceNormals.byteOffset, lod.faceNormals.byteLength), offset);
     offset += lod.faceNormals.byteLength;
+    const surfaceVertices = validSurfaceVertices(lod);
+    if (surfaceVertices) {
+      bytes.set(new Uint8Array(surfaceVertices.buffer, surfaceVertices.byteOffset, surfaceVertices.byteLength), offset);
+      offset += surfaceVertices.byteLength;
+    }
   }
   return buffer;
 }
@@ -115,20 +122,30 @@ export function deserializeDerivedModel(buffer, expectedCacheKey = "") {
   const lods = (header.lods || []).map((metadata, index) => {
     const positionsLength = positiveArrayLength(metadata.positionsLength);
     const normalsLength = positiveArrayLength(metadata.normalsLength);
+    const surfaceLength = optionalArrayLength(metadata.surfaceLength);
     const positionsBytes = positionsLength * Float32Array.BYTES_PER_ELEMENT;
     const normalsBytes = normalsLength * Float32Array.BYTES_PER_ELEMENT;
-    if (offset + positionsBytes + normalsBytes > buffer.byteLength) throw new Error("Derived model cache geometry is truncated");
+    const surfaceBytes = surfaceLength * Float32Array.BYTES_PER_ELEMENT;
+    if (offset + positionsBytes + normalsBytes + surfaceBytes > buffer.byteLength) throw new Error("Derived model cache geometry is truncated");
     const positions = new Float32Array(buffer, offset, positionsLength);
     offset += positionsBytes;
     const faceNormals = new Float32Array(buffer, offset, normalsLength);
     offset += normalsBytes;
+    const surfaceVertices = surfaceLength
+      ? new Float32Array(buffer, offset, surfaceLength)
+      : null;
+    offset += surfaceBytes;
     const triangleCount = Math.floor(positionsLength / 9);
     if (!triangleCount || triangleCount !== Math.floor(Number(metadata.triangleCount) || 0)) {
       throw new Error("Derived model cache triangle metadata is invalid");
     }
+    if (surfaceVertices && surfaceLength !== triangleCount * 18) {
+      throw new Error("Derived model cache surface geometry is invalid");
+    }
     return {
       positions,
       faceNormals,
+      ...(surfaceVertices ? { surfaceVertices } : {}),
       triangleCount,
       bounds: metadata.bounds,
       sourceBounds: metadata.sourceBounds,
@@ -194,6 +211,19 @@ function positiveArrayLength(value) {
   const length = Math.floor(Number(value) || 0);
   if (length <= 0 || length > 1_000_000_000) throw new Error("Derived model cache array length is invalid");
   return length;
+}
+
+function optionalArrayLength(value) {
+  const length = Math.floor(Number(value) || 0);
+  if (length < 0 || length > 1_000_000_000) throw new Error("Derived model cache array length is invalid");
+  return length;
+}
+
+function validSurfaceVertices(lod = {}) {
+  const triangleCount = Math.max(0, Math.floor(Number(lod.triangleCount) || lod.positions?.length / 9 || 0));
+  return lod.surfaceVertices instanceof Float32Array && lod.surfaceVertices.length === triangleCount * 18
+    ? lod.surfaceVertices
+    : null;
 }
 
 function align4(value) {

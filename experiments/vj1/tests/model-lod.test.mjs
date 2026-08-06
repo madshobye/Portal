@@ -12,6 +12,7 @@ import {
 } from "../js/libraries/mesh-engine/mesh-resolution/index.js";
 import { modelTriangleCount } from "../js/libraries/mesh-engine/mesh-types.js";
 import { buildParsedModelWireLines } from "../js/libraries/mesh-engine/mesh-render-cache.js";
+import { buildParsedModelSurfaceVertices } from "../js/libraries/mesh-engine/mesh-geometry.js";
 import { weldedMeshTopology } from "../js/libraries/mesh-engine/meshoptimizer-simplifier.js";
 import {
   deserializeDerivedModel,
@@ -224,6 +225,7 @@ f 1 2 3 4
 test("derived model cache round-trips progressive LOD geometry and rejects another source", () => {
   const source = subdividedCubeMesh(12);
   const mesh = buildAutomaticModelLods(source, [1200, 600, 300]);
+  mesh.lods[0].surfaceVertices = buildParsedModelSurfaceVertices(mesh.lods[0]);
   const cacheKey = modelDerivedCacheKey({ type: "stl", sourceKey: "media/skull.stl:revision-a" });
   const payload = serializeDerivedModel(mesh, cacheKey);
   const restored = deserializeDerivedModel(payload, cacheKey);
@@ -231,6 +233,8 @@ test("derived model cache round-trips progressive LOD geometry and rejects anoth
   assert.deepEqual(restored.lods.map(modelTriangleCount), mesh.lods.map(modelTriangleCount));
   assert.equal(restored.sourceTriangleCount, mesh.sourceTriangleCount);
   assert.ok(restored.lods.every((lod) => lod.derivedCache === true));
+  assert.deepEqual(restored.lods[0].surfaceVertices, mesh.lods[0].surfaceVertices);
+  assert.equal(restored.lods[1].surfaceVertices, undefined, "only the expensive highest-detail payload is retained");
   assert.deepEqual(Array.from(restored.lods.at(-1).positions.slice(0, 18)), Array.from(mesh.lods.at(-1).positions.slice(0, 18)));
   assert.throws(() => deserializeDerivedModel(payload, `${cacheKey}:other-source`), /does not match/);
 });
