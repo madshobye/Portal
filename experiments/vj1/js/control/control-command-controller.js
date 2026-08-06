@@ -189,6 +189,28 @@ export function createControlCommandController({
     const normalizedPath = String(path || "");
     if (!normalizedPath) return false;
     const reason = phase === "change" ? `scrub:${normalizedPath}` : `update:${normalizedPath}`;
+    if (liveTimingPreferencePath(normalizedPath) && typeof store.updateUi === "function") {
+      // Live timing controls configure the next transition. They do not alter
+      // the currently mounted render program, so keep their pointer cadence on
+      // the UI branch and persist only the final value. Sending these through
+      // project.update made every slider sample replace Preview and Output
+      // state even though neither renderer consumes the preference directly.
+      store.updateUi((ui) => {
+        setByPath(ui, normalizedPath.slice("ui.".length), value);
+      }, {
+        reason,
+        changedPaths: [normalizedPath],
+        effects: {
+          output: { mode: "none" },
+          preview: { mode: "controls-only" },
+          persistence: phase === "change"
+            ? { mode: "none", history: false }
+            : { mode: "autosave", history: false },
+          control: null,
+        },
+      });
+      return true;
+    }
     if (commitComponentValues([{ path: normalizedPath, value }], reason)) return true;
     store.update((draft) => {
       const setter = normalizedPath.includes(".source.params.") ? setByPathCreate : setByPath;
@@ -371,6 +393,12 @@ export function createControlCommandController({
     executeContextMenuAction,
     dismissContextMenu,
   };
+}
+
+export function liveTimingPreferencePath(path = "") {
+  return /^ui\.live\.(?:transitionId|transitionDuration|paramFadeDuration|transitionParameters(?:\.|$))/.test(
+    String(path || ""),
+  );
 }
 
 export function isfEventTarget(state = {}, path = "") {

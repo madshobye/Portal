@@ -57,7 +57,17 @@ export class OutputStateRuntime {
     host.presentationGeometry.assignViewport(this.current?.render);
     host.sourceRuntime.invalidateStructure();
     host.frameRuntime.pruneComponentTimes();
-    this.rebuildCompiledState();
+    if (host.componentProgramRuntime.adoptPrepared?.(this.current) === true) {
+      // The inactive A/B slot was compiled while the presented branch stayed
+      // live. Adopt it without compiling the target again at transition start.
+      // Mapping and transition lookups still follow the newly active state.
+      host.visualNodeRuntime.rebuild(this.current);
+      host.transitionRuntime.rebuild();
+      host.mappingProgramRuntime.rebuild(this.current);
+      host.componentProgramRuntime.rebuildLookups(this.current);
+    } else {
+      this.rebuildCompiledState();
+    }
     const nextCameraSignature = cameraSettingsSignature(this.current?.render);
     if (
       previousCameraSignature &&

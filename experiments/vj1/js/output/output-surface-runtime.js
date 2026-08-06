@@ -78,6 +78,7 @@ export class OutputSurfaceRuntime {
     this.surfaceTextures = this.surfaceTexturePool.resources;
     this.transitionSurfaceTextures = new Map();
     this.transitionBranches = new Map();
+    this.transitionLanes = new Map();
     this.missingTransitionBranchDiagnostics = new Set();
     this.activeTransitionResourceSignature = "";
     this.renderIdentityPrefix = "";
@@ -94,6 +95,7 @@ export class OutputSurfaceRuntime {
     this.surfaceTexturePool.dispose();
     disposeGraphicsMap(this.transitionSurfaceTextures);
     this.disposeTransitionBranches();
+    this.transitionLanes.clear();
     this.activeTransitionResourceSignature = "";
     this.renderIdentityPrefix = "";
     this.transitionEffectPrefix = "";
@@ -184,18 +186,47 @@ export class OutputSurfaceRuntime {
     const candidates = Array.isArray(state.liveTransitions) && state.liveTransitions.length
       ? state.liveTransitions
       : state.liveTransition ? [state.liveTransition] : [];
-    const transitions = [];
+    // Fixture/recovery states can arrive with an already-running descriptor
+    // rather than through retainPresentedBranchForTransitions(). Preserve that
+    // explicit clock. Normal Live changes mount an unarmed lane earlier and
+    // therefore ignore the control-side scheduling timestamp.
     for (const transition of candidates) {
-    const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
-    const startedAtMs = Number(transition?.startedAtMs) || 0;
-      if (!transition?.id || !durationMs || !startedAtMs) continue;
-    const progress = Math.max(0, Math.min(1, (Number(nowMs) - startedAtMs) / durationMs));
-      if (progress >= 1) continue;
-    const resolved = this.resolveTransition?.(
-      transition.transitionId,
-      transition.transitionParameters
-    ) || {};
-      transitions.push({ ...transition, ...resolved, progress });
+      const id = String(transition?.id || "");
+      if (!id) continue;
+      const lane = this.transitionLanes.get(id);
+      if (lane) lane.descriptor = { ...lane.descriptor, ...transition };
+      else this.transitionLanes.set(id, {
+        descriptor: transition,
+        armed: true,
+        startedAtMs: Number(transition.startedAtMs) || Number(nowMs),
+      });
+    }
+    const transitions = [];
+    for (const [id, lane] of this.transitionLanes) {
+      const transition = lane.descriptor;
+      const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
+      if (!durationMs) {
+        this.transitionLanes.delete(id);
+        continue;
+      }
+      const progress = lane.armed
+        ? Math.max(0, Math.min(1, (Number(nowMs) - lane.startedAtMs) / durationMs))
+        : 0;
+      if (progress >= 1) {
+        this.transitionLanes.delete(id);
+        continue;
+      }
+      const resolved = this.resolveTransition?.(
+        transition.transitionId,
+        transition.transitionParameters
+      ) || {};
+      transitions.push({
+        ...transition,
+        ...resolved,
+        startedAtMs: lane.startedAtMs,
+        progress,
+        arming: !lane.armed,
+      });
     }
     return transitions;
   }
@@ -404,6 +435,15 @@ export class OutputSurfaceRuntime {
         }
       });
     }
+    if (transition.arming) this.armTransitionLane(transition.id);
+  }
+
+  armTransitionLane(id, startedAtMs = Date.now()) {
+    const lane = this.transitionLanes.get(String(id || ""));
+    if (!lane || lane.armed) return false;
+    lane.armed = true;
+    lane.startedAtMs = Number(startedAtMs);
+    return true;
   }
 
   renderStableSurfaceRoute(route, outputBlackout = false) {
@@ -508,19 +548,48 @@ export class OutputSurfaceRuntime {
     const context = this.renderer.componentProgramRuntime
       .retainExecutionContext(stablePresentationState(previousState));
     if (!context) return false;
-    for (const id of newIds) this.transitionBranches.set(id, context);
+    for (const transition of transitions) {
+      const id = String(transition?.id || "");
+      if (!newIds.includes(id)) continue;
+      this.transitionBranches.set(id, context);
+      // Mount the inactive slot without starting its clock. The first render
+      // evaluates both the still-live outgoing branch and the armed target at
+      // progress zero; only a successfully completed frame arms the blend.
+      this.transitionLanes.set(id, {
+        descriptor: transition,
+        armed: false,
+        startedAtMs: 0,
+      });
+    }
     return true;
   }
 
   releaseTransitionSurfaceTextures({ retainContextIds = [] } = {}) {
-    if (
-      !this.transitionSurfaceTextures.size &&
-      !this.transitionBranches.size &&
-      !this.activeTransitionResourceSignature
-    ) return;
-    disposeGraphicsMap(this.transitionSurfaceTextures);
+    if (!this.transitionBranches.size && !this.activeTransitionResourceSignature) return;
+    // Surface transition targets are the persistent A/B compositor slots.
+    // Keep them mounted between transitions; only obsolete Surface identities
+    // are released. This avoids reallocating the compositor when the next slot
+    // is armed while keeping ownership bounded by the current Surface set.
+    this.pruneTransitionSurfaceTextures();
     this.disposeTransitionBranches({ retainIds: retainContextIds });
     this.activeTransitionResourceSignature = "";
+  }
+
+  pruneTransitionSurfaceTextures() {
+    const surfaceIds = new Set((this.renderer.state?.surfaces || [])
+      .map((surface) => String(surface?.id || ""))
+      .filter(Boolean));
+    for (const [key, target] of this.transitionSurfaceTextures) {
+      const belongsToCurrentSurface = [...surfaceIds].some((surfaceId) =>
+        key === `from:${surfaceId}` ||
+        key === `to:${surfaceId}` ||
+        key === `from:${surfaceId}:empty` ||
+        key === `to:${surfaceId}:empty`
+      );
+      if (belongsToCurrentSurface) continue;
+      target?.remove?.();
+      this.transitionSurfaceTextures.delete(key);
+    }
   }
 
   activateTransitionResources(transitions = []) {

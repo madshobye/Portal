@@ -479,8 +479,17 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     const state = retimePreparedSceneTransition(preparedState);
     const revision = preparedRevision;
     const transportMeta = preparedTransportMeta;
-    clearPreparedState();
-    acceptOutputState(state, revision, transportMeta);
+    preparedState = null;
+    preparedRevision = 0;
+    preparedTransportMeta = null;
+    prepareErrorSignature = "";
+    try {
+      acceptOutputState(state, revision, transportMeta);
+    } finally {
+      // activate() consumes the armed program set when it is compatible. Any
+      // unconsumed preparation still belongs to this queue and is disposed.
+      renderer?.readinessRuntime?.clearPrepared?.();
+    }
     return true;
   }
 

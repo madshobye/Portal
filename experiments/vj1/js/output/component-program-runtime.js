@@ -221,7 +221,6 @@ export class ComponentProgramRuntime {
   // disposeExecutionContext(). No program is cloned or recompiled here: this
   // is the exact branch that produced the previously presented frame.
   retainExecutionContext(state = this.getState?.()) {
-    if (!this.programs.size) return null;
     const context = Object.freeze({
       state,
       programs: this.programs,
@@ -286,11 +285,33 @@ export class ComponentProgramRuntime {
     return programs;
   }
 
+  adoptPrepared(state) {
+    const prepared = this.prepared;
+    if (!prepared || !preparedProgramStateCompatible(prepared.state, state)) return false;
+    disposePrograms(this.programs);
+    this.programs = prepared.programs;
+    this.prepared = null;
+    this.runtimeComponents = runtimeVisualSourceComponents();
+    this.indexControlSignalRequirements();
+    this.rebuildLookups(state);
+    this.onCompile?.(1, "component-program-arm");
+    return true;
+  }
+
   clearPrepared() {
     if (!this.prepared) return;
     disposePrograms(this.prepared.programs);
     this.prepared = null;
   }
+}
+
+function preparedProgramStateCompatible(preparedState, activeState) {
+  if (!preparedState || !activeState) return false;
+  // Output/Preview add host viewport hints when activating a prepared Live
+  // state. Those hints do not alter graph compilation; the authored graph and
+  // Component collections remain the same structural objects.
+  return preparedState.components === activeState.components
+    && preparedState.nodes === activeState.nodes;
 }
 
 export function renderStateComponentProgramRoots(

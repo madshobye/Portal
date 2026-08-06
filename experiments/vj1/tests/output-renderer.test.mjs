@@ -5685,8 +5685,13 @@ test("Component program capability owns compilation lookup and prepared-state li
 
   const prepared = runtime.prepare(renderer.state);
   assert.equal(runtime.prepare(renderer.state), prepared);
-  runtime.clearPrepared();
+  const hostSizedPreparedState = {
+    ...renderer.state,
+    render: { ...renderer.state.render, hostViewport: { width: 640, height: 360 } },
+  };
+  assert.equal(runtime.adoptPrepared(hostSizedPreparedState), true);
   assert.equal(runtime.prepared, null);
+  assert.strictEqual(runtime.programs, prepared);
 
   const rendererSource = readFileSync(
     new URL("../js/output/output-renderer.js", import.meta.url),
@@ -5712,6 +5717,19 @@ test("Component program capability owns compilation lookup and prepared-state li
   assert.doesNotMatch(rendererSource, /get componentPrograms\(\)/);
 
   runtime.dispose();
+});
+
+test("media-only presentations retain an empty Component program branch for transitions", () => {
+  const state = { components: [], nodes: { groups: [] } };
+  const runtime = new ComponentProgramRuntime({ getState: () => state });
+
+  const context = runtime.retainExecutionContext(state);
+
+  assert.ok(context, "a renderable media-only state still owns a transition endpoint");
+  assert.strictEqual(context.state, state);
+  assert.equal(context.programs.size, 0);
+  assert.equal(runtime.programs.size, 0);
+  runtime.disposeExecutionContext(context);
 });
 
 test("reused Preview renderers compile roots for their current presentation mode", () => {
@@ -5820,6 +5838,77 @@ test("Component render capability owns request reuse trace and execution lifecyc
   assert.equal(runtime.stableSignatures.size, 0);
   assert.equal(runtime.resolutionTraces.size, 0);
   assert.deepEqual(runtime.lastResolutionTrace, []);
+});
+
+test("static transition endpoints reuse semantic output across A and B roles", () => {
+  const component = { id: "semantic-transition-endpoint", type: "scene", name: "Endpoint" };
+  const gpuTargets = new Map();
+  const makeTarget = (width, height) => ({
+    width,
+    height,
+    push() {},
+    pop() {},
+    clear() {},
+    image() {},
+  });
+  let executions = 0;
+  const host = {
+    state: { render: {}, components: [component], media: [] },
+    media: new Map(),
+    resourceRuntime: { componentOutput: new Map(), mainMix: null },
+    renderTargetRuntime: {
+      gpuTarget: (key) => gpuTargets.get(key) || null,
+      cpuTarget: () => null,
+      touchGpu() {},
+      touchCpu() {},
+      gpu(id, request) {
+        const key = `${id}:${renderRequestKey(request)}`;
+        const target = gpuTargets.get(key) || makeTarget(request.width, request.height);
+        gpuTargets.set(key, target);
+        return target;
+      },
+      isShaderBuffer: () => false,
+      hasCpuPrefix: () => false,
+      hasGpuPrefix: (prefix) => [...gpuTargets.keys()].some((key) => key.startsWith(prefix)),
+    },
+    componentProgramRuntime: {
+      programs: new Map([[
+        component.id,
+        {
+          execute: () => {
+            executions++;
+            return { buffer: makeTarget(640, 360) };
+          },
+        },
+      ]]),
+    },
+    frameRuntime: { frameIndex: 1 },
+    profileRuntime: new OutputRenderProfile(),
+    renderRequestRuntime: { normalize: (request) => request },
+    sourceRuntime: { claimRetainedComponentMedia() {} },
+    visualNodeRuntime: { effect: () => null },
+    recordSignal() {},
+  };
+  const runtime = new ComponentRenderRuntime(host);
+  runtime.stableSignature = () => "same-semantic-endpoint";
+  host.componentRenderRuntime = runtime;
+
+  runtime.render(component, 0, {
+    role: "component",
+    width: 640,
+    height: 360,
+    renderIdentity: "transition-from:surface-a",
+  });
+  host.resourceRuntime.componentOutput.clear();
+  runtime.render(component, 0, {
+    role: "component",
+    width: 640,
+    height: 360,
+    renderIdentity: "transition-to:surface-a",
+  });
+
+  assert.equal(executions, 1, "changing A/B role must not cold-render an unchanged endpoint");
+  assert.equal(host.profileRuntime.frameProfile.componentCacheHits, 1);
 });
 
 test("Live transition shares stable route views and preserves endpoint projection fit", () => {

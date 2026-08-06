@@ -10,6 +10,7 @@ import {
 import { drawBuffer } from "./render-draw-utils.js";
 import {
   createRenderRequest,
+  instanceInvariantRenderRequest,
   renderRequestKey,
   renderRequestStateKey,
 } from "./render-geometry.js";
@@ -102,10 +103,20 @@ export class ComponentRenderRuntime {
     const stableSignature = outputRequest.regionView === true
       ? ""
       : this.stableSignature(component, outputRequest);
-    const stableKey = renderBufferKey("stable", outputKey);
+    // A transition role is presentation metadata, not rendered Component
+    // identity. Key retained static results by their complete semantic
+    // signature so an endpoint that was previously `from` can be armed as
+    // `to` without a cold render. Different endpoint configurations still
+    // receive distinct entries and can remain mounted concurrently.
+    const stableKey = stableSignature
+      ? this.semanticStableKey(component, stableSignature)
+      : "";
+    const stableRequest = stableSignature
+      ? instanceInvariantRenderRequest(outputRequest)
+      : outputRequest;
     const stableGpuKey = renderBufferKey(
       stableKey,
-      renderRequestKey(outputRequest),
+      renderRequestKey(stableRequest),
     );
     const stableGpuCached = stableSignature
       ? host.renderTargetRuntime.gpuTarget(stableGpuKey)
@@ -174,11 +185,29 @@ export class ComponentRenderRuntime {
         stableKey,
         stableSignature,
         output,
-        outputRequest,
+        stableRequest,
       );
       this.aliasCurrentResolutionTrace(stableKey);
     }
     return output;
+  }
+
+  semanticStableKey(component, signature) {
+    const base = renderBufferKey(
+      "stable-semantic",
+      String(component?.id || "component"),
+      stringDigest(signature),
+    );
+    let key = base;
+    let collision = 0;
+    while (
+      this.stableSignatures.has(key) &&
+      this.stableSignatures.get(key) !== signature
+    ) {
+      collision++;
+      key = `${base}:${collision}`;
+    }
+    return key;
   }
 
   executeCompiled(component, componentTime, request, outputIdentity = true) {
@@ -568,6 +597,18 @@ function controlSignalRequirements(inspection = {}) {
   return (inspection?.readiness?.requirements || []).filter(
     (requirement) => requirement?.kind === "control-signal",
   );
+}
+
+function stringDigest(value) {
+  const text = String(value ?? "");
+  let left = 2166136261;
+  let right = 2246822507;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    left = Math.imul(left ^ code, 16777619);
+    right = Math.imul(right ^ code, 3266489909);
+  }
+  return `${text.length}-${(left >>> 0).toString(36)}-${(right >>> 0).toString(36)}`;
 }
 
 export function componentPipelineSourceRequest(request = {}, pipeline = {}) {

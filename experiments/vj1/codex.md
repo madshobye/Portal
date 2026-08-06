@@ -254,20 +254,29 @@ mounts suppress unpatched descendants; explicit descendants override their
 parent; parent backplanes render first. Missing parents, duplicates,
 self-parenting, and cycles fail explicitly.
 
-Transitions are graph nodes inserted at renderer activation. Before compiling
-the incoming Live program, the shared renderer transfers ownership of the exact
-currently executing Component programs to the transition node. That retained
-branch includes its applied Live parameters, temporal state, and resources; it
-is never reconstructed from authored Components or a diff-bank guess. The new
-branch is then compiled normally, and the compositor evaluates both through
-current Surface calibration until the transition releases the outgoing branch.
-Preview and standalone Output use this same activation and compositor path.
+Each Surface transition is a retained two-slot compositor. The active slot
+continues executing live while the inactive slot is armed with the incoming
+Live program, media, and resources. Before arming, the shared renderer transfers
+ownership of the exact currently executing Component programs into the active
+slot; that branch includes its applied Live parameters, temporal state, and
+resources and is never reconstructed from authored Components or a diff-bank
+guess. The inactive compiled program is adopted without a second compilation.
+Its first valid render occurs at mix zero, and only then does the renderer-local
+blend clock begin. Both endpoints continue evaluating while the compositor
+projects them through current Surface calibration. Completion swaps active and
+standby roles and releases only the obsolete executable branch; the Surface A/B
+targets and transition kernel stay mounted for reuse. Static endpoint results
+are keyed by semantic state rather than A/B role. Preview and standalone Output
+use this same preparation, activation, and compositor lifecycle.
 
-The destination-scoped transition coordinator owns only timing, effect
-parameters, target routing, and latest-wins pending commands. Different Surface
-lanes may run concurrently; Overall arbitrates with them. Scheduling and
-promotion are event-driven control work. Live stores stable IDs and serializable
-parameters, never executable functions or a serialized `fromProgram`.
+The destination-scoped transition coordinator owns effect parameters, target
+routing, requested duration, and latest-wins pending commands. Renderer-local
+lanes own the actual blend start because resource preparation is host-local;
+Control completion cannot truncate a later-starting Preview or Output blend.
+Different Surface lanes may run concurrently; Overall arbitrates with them.
+Scheduling and promotion are event-driven control work. Live stores stable IDs
+and serializable parameters, never executable functions or a serialized
+`fromProgram`.
 
 ## Animation and live control
 

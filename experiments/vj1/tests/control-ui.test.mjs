@@ -25,6 +25,7 @@ import { mediaDisplayName } from "../js/control/media-view.js";
 import { componentElementsUiModel, componentSelectedChainSettingsModel, selectedChainParameterTabsModel } from "../js/control/component-view.js";
 import { catalogSortIcon } from "../js/control/control-ui-program.js";
 import { sameOrderedIds } from "../js/libraries/ui-engine/nodes/workspace-shell-node.js";
+import { createControlCommandController, liveTimingPreferencePath } from "../js/control/control-command-controller.js";
 
 function settingsPanelsSource(state, midiStatus = {}, dmxStatus = {}, sharedInputs = []) {
   return JSON.stringify(settingsUiModel(state, { midiStatus, dmxStatus, sharedInputs }));
@@ -1414,6 +1415,39 @@ test("Live scenes expose separate scene-transition and parameter-fade durations"
   assert.ok(source.indexOf("live-param-fade-duration") > source.indexOf("live-transition-duration"));
 });
 
+test("Live timing gestures stay on the UI branch and persist only their commit", () => {
+  const state = createInitialState();
+  const changes = [];
+  const store = {
+    updateUi(recipe, change) {
+      recipe(state.ui);
+      changes.push(change);
+    },
+    update() {
+      assert.fail("Live timing preferences must not enter the project render transaction");
+    },
+  };
+  const controller = createControlCommandController({
+    store,
+    getState: () => state,
+    currentWorkspace: () => "live",
+    refreshSelectedMappingProjection() {},
+  });
+
+  assert.equal(liveTimingPreferencePath("ui.live.transitionDuration"), true);
+  assert.equal(liveTimingPreferencePath("ui.live.transitionParameters.softness"), true);
+  assert.equal(liveTimingPreferencePath("components.0.opacity"), false);
+  controller.updatePersistentValue("ui.live.transitionDuration", 2.5, { phase: "change" });
+  controller.updatePersistentValue("ui.live.transitionDuration", 2.5, { phase: "commit" });
+
+  assert.equal(state.ui.live.transitionDuration, 2.5);
+  assert.equal(changes[0].effects.preview.mode, "controls-only");
+  assert.equal(changes[0].effects.output.mode, "none");
+  assert.equal(changes[0].effects.persistence.mode, "none");
+  assert.equal(changes[1].effects.persistence.mode, "autosave");
+  assert.equal(changes[1].effects.control, null);
+});
+
 test("Live exposes a phase-continuous global visual time stretch", () => {
   const source = readFileSync(new URL("../js/control/control-ui-program.js", import.meta.url), "utf8");
 
@@ -2055,23 +2089,25 @@ test("preview fitting is invalidated only by layout viewport or output geometry"
   assert.notEqual(previewFitSignature(base), previewFitSignature({ ...base, render: { outputs: [{ id: "main", aspectRatio: 4 / 3 }] } }));
 });
 
-test("embedded Live preview switches Scenes immediately without media-preparation staging", () => {
+test("embedded Live preview arms timed transitions while keeping cuts immediate", () => {
   const current = { ui: { workspace: "live", selectedSceneId: "scene-being-edited", live: { selectedSceneId: "scene-a" } } };
   const incoming = {
     ui: { workspace: "live", selectedSceneId: "another-editor-scene", live: { selectedSceneId: "scene-b" } },
     liveTransition: { id: "scene-a-to-b", startedAtMs: 100, durationMs: 1000, fromTargetId: "scene-a" },
   };
-  assert.equal(shouldPrepareEmbeddedLiveState(incoming, current), false);
+  assert.equal(shouldPrepareEmbeddedLiveState(incoming, current), true);
   assert.equal(
     shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, selectedSceneId: "scene-a" } }, current),
-    false,
+    true,
     "editor Scene selection must not alter Live preview routing"
   );
   assert.equal(
     shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, live: { selectedSceneId: "scene-a" } } }, current),
-    false
+    true
   );
   assert.equal(shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, workspace: "scene" } }, current), false);
+  assert.equal(shouldPrepareEmbeddedLiveState({ ...incoming, liveTransition: undefined }, current), false);
+  assert.equal(shouldPrepareEmbeddedLiveState(incoming, { ...current, liveTransition: incoming.liveTransition }), false);
   const retimed = retimeEmbeddedLiveTransition(incoming, 2500);
   assert.equal(retimed.liveTransition.startedAtMs, 2500);
   assert.equal(incoming.liveTransition.startedAtMs, 100, "preparation must not mutate commanded state");

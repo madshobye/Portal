@@ -469,6 +469,12 @@ export function createControlShell({
         embeddedPreview.setViewport(state.ui);
         return;
       }
+      if (change.effects.preview.mode === "controls-only") {
+        // Retained native controls already own the value being gestured. This
+        // event exists for state/persistence only and must not echo a complete
+        // project snapshot into Preview or rebuild the Live rail.
+        return;
+      }
       const patchedLivePreview = currentWorkspace(state) === "live" &&
         change.command.domain === "live" &&
         Array.isArray(change.livePatches) &&

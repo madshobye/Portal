@@ -779,7 +779,7 @@ test("direct recording-frame views stay in the mapper shader instead of p5 sub-t
   });
 });
 
-test("surface runtime derives transition progress without owning wall-clock state", () => {
+test("surface runtime resumes an already-running restored transition clock", () => {
   const renderer = {
     state: {
       liveTransition: {
@@ -829,10 +829,24 @@ test("surface runtime transfers the exact presented program branch into a transi
   };
   const nextState = {
     surfaces: [{ id: "surface-a", componentId: "next" }],
-    liveTransition: { id: "transition-fire" },
+    liveTransition: {
+      id: "transition-fire",
+      startedAtMs: 1000,
+      durationMs: 2000,
+    },
   };
 
   assert.equal(runtime.retainPresentedBranchForTransitions(previousState, nextState), true);
+  assert.equal(runtime.currentLiveTransition(9000).progress, 0);
+  assert.equal(runtime.currentLiveTransition(9000).arming, true);
+  assert.equal(runtime.armTransitionLane("transition-fire", 5000), true);
+  assert.equal(runtime.currentLiveTransition(5500).progress, 0.25);
+  runtime.renderer.state = { liveTransition: null };
+  assert.equal(
+    runtime.currentLiveTransition(6000).progress,
+    0.5,
+    "the renderer-owned A/B lane must finish even after Control publishes its terminal state",
+  );
   const outgoing = runtime.retainedTransitionBranch(nextState.liveTransition);
   assert.strictEqual(outgoing.programs, presentedPrograms);
   assert.strictEqual(outgoing.programs.get("fire"), fireProgram);

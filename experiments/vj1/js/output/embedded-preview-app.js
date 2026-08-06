@@ -735,8 +735,11 @@ export function createEmbeddedPreviewApp({
     activeRetimedTransitionSceneId = activeRetimedTransition ? previewSceneId(state) : "";
     preparedLiveState = null;
     preparedLiveErrorSignature = "";
-    renderer.readinessRuntime.clearPrepared();
-    renderer.setState(state, { normalized: true });
+    try {
+      renderer.setState(state, { normalized: true });
+    } finally {
+      renderer.readinessRuntime.clearPrepared();
+    }
     return true;
   }
 
@@ -1026,11 +1029,17 @@ export function createEmbeddedPreviewApp({
 }
 
 export function shouldPrepareEmbeddedLiveState(nextState, currentState) {
-  // The editor monitor must follow the pressed Scene immediately. Standalone
-  // outputs retain their media-preparation queue, but holding the embedded
-  // preview behind readiness made a click flash and then appear to do nothing
-  // whenever one optional asset was pending.
-  return false;
+  if (nextState?.ui?.workspace !== "live" || !currentState) return false;
+  const transition = nextState.liveTransition || nextState.liveTransitions?.[0];
+  const currentTransition = currentState.liveTransition || currentState.liveTransitions?.[0];
+  const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
+  // The embedded monitor follows the same A/B lifecycle as Output. A timed
+  // transition arms its inactive program slot while the current slot remains
+  // live; cuts still activate immediately. Repeated state projections for an
+  // already-active transition must not create a second preparation queue.
+  return durationMs > 0
+    && !!transition?.id
+    && String(transition.id) !== String(currentTransition?.id || "");
 }
 
 export function retimeEmbeddedLiveTransition(state, startedAtMs = Date.now() + 50) {
