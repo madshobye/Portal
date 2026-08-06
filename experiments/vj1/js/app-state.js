@@ -48,11 +48,17 @@ import {
   produceStructuralShare,
 } from "./libraries/data-store/data-store/index.js";
 import { signalLoadMeter } from "./metrics/signal-load-meter.js";
-import { applyEditorSelection, editorSelectionChangedPaths } from "./domain/editor-selection.js";
+import {
+  applyArtifactElementSelection,
+  applyEditorSelection,
+  editorSelectionChangedPaths,
+} from "./domain/editor-selection.js";
 import { rebaseSessionTimeline } from "./libraries/timing-engine/session-timeline/index.js";
 import {
   activeLiveTargetId,
-  clearLiveTargetParameterDiffs,
+  clearAllLiveParameterDiffs,
+  clearLiveSourceParameterDiffs,
+  liveParameterDiffSourceIds,
   liveParameterDiffBank,
   updateLiveParameterDiffIfPresent,
   updateLiveNodeParameterDiffIfPresent,
@@ -65,7 +71,8 @@ export function createAppState(initial = null, {
 } = {}) {
   const normalizeState = (value) => {
     const normalized = sanitizeState(value);
-    return typeof prepareState === "function" ? prepareState(normalized) : normalized;
+    const prepared = typeof prepareState === "function" ? prepareState(normalized) : normalized;
+    return restorePreparedArtifactElementSelection(prepared);
   };
   let state = normalizeState(initial || createInitialState());
   // The application owns one immutable world root. Commands path-copy the
@@ -240,8 +247,23 @@ export function createAppState(initial = null, {
   }
 
   function updateLive(recipe, change = "live:update") {
+    const previousResetSources = liveParameterDiffSourceIds(state.ui?.live).join("\n");
     state = produceStructuralShare(state, recipe);
-    const supplied = change && typeof change === "object" ? change : { reason: change };
+    let supplied = change && typeof change === "object" ? change : { reason: change };
+    const nextResetSources = liveParameterDiffSourceIds(state.ui?.live).join("\n");
+    if (previousResetSources !== nextResetSources) {
+      const existingControl = supplied.effects?.control;
+      supplied = {
+        ...supplied,
+        effects: {
+          ...(supplied.effects || {}),
+          control: {
+            ...(existingControl || {}),
+            regions: [...new Set([...(existingControl?.regions || []), "project-rail"])],
+          },
+        },
+      };
+    }
     emit({ ...supplied, command: { ...(supplied.command || {}), domain: "live" } });
   }
 
@@ -254,12 +276,7 @@ export function createAppState(initial = null, {
         "",
       );
       if (!targetId) return;
-      clearLiveTargetParameterDiffs(draft, targetId);
-      // A retained transition owns an executable snapshot of the previous
-      // Live endpoint. Leaving it active can keep presenting the values that
-      // were just removed from the sparse diff bank until the transition
-      // expires. A target reset is an immediate return to authored values.
-      clearLiveTransitionCoordinator(draft.ui.live);
+      clearLiveSourceParameterDiffs(draft, targetId);
     }, {
       reason: "live:target-reset",
       effects: {
@@ -270,6 +287,22 @@ export function createAppState(initial = null, {
         preview: { mode: "live-program" },
       },
     });
+  }
+
+  function resetLiveParameters() {
+    updateLive((draft) => {
+      clearAllLiveParameterDiffs(draft);
+    }, {
+      reason: "live:parameter-reset",
+      effects: {
+        control: {
+          regions: ["project-rail", "inspector"],
+          preview: "render",
+        },
+        preview: { mode: "live-program" },
+      },
+    });
+    return true;
   }
 
   function restoreLiveSession(session = {}, {
@@ -585,7 +618,7 @@ export function createAppState(initial = null, {
       components[componentIndex] = nextComponent;
       const ui = clone(state.ui);
       if (selectAction === "chain-item" && selectId) {
-        applyEditorSelection(ui, "element", selectId);
+        applyArtifactElementSelection(ui, previousComponent.id, selectId);
       } else if (selectAction === "data-select-component" && selectId) {
         ui.selectedComponentId = String(selectId);
       }
@@ -646,7 +679,7 @@ export function createAppState(initial = null, {
       touchComponentUsed({ components }, id);
       const ui = clone(state.ui);
       ui.selectedComponentId = id;
-      applyEditorSelection(ui, "element", componentLayerProjection(state, component)[0]?.nodeId || "");
+      restoreArtifactElementSelection({ ...state, ui }, component);
       rememberWorkspaceComponent({ ui }, ui.workspace, component);
       state = { ...state, components, ui };
       // Selection is local to the editor. It is still autosaved so recent-use
@@ -654,7 +687,7 @@ export function createAppState(initial = null, {
       emit({
         reason: "select-component",
         command: { domain: "ui" },
-        changedPaths: ["ui.selectedComponentId"],
+        changedPaths: ["ui.selectedComponentId", "ui.selectedChainItemId", "ui.selectedChainItemIds"],
       });
     },
     setWorkspace(workspace) {
@@ -711,7 +744,7 @@ export function createAppState(initial = null, {
         const component = createDefaultComponent(componentCount, { empty: componentCount > 10 });
         draft.components.push(component);
         draft.ui.selectedComponentId = component.id;
-        applyEditorSelection(draft.ui, "element", component.chain[0]?.id || "");
+        applyArtifactElementSelection(draft.ui, component.id, component.chain[0]?.id || "");
         rememberWorkspaceComponent(draft, "component", component);
       }, "add-component");
     },
@@ -722,7 +755,7 @@ export function createAppState(initial = null, {
         );
         draft.components.push(component);
         draft.ui.selectedComponentId = component.id;
-        applyEditorSelection(draft.ui, "element", component.chain[0]?.id || "");
+        applyArtifactElementSelection(draft.ui, component.id, component.chain[0]?.id || "");
         rememberWorkspaceComponent(draft, "scene", component);
       }, "add-scene");
     },
@@ -744,9 +777,12 @@ export function createAppState(initial = null, {
       if (!id) {
         if (!state.ui.selectedChainItemId &&
             !(state.ui.workspace === "scene" && state.ui.sceneInspectorTarget !== "element")) return;
-        const changedPaths = editorSelectionChangedPaths(state.ui, "element");
+        const changedPaths = [
+          ...editorSelectionChangedPaths(state.ui, "element"),
+          "ui.selectedChainItemIds",
+        ];
         updateUi((ui) => {
-          applyEditorSelection(ui, "element", "");
+          applyArtifactElementSelection(ui, selected?.id, "");
         }, {
           reason: "select-chain-item",
           changedPaths,
@@ -754,9 +790,12 @@ export function createAppState(initial = null, {
         return;
       }
       if (!componentGraphNode(state, selected?.id, id)) return;
-      const changedPaths = editorSelectionChangedPaths(state.ui, "element");
+      const changedPaths = [
+        ...editorSelectionChangedPaths(state.ui, "element"),
+        "ui.selectedChainItemIds",
+      ];
       updateUi((ui) => {
-        applyEditorSelection(ui, "element", id);
+        applyArtifactElementSelection(ui, selected.id, id);
       }, {
         reason: "select-chain-item",
         changedPaths,
@@ -771,7 +810,7 @@ export function createAppState(initial = null, {
           selectionId: draft.ui.selectedChainItemId,
         });
         if (result.changed && draft.ui.selectedChainItemId === itemId) {
-          applyEditorSelection(draft.ui, "element", result.selectionId);
+          applyArtifactElementSelection(draft.ui, componentId, result.selectionId);
         }
       }, componentGraphCommandEvent({
         type: COMPONENT_GRAPH_COMMANDS.REMOVE,
@@ -801,7 +840,7 @@ export function createAppState(initial = null, {
           item: layer,
           afterNodeId: draft.ui.selectedChainItemId,
         });
-        applyEditorSelection(draft.ui, "element", layer.id);
+        applyArtifactElementSelection(draft.ui, component.id, layer.id);
       }, componentGraphCommandEvent({
         type: COMPONENT_GRAPH_COMMANDS.INSERT,
         componentId,
@@ -820,7 +859,7 @@ export function createAppState(initial = null, {
           item: effect,
           afterNodeId: draft.ui.selectedChainItemId,
         });
-        applyEditorSelection(draft.ui, "element", effect.id);
+        applyArtifactElementSelection(draft.ui, component.id, effect.id);
       }, componentGraphCommandEvent({
         type: COMPONENT_GRAPH_COMMANDS.INSERT,
         componentId,
@@ -839,7 +878,7 @@ export function createAppState(initial = null, {
           item: group,
           afterNodeId: draft.ui.selectedChainItemId,
         });
-        applyEditorSelection(draft.ui, "element", group.id);
+        applyArtifactElementSelection(draft.ui, component.id, group.id);
       }, componentGraphCommandEvent({
         type: COMPONENT_GRAPH_COMMANDS.INSERT,
         componentId,
@@ -875,6 +914,7 @@ export function createAppState(initial = null, {
       update((draft) => {
         if (draft.components.length <= 1) return;
         draft.components = draft.components.filter((component) => component.id !== id);
+        if (draft.ui.selectedChainItemIds) delete draft.ui.selectedChainItemIds[id];
         draft.ui.selectedComponentId = draft.components[0]?.id || "";
         for (const mapping of draft.mappings) {
           for (const surface of mapping.surfaces || []) {
@@ -1124,6 +1164,7 @@ export function createAppState(initial = null, {
       }, { reason: "live:preference-restore" });
     },
     resetLiveSession,
+    resetLiveParameters,
     resetLiveTarget,
     deleteMapping(id) {
       update((draft) => {
@@ -1226,7 +1267,27 @@ function restoreWorkspaceComponent(draft, workspace) {
   if (!component) return;
   draft.ui.workspaceSelectionIds[workspace] = component.id;
   draft.ui.selectedComponentId = component.id;
-  applyEditorSelection(draft.ui, "element", componentLayerProjection(draft, component)[0]?.nodeId || "");
+  restoreArtifactElementSelection(draft, component);
+}
+
+function restoreArtifactElementSelection(draft, component) {
+  if (!component) return;
+  const rememberedId = draft.ui.selectedChainItemIds?.[component.id] || "";
+  const selectionId = componentGraphNode(draft, component.id, rememberedId)
+    ? rememberedId
+    : componentLayerProjection(draft, component)[0]?.nodeId || "";
+  applyArtifactElementSelection(draft.ui, component.id, selectionId);
+}
+
+function restorePreparedArtifactElementSelection(state) {
+  const workspace = state.ui?.workspace;
+  if (workspace !== "component" && workspace !== "scene") return state;
+  if (workspace === "scene" && state.ui.sceneInspectorTarget === "surface") return state;
+  const component = state.components?.find((item) => item.id === state.ui.selectedComponentId);
+  if (!component) return state;
+  const next = { ...state, ui: clone(state.ui) };
+  restoreArtifactElementSelection(next, component);
+  return next;
 }
 
 function componentLayerCount(state, component) {

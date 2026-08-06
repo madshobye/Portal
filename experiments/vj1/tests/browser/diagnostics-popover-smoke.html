@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Diagnostics popover smoke</title>
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/base.css" />
+  <link rel="stylesheet" href="../../js/libraries/ui-engine/themes/vj.css" />
+  <style>
+    html, body, #host { width: 100%; height: 100%; margin: 0; }
+  </style>
+</head>
+<body>
+  <main id="host"></main>
+  <pre id="result">running</pre>
+  <script>
+    const fail = (error) => {
+      document.documentElement.dataset.testStatus = "failed";
+      document.querySelector("#result").textContent = error?.stack || String(error);
+    };
+    window.addEventListener("error", (event) => fail(event.error || event.message));
+    window.addEventListener("unhandledrejection", (event) => fail(event.reason));
+  </script>
+  <script type="module">
+    import {
+      defineUiGraph,
+      DiagnosticsNode,
+      RetainedUiRuntime,
+      UiNodeDefinitions,
+      UiNodeRegistry,
+      WorkspaceShellNode,
+    } from "../../js/libraries/ui-engine/index.js";
+
+    const entries = Array.from({ length: 24 }, (_, index) => ({
+      level: index === 0 ? "error" : "warning",
+      source: "browser-smoke",
+      message: `Diagnostic ${index + 1}\n${"Long diagnostic detail ".repeat(12)}`,
+      lastAt: Date.now(),
+      count: 1,
+    }));
+    const runtime = new RetainedUiRuntime({
+      registry: new UiNodeRegistry(UiNodeDefinitions),
+      dispatch: () => {},
+    });
+    const graph = (level) => defineUiGraph({
+      id: "diagnostics-popover-smoke",
+      nodes: [{
+        id: "shell",
+        type: WorkspaceShellNode.id,
+        inputs: {
+          brand: "VJ",
+          hasProject: true,
+          workspace: "component",
+          project: { name: "Test" },
+          actions: [{
+            id: "diagnostics-toggle",
+            label: `Diagnostics: ${entries.length} entries`,
+            icon: level === "error" ? "error" : "warning",
+            presentation: "diagnostics",
+            level,
+            active: true,
+          }],
+        },
+      }, {
+        id: "diagnostics",
+        type: DiagnosticsNode.id,
+        parent: "shell",
+        slot: "diagnostics-summary",
+        inputs: {
+          title: "Diagnostics",
+          level,
+          counts: { error: 1, warning: entries.length - 1, info: 0 },
+          entries,
+        },
+      }],
+    });
+
+    const host = document.querySelector("#host");
+    runtime.activate(graph("error"), { host });
+    runtime.getNode("shell", { scope: "diagnostics-popover-smoke" }).setPopover("diagnostics", true);
+
+    const toggle = host.querySelector('[data-ui-action="diagnostics-toggle"]');
+    const warningProbe = document.createElement("button");
+    warningProbe.className = "diagnostics-toggle is-warning";
+    warningProbe.hidden = true;
+    document.body.append(warningProbe);
+    const warningColor = getComputedStyle(warningProbe).color;
+    const popup = host.querySelector(".diagnostics-summary");
+    const list = host.querySelector(".ui-node-diagnostics-list");
+    const copy = [...host.querySelectorAll(".ui-node-diagnostics-actions button")].at(-1);
+    const popupRect = popup.getBoundingClientRect();
+    const copyRect = copy.getBoundingClientRect();
+    const errorColor = getComputedStyle(toggle).color;
+    if (
+      !toggle.classList.contains("is-error") ||
+      toggle.classList.contains("is-warning") ||
+      warningColor === errorColor ||
+      getComputedStyle(popup).paddingTop !== "0px" ||
+      popupRect.bottom > innerHeight + 1 ||
+      copyRect.bottom > popupRect.bottom + 1 ||
+      list.scrollHeight <= list.clientHeight
+    ) {
+      throw new Error(`Diagnostics presentation failed: ${JSON.stringify({ warningColor, errorColor, popupBottom: popupRect.bottom, viewport: innerHeight, copyBottom: copyRect.bottom, listClient: list.clientHeight, listScroll: list.scrollHeight })}`);
+    }
+
+    document.querySelector("#result").textContent = "PASS bounded diagnostics popover and severity icon";
+    document.documentElement.dataset.testStatus = "passed";
+  </script>
+</body>
+</html>

@@ -485,15 +485,22 @@ export function createControlShell({
         embeddedPreview.applyRenderPatches(renderPatches)?.applied;
       if (reason === "live:update") {
         // Native controls already display their commanded value. Hardware
-        // MIDI has no matching DOM event, so reconcile only the inspector on
-        // the next frame while retaining the active render program.
+        // MIDI has no matching DOM event, so it additionally reconciles the
+        // inspector. Parameter changes can also add the reset action to a
+        // source card; retain that explicit project-rail invalidation instead
+        // of returning before the card list sees the new diff bank.
         if (!patchedLivePreview) updatePreviewState(state);
+        const regions = new Set(change.effects.control?.regions || []);
         if (change.input === "midi" && currentWorkspace(state) === "live") {
+          regions.add("live-projection-rail");
+          regions.add("inspector");
+        }
+        if (regions.size) {
           scheduleRenderNow(state, {
             reason,
             change,
             projection: "control-invalidation",
-            invalidation: { regions: ["live-projection-rail", "inspector"] },
+            invalidation: { regions: [...regions] },
             previewPatched: patchedLivePreview,
           });
         }
@@ -511,6 +518,19 @@ export function createControlShell({
         // Feeding their store echo straight back into the same renderer makes
         // it rebuild lookup state twice per pointer frame.
         if (!patchedLivePreview && !patchedStudioPreview && reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:scene-surface") updatePreviewState(state);
+        const scrubInvalidation = change.effects.control;
+        if (
+          scrubInvalidation &&
+          (!scrubInvalidation.requiresRenderPatch || patchedLivePreview || patchedStudioPreview)
+        ) {
+          scheduleRenderNow(state, {
+            reason,
+            change,
+            projection: "control-invalidation",
+            invalidation: scrubInvalidation,
+            previewPatched: patchedLivePreview || patchedStudioPreview,
+          });
+        }
         return;
       }
       if (change.command.phase === "color") {
@@ -1090,7 +1110,7 @@ export function createControlShell({
         { id: "toggle-preview", label: "Toggle preview", icon: "visibility", active: state.ui.debugPreview === true },
         { id: "toggle-hud", label: "Output FPS and resolution", icon: "bug_report", active: state.global.showHud !== false },
         { id: "settings", label: "Settings", icon: "settings" },
-        { id: "diagnostics-toggle", label: diagnostic.level === "ok" ? "Diagnostics: OK" : `Diagnostics: ${diagnosticCount} entries`, icon: diagnosticIcon(diagnostic.level), presentation: "diagnostics", active: diagnosticsOpen },
+        { id: "diagnostics-toggle", label: diagnostic.level === "ok" ? "Diagnostics: OK" : `Diagnostics: ${diagnosticCount} entries`, icon: diagnosticIcon(diagnostic.level), presentation: "diagnostics", level: diagnostic.level, active: diagnosticsOpen },
         { id: "undo", label: "Undo", icon: "undo", disabled: !state.ui.canUndo },
         { id: "redo", label: "Redo", icon: "redo", disabled: !state.ui.canRedo },
         { id: "playback", label: outputPlaying ? "Pause playback" : "Play playback", icon: outputPlaying ? "pause" : "play_arrow", disabled: !hasProject, active: hasProject && !outputPlaying },
@@ -1570,21 +1590,19 @@ export function createControlShell({
         return true;
       }
       if (command.payload?.action === "marker") {
-        cycleCatalogMarker(target.type === "scene" ? "scene" : "component", id, refs.projectRail);
-        return true;
+        return store.cycleCatalogMarker?.(
+          target.type === "scene" ? "scene" : "component",
+          id,
+        ) === true;
       }
       if (command.payload?.action === "reset") {
-        // The embedded monitor may retain a retimed transition endpoint even
-        // after the authored transition coordinator is cleared. Drop that
-        // presentation snapshot before the reset state is projected.
-        embeddedPreview.command("clear-live-transition");
         store.resetLiveTarget?.(id);
         return true;
       }
       return false;
     }
-    if (command.action === "live.reset-session") {
-      store.resetLiveSession?.();
+    if (command.action === "live.reset-parameters") {
+      store.resetLiveParameters?.();
       return true;
     }
     if (command.action === "live.component-view-select") {
@@ -1793,8 +1811,10 @@ export function createControlShell({
       }
       if (command.payload?.action === "marker") {
         const selected = latestState.components.find((item) => item.id === id);
-        cycleCatalogMarker(selected?.type === "scene" ? "scene" : "component", id, refs.projectRail);
-        return true;
+        return store.cycleCatalogMarker?.(
+          selected?.type === "scene" ? "scene" : "component",
+          id,
+        ) === true;
       }
       return false;
     }

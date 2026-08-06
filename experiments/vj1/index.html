@@ -17,7 +17,7 @@
     <main id="app" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></main>
     <script>
       (async () => {
-        const sourceRevision = "source-coherence-273";
+        const sourceRevision = "source-coherence-274";
         const { createVj1StartupUi } = await import(`./js/startup.js?v=${sourceRevision}`);
         const startupUi = createVj1StartupUi();
         const workerUrl = new URL(`./module-source-worker.js?v=${sourceRevision}`, location.href).href;

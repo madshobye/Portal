@@ -96,6 +96,10 @@ test("project payload preserves the selected component chain item", () => {
       selectedSurfaceId: "surface-a",
       selectedComponentId: "component-a",
       selectedChainItemId: "chain-effect-b",
+      selectedChainItemIds: {
+        "component-a": "chain-effect-b",
+        "scene-b": "scene-layer-c",
+      },
       workspaceSelectionIds: { component: "component-a", scene: "scene-b" },
       catalogSortModes: { component: "name", scene: "created", mapping: "recent" },
       previewQuality: "good",
@@ -137,11 +141,12 @@ test("project payload preserves the selected component chain item", () => {
     migrations: [],
   });
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
+  assert.deepEqual(payload.ui.selectedChainItemIds, state.ui.selectedChainItemIds);
   assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
   assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);
   assert.equal(payload.ui.previewQuality, state.ui.previewQuality);
   assert.equal(payload.ui.previewDiagnostics, true);
-  assert.deepEqual(payload.ui.previewViewports, state.ui.previewViewports);
+  assert.equal(payload.ui.previewViewports, undefined, "preview navigation is transient editor state");
   assert.equal(payload.ui.live.selectedSceneId, "scene-live");
   assert.equal(payload.ui.live.sceneMappingInLive, false);
   assert.equal(payload.ui.live.sceneMappingVisible, undefined, "on-air visibility remains transient Live state");
@@ -159,6 +164,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.equal(payload.mappingCalibration, undefined);
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
   assert.ok(source.includes("selectedChainItemId: restoredProjectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
+  assert.ok(source.includes("selectedChainItemIds: restoredProjectUi?.selectedChainItemIds || currentUi.selectedChainItemIds"));
   assert.ok(source.includes("workspaceSelectionIds: restoredProjectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds"));
   assert.ok(source.includes("catalogSortModes: restoredProjectUi?.catalogSortModes || currentUi.catalogSortModes"));
   assert.ok(source.includes("preserveMediaCatalog && Array.isArray(projectData.media)"));
@@ -166,7 +172,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.ok(source.includes("draft.media = mergeMediaCatalogMarkers(imported.media, draft.media)"));
   assert.match(source, /reason: "project-refresh-assets",[\s\S]*?command: \{ domain: "assets" \},[\s\S]*?projection: \{ kind: "asset-catalog" \}/);
   assert.ok(source.includes("previewQuality: restoredProjectUi?.previewQuality || currentUi.previewQuality"));
-  assert.ok(source.includes("previewViewports: restoredProjectUi?.previewViewports || currentUi.previewViewports"));
+  assert.match(source, /previewViewports: preserveEditorUi\s*\? currentUi\.previewViewports\s*:\s*normalizePreviewViewports\(\)/);
   assert.ok(source.includes("previewDiagnostics: restoredProjectUi?.previewDiagnostics ?? currentUi.previewDiagnostics"));
   assert.ok(!source.includes("legacyRecordingFrames"));
   assert.ok(source.includes("data = migrateProjectData(data)"));

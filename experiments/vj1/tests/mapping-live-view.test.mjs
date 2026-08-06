@@ -414,9 +414,13 @@ test("Live target reset is shown on Scene and Part thumbnails with temporary par
   assert.ok(!liveSourceListItems([component], state)[0].actions.some((action) => action.id === "reset"));
 
   state.ui.live.parameterDiffs[liveScene.id] = {
-    [state.components[0].id]: { opacity: 0.5 },
+    [component.id]: { opacity: 0.5 },
   };
   assert.ok(liveSourceListItems([liveScene], state)[0].actions.some((action) => action.id === "reset"));
+  assert.ok(
+    liveSourceListItems([component], state)[0].actions.some((action) => action.id === "reset"),
+    "a nested Component override is resettable without first selecting that Component",
+  );
 
   state.ui.live.selectedComponentId = component.id;
   state.ui.live.parameterDiffs[component.id] = {

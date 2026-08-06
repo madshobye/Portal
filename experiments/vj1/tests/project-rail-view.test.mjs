@@ -83,7 +83,7 @@ test("project rail renders each workspace through one view boundary", () => {
     overflow: "hidden",
   });
   const liveReset = live.nodes.find((node) => node.id === "live-reset-session");
-  assert.equal(liveReset.inputs.label, "Reset Live output state");
+  assert.equal(liveReset.inputs.label, "Reset Live parameters");
   assert.equal(liveReset.inputs.icon, UI_ICONS.reset);
   const mappingCollection = mapping.nodes.find((node) => node.id === "mapping-collection");
   const mappingSurfaces = mapping.nodes.find((node) => node.id === "mapping-surface-collection");

@@ -12,12 +12,12 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
       selectedSurfaceId: state.ui.selectedSurfaceId,
       selectedComponentId: state.ui.selectedComponentId,
       selectedChainItemId: state.ui.selectedChainItemId,
+      selectedChainItemIds: state.ui.selectedChainItemIds,
       selectedNodeDefinitionId: state.ui.selectedNodeDefinitionId || "",
       selectedNodeGroupId: state.ui.selectedNodeGroupId || "",
       workspaceSelectionIds: state.ui.workspaceSelectionIds,
       catalogSortModes: state.ui.catalogSortModes,
       previewQuality: state.ui.previewQuality,
-      previewViewports: state.ui.previewViewports,
       previewDiagnostics: state.ui.previewDiagnostics === true,
       mappingTestPattern: state.ui.mappingTestPattern !== false,
       live: {

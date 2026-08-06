@@ -12,6 +12,7 @@ import {
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
 import { createInitialState, projectSelectedMapping } from "../domain/models.js";
+import { normalizePreviewViewports } from "../domain/render-settings.js";
 import { resetSceneMappingSession } from "../domain/live-ui-state.js";
 import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
@@ -447,10 +448,13 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         selectedSurfaceId: restoredProjectUi?.selectedSurfaceId || currentUi.selectedSurfaceId,
         selectedComponentId: restoredProjectUi?.selectedComponentId || currentUi.selectedComponentId,
         selectedChainItemId: restoredProjectUi?.selectedChainItemId || currentUi.selectedChainItemId,
+        selectedChainItemIds: restoredProjectUi?.selectedChainItemIds || currentUi.selectedChainItemIds,
         workspaceSelectionIds: restoredProjectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds,
         catalogSortModes: restoredProjectUi?.catalogSortModes || currentUi.catalogSortModes,
         previewQuality: restoredProjectUi?.previewQuality || currentUi.previewQuality,
-        previewViewports: restoredProjectUi?.previewViewports || currentUi.previewViewports,
+        previewViewports: preserveEditorUi
+          ? currentUi.previewViewports
+          : normalizePreviewViewports(),
         previewDiagnostics: restoredProjectUi?.previewDiagnostics ?? currentUi.previewDiagnostics,
         mappingTestPattern: restoredProjectUi?.mappingTestPattern ?? currentUi.mappingTestPattern,
         live: restoreProjectLiveUi(currentUi.live, restoredProjectUi?.live),

@@ -79,12 +79,51 @@ export function liveNodeParameterDiff(
   return liveParameterDiffBank(live, targetId)?.[componentId]?.nodes?.[nodeId] || EMPTY_BANK;
 }
 
-export function clearLiveTargetParameterDiffs(state, targetId) {
-  const id = String(targetId || "");
-  if (!id || !state.ui?.live?.parameterDiffs) return false;
-  const existed = Object.hasOwn(state.ui.live.parameterDiffs, id);
-  delete state.ui.live.parameterDiffs[id];
-  return existed;
+// A source can own its own Overall diff bank and can also appear as a nested
+// Component inside one or more Scene banks. Project-rail reset affordances
+// must account for both forms.
+export function liveSourceHasParameterDiffs(live = {}, sourceId = "") {
+  const id = String(sourceId || "");
+  if (!id) return false;
+  const banks = live.parameterDiffs || EMPTY_BANK;
+  if (Object.keys(banks[id] || EMPTY_BANK).length > 0) return true;
+  return Object.values(banks).some((bank) =>
+    bank && typeof bank === "object" && Object.hasOwn(bank, id));
+}
+
+export function liveParameterDiffSourceIds(live = {}) {
+  const ids = new Set();
+  for (const [targetId, bank] of Object.entries(live.parameterDiffs || EMPTY_BANK)) {
+    if (!bank || typeof bank !== "object" || !Object.keys(bank).length) continue;
+    ids.add(String(targetId));
+    for (const componentId of Object.keys(bank)) ids.add(String(componentId));
+  }
+  return [...ids].sort();
+}
+
+export function clearLiveSourceParameterDiffs(state, sourceId = "") {
+  const id = String(sourceId || "");
+  const banks = state.ui?.live?.parameterDiffs;
+  if (!id || !banks) return false;
+  let changed = false;
+  if (Object.hasOwn(banks, id)) {
+    delete banks[id];
+    changed = true;
+  }
+  for (const [targetId, bank] of Object.entries(banks)) {
+    if (!bank || typeof bank !== "object" || !Object.hasOwn(bank, id)) continue;
+    delete bank[id];
+    changed = true;
+    if (!Object.keys(bank).length) delete banks[targetId];
+  }
+  return changed;
+}
+
+export function clearAllLiveParameterDiffs(state) {
+  if (!state.ui?.live) return false;
+  const changed = Object.keys(state.ui.live.parameterDiffs || EMPTY_BANK).length > 0;
+  state.ui.live.parameterDiffs = {};
+  return changed;
 }
 
 export function pathValue(target, path) {

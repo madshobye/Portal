@@ -4,7 +4,7 @@ import { liveProgramNavigableComponents, liveSignificantParameterAssignments } f
 import { liveSurfaceVisible } from "../domain/live-ui-state.js";
 import { componentTypeIcon, UI_ICONS } from "./ui-icons.js";
 import { catalogMarkerMeta } from "../domain/catalog-marker.js";
-import { liveParameterDiffBank } from "../domain/live-parameter-diffs.js";
+import { liveSourceHasParameterDiffs } from "../domain/live-parameter-diffs.js";
 
 export function liveProjectionListModel(state) {
   const mapping = state.mappings?.find((item) => String(item.id) === String(state.ui?.selectedMappingId || ""))
@@ -136,7 +136,7 @@ export function liveSourceListItems(sources = [], state = {}) {
   return (sources || []).map((source) => {
     const fallbackIcon = componentTypeIcon(source);
     const marker = catalogMarkerMeta(source.catalogMarker);
-    const hasOverrides = Object.keys(liveParameterDiffBank(live, source.id)).length > 0;
+    const hasOverrides = liveSourceHasParameterDiffs(live, source.id);
     return {
       id: String(source.id || ""),
       label: String(source.name || "Source"),

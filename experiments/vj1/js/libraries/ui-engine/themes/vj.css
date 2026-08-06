@@ -2101,6 +2101,7 @@ small {
   min-width: 0;
   flex: 0 0 auto;
   align-items: center;
+  gap: 6px;
 }
 
 .workspace-tool-switch {
@@ -2145,11 +2146,20 @@ small {
   right: 0;
   display: grid;
   width: min(460px, calc(100vw - 24px));
-  gap: 10px;
-  padding: 10px;
+  max-height: calc(100vh - 84px);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
   border-radius: var(--radius-card);
   background: var(--panel);
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+.diagnostics-summary > div,
+.diagnostics-summary .ui-node-diagnostics {
+  min-height: 0;
+  height: 100%;
 }
 
 .diagnostics-summary.is-hidden {
@@ -2244,7 +2254,7 @@ small {
 
 .workspace-switch {
   display: inline-flex;
-  gap: 4px;
+  gap: 6px;
   padding: 3px;
   border: 0;
   border-radius: var(--radius-card);

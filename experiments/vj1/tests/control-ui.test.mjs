@@ -714,6 +714,36 @@ test("component and parameter context actions cross one retained Popup command b
   assert.equal(closed, 2);
 });
 
+test("parameter context action toggles the canonical significant address", () => {
+  const state = appNodePackage.prepareProjectState(createInitialState());
+  const group = state.nodes.groups[0];
+  const node = group.nodes.find((candidate) => candidate.configuration?.opacity !== undefined);
+  const component = state.components.find((candidate) => candidate.id === group.componentId);
+  let menu = null;
+  const controller = createInputController({
+    store: { update(recipe) { recipe(state); } },
+    getState: () => state,
+    currentWorkspace: () => "component",
+    refreshSelectedMappingProjection() {},
+    showContextMenu(model) { menu = model; return true; },
+    closeContextMenu() {},
+  });
+  const path = `nodes.groups.0.nodes.${group.nodes.indexOf(node)}.configuration.opacity`;
+
+  assert.equal(controller.openParameterContextMenu({
+    path,
+    componentId: component.id,
+    defaultValue: 1,
+  }), true);
+  assert.ok(menu.actions.some((action) => action.id === "significant"));
+  assert.equal(controller.executeContextMenuAction("significant"), true);
+  assert.deepEqual(component.significantParams, [`${node.id}::opacity`]);
+
+  controller.openParameterContextMenu({ path, componentId: component.id, defaultValue: 1 });
+  assert.equal(controller.executeContextMenuAction("significant"), true);
+  assert.deepEqual(component.significantParams, []);
+});
+
 test("retained paired-range commands atomically write both authored endpoints", () => {
   let committed = null;
   const controller = createInputController({
@@ -1256,8 +1286,9 @@ test("Live target cards share reset for retained temporary overrides", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const sceneLiveSource = readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   assert.ok(sceneLiveSource.includes('id: "reset"'));
-  assert.ok(sceneLiveSource.includes("liveParameterDiffBank"));
+  assert.ok(sceneLiveSource.includes("liveSourceHasParameterDiffs"));
   assert.ok(source.includes("store.resetLiveTarget"));
+  assert.ok(source.includes("store.resetLiveParameters"));
 });
 
 test("semantic Live UI commands write the one sparse diff bank and render-patch path", () => {
@@ -2222,6 +2253,22 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(previewSource.includes("renderer.livePatchRuntime.applyLive(patches)"));
 });
 
+test("Live parameter commits refresh source-card reset actions immediately", () => {
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  assert.match(
+    controller,
+    /if \(reason === "live:update"\)[\s\S]*?new Set\(change\.effects\.control\?\.regions \|\| \[\]\)[\s\S]*?projection: "control-invalidation"[\s\S]*?invalidation: \{ regions: \[\.\.\.regions\] \}/,
+  );
+});
+
+test("the first Live scrub refreshes a newly resettable source card", () => {
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  assert.match(
+    controller,
+    /if \(change\.command\.phase === "scrub"\)[\s\S]*?const scrubInvalidation = change\.effects\.control[\s\S]*?projection: "control-invalidation"[\s\S]*?invalidation: scrubInvalidation/,
+  );
+});
+
 test("parameter context menus cross the semantic UI command boundary", () => {
   const source = readFileSync(new URL("../js/control/control-command-controller.js", import.meta.url), "utf8");
   const shell = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
@@ -2231,6 +2278,8 @@ test("parameter context menus cross the semantic UI command boundary", () => {
   assert.ok(source.includes("setLiveOverride(draft, liveComponentId, path, value, liveNodeId)"));
   assert.ok(source.includes('updateLiveAware(live, recipe, live ? "live:reset-default"'));
   assert.match(shell, /createControlCommandController\(\{[\s\S]*?showContextMenu,[\s\S]*?closeContextMenu,/);
+  assert.doesNotMatch(shell, /\bcycleCatalogMarker\(/);
+  assert.match(shell, /store\.cycleCatalogMarker\?\.\(/);
   assert.ok(program.includes('contextAction: "parameter.open-context-menu"'));
   assert.doesNotMatch(source, /querySelector|addEventListener|dataset/);
 });
@@ -2526,6 +2575,8 @@ test("workspace view buttons are compact icons with accessible names", () => {
   assert.match(styleSource, /\.icon-buttonish\.close-project-button \{[\s\S]*?position: static;[\s\S]*?width: 26px;[\s\S]*?height: 26px;/);
   assert.match(styleSource, /\.close-project-button \.material-symbols-rounded \{[\s\S]*?font-size: 16px;/);
   assert.match(styleSource, /\.workspace-switch button \{[\s\S]*?width: 36px;[\s\S]*?padding: 0;/);
+  assert.match(styleSource, /\.ui-node-workspace-shell-actions \{[\s\S]*?gap: 6px;/);
+  assert.match(styleSource, /\.workspace-switch \{[\s\S]*?gap: 6px;/);
   assert.match(styleSource, /\.ui-node-workspace-shell-actions \{[\s\S]*?display: flex;[\s\S]*?align-items: center;/);
 });
 
@@ -2616,8 +2667,11 @@ test("topbar diagnostics expose an event-driven bounded console with copy and cl
   assert.ok(diagnosticsController.includes('emit("clear")'));
   assert.ok(app.includes("createDiagnosticsService"));
   assert.match(style, /\.diagnostics-summary\s*\{[\s\S]*position:\s*absolute/);
+  assert.match(style, /\.diagnostics-summary\s*\{[\s\S]*max-height:\s*calc\(100vh - 84px\);[\s\S]*gap:\s*0;[\s\S]*padding:\s*0;[\s\S]*overflow:\s*hidden/);
   assert.match(style, /\.ui-node-diagnostics \{[\s\S]*?grid-template-rows: auto minmax\(0, 1fr\) auto;/);
   assert.match(style, /\.ui-node-diagnostics-state \{[\s\S]*?flex: 0 0 auto;/);
+  assert.match(controller, /presentation: "diagnostics", level: diagnostic\.level/);
+  assert.match(shell, /button\.classList\.toggle\(`is-\$\{level\}`/);
 });
 
 test("empty project start shows one folder action and disables project views", () => {

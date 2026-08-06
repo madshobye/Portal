@@ -211,10 +211,6 @@ export function createEmbeddedPreviewApp({
     wakePreviewPresentation();
     if (name === "set-profile-diagnostics") renderer?.profileRuntime.setDiagnosticsEnabled(payload.enabled === true);
     if (name === "set-calibrate") renderer?.mappingRuntime.setCalibrate(!!payload.calibrating);
-    if (name === "clear-live-transition") {
-      activeRetimedTransition = null;
-      activeRetimedTransitionSceneId = "";
-    }
     if (name === "reset-mapping") renderer?.mappingRuntime.reset(payload.surfaceId);
     if (name === "export-mapping") renderer?.mappingRuntime.export();
     if (name === "schedule") renderer?.frameRuntime.schedule(payload);

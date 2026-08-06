@@ -223,6 +223,12 @@ function createWorkspaceShellInstance({ host, inputs: initialInputs, document, e
     if (button.disabled !== disabled) button.disabled = disabled;
     if (button.hidden !== hidden) button.hidden = hidden;
     if (button.classList.contains("is-active") !== active) button.classList.toggle("is-active", active);
+    const diagnosticLevel = id === "diagnostics-toggle" && ["ok", "info", "warning", "error"].includes(item.level)
+      ? item.level
+      : "";
+    for (const level of ["ok", "info", "warning", "error"]) {
+      button.classList.toggle(`is-${level}`, diagnosticLevel === level);
+    }
     const glyph = button.querySelector(".material-symbols-rounded");
     const iconName = String(item.icon || "");
     if (glyph && glyph.textContent !== iconName) glyph.textContent = iconName;

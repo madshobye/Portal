@@ -28,6 +28,19 @@ export function applyEditorSelection(ui, kind, id = "") {
   return ui;
 }
 
+// `selectedChainItemId` is the active inspector projection. This map preserves
+// the last element selection owned by each Component or Scene so navigation
+// can restore it without treating one artifact's node id as a global choice.
+export function applyArtifactElementSelection(ui, artifactId, id = "") {
+  applyEditorSelection(ui, "element", id);
+  if (!ui || typeof ui !== "object" || !artifactId) return ui;
+  ui.selectedChainItemIds ||= {};
+  const selectionId = String(id || "");
+  if (selectionId) ui.selectedChainItemIds[String(artifactId)] = selectionId;
+  else delete ui.selectedChainItemIds[String(artifactId)];
+  return ui;
+}
+
 export function editorSelectionChangedPaths(ui, kind) {
   if (ui?.workspace !== "scene") {
     return kind === "surface"

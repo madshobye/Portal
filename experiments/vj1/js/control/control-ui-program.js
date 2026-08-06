@@ -628,12 +628,12 @@ export function liveRailUiGraph(state, { items = [], selectedId = "", sortMode =
       parent: "live-timing-panel",
       slot: "header",
       inputs: {
-        label: "Reset Live output state",
+        label: "Reset Live parameters",
         icon: UI_ICONS.reset,
         iconOnly: true,
         presentation: "live-reset",
       },
-      commands: { activate: "live.reset-session" },
+      commands: { activate: "live.reset-parameters" },
     }],
   });
 }

@@ -380,6 +380,9 @@ export function createInitialState({ startupTemplate = false } = {}) {
       workspace: "mapping",
       selectedComponentId: components[0].id,
       selectedChainItemId: components[0].chain[0]?.id || "",
+      selectedChainItemIds: {
+        [components[0].id]: components[0].chain[0]?.id || "",
+      },
       selectedNodeDefinitionId: "",
       selectedNodeGroupId: "",
       workspaceSelectionIds: {
@@ -605,9 +608,19 @@ export function sanitizeState(input = {}) {
   );
   delete next.ui.previewQualities;
   const selectedComponent = next.components.find((component) => component.id === next.ui.selectedComponentId) || next.components[0];
-  next.ui.selectedChainItemId = chainContainsItemId(selectedComponent?.chain, next.ui.selectedChainItemId)
-    ? next.ui.selectedChainItemId
-    : selectedComponent?.chain?.[0]?.id || "";
+  next.ui.selectedChainItemIds = normalizeArtifactElementSelectionIds(
+    next.ui.selectedChainItemIds,
+    next.components,
+  );
+  const rememberedChainItemId = next.ui.selectedChainItemIds[selectedComponent?.id];
+  next.ui.selectedChainItemId = chainContainsItemId(selectedComponent?.chain, rememberedChainItemId)
+    ? rememberedChainItemId
+    : chainContainsItemId(selectedComponent?.chain, next.ui.selectedChainItemId)
+      ? next.ui.selectedChainItemId
+      : selectedComponent?.chain?.[0]?.id || "";
+  if (selectedComponent?.id && next.ui.selectedChainItemId) {
+    next.ui.selectedChainItemIds[selectedComponent.id] = next.ui.selectedChainItemId;
+  }
   next.ui.sceneInspectorTarget = next.ui.sceneInspectorTarget === "surface" ? "surface" : "element";
   next.mappings = Array.isArray(input.mappings)
     ? input.mappings.map((mapping) => normalizeMapping(mapping, next, importedSurfaces))
@@ -659,6 +672,14 @@ function normalizeWorkspaceSelectionIds(value = {}, components = [], selectedCom
     ? value.scene
     : selected?.type === "scene" ? selected.id : scenes[0]?.id || "";
   return { component: componentId, scene: sceneId };
+}
+
+function normalizeArtifactElementSelectionIds(value = {}, components = []) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const componentIds = new Set(components.map((component) => String(component.id || "")));
+  return Object.fromEntries(Object.entries(value)
+    .filter(([componentId, itemId]) => componentIds.has(componentId) && typeof itemId === "string" && itemId)
+    .map(([componentId, itemId]) => [componentId, String(itemId)]));
 }
 
 function normalizeCatalogSortModes(value = {}) {

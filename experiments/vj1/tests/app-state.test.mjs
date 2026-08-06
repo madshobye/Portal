@@ -28,6 +28,7 @@ import {
 import { DataStoreNode, ObservableDataStore } from "../js/libraries/data-store/data-store/index.js";
 import { isMappingProjectionPresentation } from "../js/output/output-presentation-runtime.js";
 import { signalLoadMeter } from "../js/metrics/signal-load-meter.js";
+import { buildProjectPayload } from "../js/services/project-serializer.js";
 
 const appNodePackage = createVj1NodePackage();
 
@@ -1392,6 +1393,28 @@ test("Live slider updates use the lightweight live-only state path", () => {
   assert.deepEqual(liveComponent.transform, { x: 0.4, y: 0, scale: 1.5, rotation: 0 });
 });
 
+test("Live parameter edits invalidate source cards only when reset availability changes", () => {
+  const state = createInitialState();
+  const component = state.components[0];
+  state.ui.live.selectedComponentId = component.id;
+  const store = createGraphAppState(state);
+  const events = [];
+  store.subscribe((_snapshot, _reason, event) => events.push(event));
+  events.length = 0;
+
+  store.updateLive((draft) => {
+    draft.ui.live.parameterDiffs[component.id] = {
+      [component.id]: { opacity: 0.4 },
+    };
+  }, "scrub:live");
+  store.updateLive((draft) => {
+    draft.ui.live.parameterDiffs[component.id][component.id].opacity = 0.3;
+  }, "scrub:live");
+
+  assert.deepEqual(events[0].effects.control?.regions, ["project-rail"]);
+  assert.equal(events[1].effects.control, null);
+});
+
 test("Live render baseline materializes every optional slider patch target", () => {
   const state = createInitialState();
   const component = state.components[0];
@@ -1621,31 +1644,85 @@ test("Live Part temporary overrides reset through the shared target contract", (
   assert.equal(store.getState().ui.live.parameterDiffs[part.id], undefined);
 });
 
-test("Live target reset immediately returns the retained program to authored values", () => {
+test("Live Component reset clears its overrides across Scene banks without changing routing", () => {
   const state = createInitialState();
   const part = state.components[0];
+  const scene = createSceneComponent("Scene");
+  state.components.push(scene);
+  const surfaceId = state.mappings[0].surfaces[0].id;
   state.ui.live.selectedComponentId = part.id;
-  state.ui.live.selectedSceneId = "";
+  state.ui.live.selectedSceneId = scene.id;
+  state.ui.live.surfacePatches = { [surfaceId]: part.id };
+  state.ui.live.surfaceVisibility = { [surfaceId]: false };
   state.ui.live.parameterDiffs = {
     [part.id]: { [part.id]: { opacity: 0.4 } },
+    [scene.id]: {
+      [scene.id]: { opacity: 0.8 },
+      [part.id]: { speed: 2 },
+    },
   };
   state.ui.live.transitionCoordinator = {
     overall: { active: { id: "old-endpoint", durationMs: 5000, startedAtMs: Date.now() } },
   };
   const store = createGraphAppState(state);
+  const transitionBefore = store.getState().ui.live.transitionCoordinator;
   let event = null;
   store.subscribe((_snapshot, _reason, change) => { event = change; });
 
   store.resetLiveTarget(part.id);
 
   assert.equal(store.getState().ui.live.parameterDiffs[part.id], undefined);
-  assert.deepEqual(store.getState().ui.live.transitionCoordinator, {});
+  assert.equal(store.getState().ui.live.parameterDiffs[scene.id][part.id], undefined);
+  assert.equal(store.getState().ui.live.parameterDiffs[scene.id][scene.id].opacity, 0.8);
+  assert.deepEqual(store.getState().ui.live.surfacePatches, { [surfaceId]: part.id });
+  assert.deepEqual(store.getState().ui.live.surfaceVisibility, { [surfaceId]: false });
+  assert.deepEqual(store.getState().ui.live.transitionCoordinator, transitionBefore);
   assert.equal(event.reason, "live:target-reset");
   assert.deepEqual(event.effects.preview, { mode: "live-program" });
   assert.deepEqual(event.effects.control, {
     regions: ["project-rail", "inspector"],
     preview: "render",
   });
+});
+
+test("global Live parameter reset preserves mounted Sources and Surface routing", () => {
+  const { state, source, firstScene, secondScene, mapping } = liveSceneMappingFixture();
+  const surface = mapping.surfaces[0];
+  state.ui.live.selectedSceneId = secondScene.id;
+  state.ui.live.selectedComponentId = source.id;
+  state.ui.live.overallSourceCleared = false;
+  state.ui.live.sceneMappingVisible = false;
+  state.ui.live.previewSurfaceId = surface.id;
+  state.ui.live.surfacePatches = {
+    [surface.id]: source.id,
+  };
+  state.ui.live.surfaceVisibility = {
+    [surface.id]: false,
+  };
+  state.ui.live.parameterDiffs = {
+    [secondScene.id]: { [source.id]: { opacity: 0.35 } },
+  };
+  state.ui.live.transitionCoordinator = {
+    overall: { active: { id: "mounted-transition", durationMs: 5000, startedAtMs: Date.now() } },
+  };
+  const store = createGraphAppState(state);
+  const transitionBefore = store.getState().ui.live.transitionCoordinator;
+
+  store.resetLiveParameters();
+
+  const live = store.getState().ui.live;
+  assert.deepEqual(live.parameterDiffs, {});
+  assert.equal(live.selectedSceneId, secondScene.id);
+  assert.equal(live.selectedComponentId, source.id);
+  assert.equal(live.sceneMappingVisible, false);
+  assert.equal(live.previewSurfaceId, surface.id);
+  assert.deepEqual(live.surfacePatches, {
+    [surface.id]: source.id,
+  });
+  assert.deepEqual(live.surfaceVisibility, {
+    [surface.id]: false,
+  });
+  assert.deepEqual(live.transitionCoordinator, transitionBefore);
 });
 
 test("persistent component edits update matching active Live params and retain unrelated diffs", () => {
@@ -1927,6 +2004,72 @@ test("Component and Canvas workspaces remember their own selected component", ()
     component: secondComponent.id,
     scene: secondCanvas.id,
   });
+});
+
+test("Components and Scenes remember their own selected element across navigation", () => {
+  const state = createInitialState();
+  const firstComponent = createDefaultComponent(0);
+  firstComponent.id = "component-element-first";
+  firstComponent.chain.push(createComponentEffect("invert"));
+  const secondComponent = createDefaultComponent(1);
+  secondComponent.id = "component-element-second";
+  secondComponent.chain.push(createComponentEffect("pixelate"));
+  const firstScene = createSceneComponent(0, firstComponent.id);
+  firstScene.id = "scene-element-first";
+  firstScene.chain.push(createComponentEffect("invert"));
+  const secondScene = createSceneComponent(1, secondComponent.id);
+  secondScene.id = "scene-element-second";
+  secondScene.chain.push(createComponentEffect("pixelate"));
+  state.components = [firstComponent, secondComponent, firstScene, secondScene];
+  state.ui.workspace = "component";
+  state.ui.selectedComponentId = firstComponent.id;
+  state.ui.selectedChainItemId = firstComponent.chain[0].id;
+  state.ui.selectedChainItemIds = {};
+  state.ui.workspaceSelectionIds = { component: firstComponent.id, scene: firstScene.id };
+  const store = createGraphAppState(state);
+
+  store.selectChainItem(firstComponent.chain[1].id);
+  store.selectComponent(secondComponent.id);
+  store.selectChainItem(secondComponent.chain[1].id);
+  store.selectComponent(firstComponent.id);
+  assert.equal(store.getState().ui.selectedChainItemId, firstComponent.chain[1].id);
+
+  store.setWorkspace("scene");
+  store.selectChainItem(firstScene.chain[1].id);
+  store.selectComponent(secondScene.id);
+  store.selectChainItem(secondScene.chain[1].id);
+  store.selectComponent(firstScene.id);
+  assert.equal(store.getState().ui.selectedChainItemId, firstScene.chain[1].id);
+
+  store.setWorkspace("component");
+  assert.equal(store.getState().ui.selectedComponentId, firstComponent.id);
+  assert.equal(store.getState().ui.selectedChainItemId, firstComponent.chain[1].id);
+  store.setWorkspace("mapping");
+  store.setWorkspace("scene");
+  assert.equal(store.getState().ui.selectedComponentId, firstScene.id);
+  assert.equal(store.getState().ui.selectedChainItemId, firstScene.chain[1].id);
+  assert.deepEqual(store.getState().ui.selectedChainItemIds, {
+    [firstComponent.id]: firstComponent.chain[1].id,
+    [secondComponent.id]: secondComponent.chain[1].id,
+    [firstScene.id]: firstScene.chain[1].id,
+    [secondScene.id]: secondScene.chain[1].id,
+  });
+});
+
+test("a graph-authoritative project restores its selected element after a clean reload", () => {
+  const store = createGraphAppState(createInitialState());
+  const componentId = store.getState().components[0].id;
+  store.setWorkspace("component");
+  store.addChainEffect(componentId, "invert");
+  const selectedItemId = store.getState().ui.selectedChainItemId;
+  const payload = buildProjectPayload(store.getState());
+  payload.ui.workspace = "component";
+
+  const restored = createGraphAppState(payload).getState();
+
+  assert.equal(restored.ui.selectedComponentId, componentId);
+  assert.equal(restored.ui.selectedChainItemId, selectedItemId);
+  assert.equal(restored.ui.selectedChainItemIds[componentId], selectedItemId);
 });
 
 test("project restore selects the remembered Scene before the first Scene preview", () => {

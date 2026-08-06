@@ -216,8 +216,9 @@ Hard invariants:
    authority. Independent cached nodes never alias mutable attachments.
 10. **Preview and Output share render semantics.** They use the same demand,
     ROI, fit, readiness, transition, projection, and resource rules. Preview
-    zoom/pan changes presentation navigation only; it must not rewrite authored
-    parameters, recompile, or become render demand.
+    zoom/pan changes transient presentation navigation only; it is not project
+    state, resets to the centered World view on project load, and must not
+    rewrite authored parameters, recompile, or become render demand.
 
 Every visual operation declares its ROI mode, halo, coordinate space, mapping,
 local/global dependency, dirty policy, and interaction region. Full-frame or

@@ -2,7 +2,7 @@ import { clone, createSceneComponent, createMappingSurface, uid } from "./models
 import { componentFrameMetrics } from "./component-frame.js";
 import { sceneLogicalSize } from "./render-settings.js";
 import { initializeLiveChainInsertion } from "./scene-routing.js";
-import { applyEditorSelection } from "./editor-selection.js";
+import { applyArtifactElementSelection, applyEditorSelection } from "./editor-selection.js";
 import { componentLayerProjection } from "./component-layer-projection.js";
 import {
   applyComponentGraphCommand,
@@ -78,7 +78,7 @@ export function copyComponentAsScene(draft = {}, componentId = "") {
   draft.components.push(copy);
   draft.ui ||= {};
   draft.ui.selectedComponentId = copy.id;
-  applyEditorSelection(draft.ui, "element", copy.chain[0]?.id || "");
+  applyArtifactElementSelection(draft.ui, copy.id, copy.chain[0]?.id || "");
   draft.ui.workspaceSelectionIds ||= { component: "", scene: "" };
   draft.ui.workspaceSelectionIds.scene = copy.id;
   return { converted: true, kind: "scene", id: copy.id };
@@ -119,7 +119,7 @@ function pasteComponent(draft, source, target) {
   draft.components ||= [];
   draft.components.push(copy);
   draft.ui.selectedComponentId = copy.id;
-  applyEditorSelection(draft.ui, "element", copy.chain?.[0]?.id || "");
+  applyArtifactElementSelection(draft.ui, copy.id, copy.chain?.[0]?.id || "");
   draft.ui.workspaceSelectionIds ||= { component: "", scene: "" };
   draft.ui.workspaceSelectionIds[copy.type === "scene" ? "scene" : "component"] = copy.id;
   return { pasted: true, kind: "component", id: copy.id };
@@ -201,7 +201,7 @@ function insertIntoTarget(draft, target, item) {
   });
   if (!result.changed) return { pasted: false, reason: "missing-target" };
   draft.ui.selectedComponentId = component.id;
-  applyEditorSelection(draft.ui, "element", item.id);
+  applyArtifactElementSelection(draft.ui, component.id, item.id);
   return { pasted: true, kind: "chain-item", id: item.id };
 }
 
