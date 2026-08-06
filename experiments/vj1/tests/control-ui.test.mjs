@@ -16,7 +16,7 @@ import {
 import { normalizeSettingsTab, settingsUiModel } from "../js/control/settings-view.js";
 import { createInitialState, createSceneComponent } from "../js/domain/models.js";
 import { componentCatalogListItems, liveProjectionListModel } from "../js/control/project-rail-view.js";
-import { previewFitSignature, previewRasterDensity, retimeEmbeddedLiveTransition, shouldPrepareEmbeddedLiveState } from "../js/output/embedded-preview-app.js";
+import { hasActiveRendererTransition, previewFitSignature, previewModeChangeActivation, previewRasterDensity, retimeEmbeddedLiveTransition, shouldPrepareEmbeddedLiveState } from "../js/output/embedded-preview-app.js";
 import { boundaryFromScaleInput, createInputController, isBoundaryScaleInput, isfEventTarget } from "../js/control/input-controller.js";
 import { activeRenderCost, activeWorkMetric, artifactInspectorScope, createLiveTransitionExpiryScheduler, mergeControlRenderRequests, performanceHealthStep } from "../js/control/control-shell-controller.js";
 import { sourceForCatalogMedia } from "../js/control/modal-controller.js";
@@ -1479,6 +1479,20 @@ test("embedded preview retargets resize observation after workspace DOM replacem
   assert.ok(controllerSource.includes("scheduleRenderNow(state, { force: true, reason, change });"));
 });
 
+test("workspace preview mode changes retain compiled programs and target only destination topology", () => {
+  assert.equal(previewModeChangeActivation("live", "component", "ui"), "ui");
+  assert.equal(previewModeChangeActivation("component", "live", "ui"), "projection");
+  assert.equal(previewModeChangeActivation("component", "preview", "ui"), "mapping");
+  assert.equal(previewModeChangeActivation("live", "component", "full"), "full");
+  assert.equal(previewModeChangeActivation("component", "component", "ui"), "ui");
+
+  const source = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+  assert.match(
+    source,
+    /const resolvedActivation = previewModeChangeActivation\(pendingMode, mode, activation\)[\s\S]*?resizeToStage\(\{[\s\S]*?activation: resolvedActivation[\s\S]*?activateRendererState\(previewSizedState\(\), resolvedActivation\)/,
+  );
+});
+
 test("workspace navigation leaves complete shell work outside the click handler", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const appStateSource = readFileSync(new URL("../js/app-state.js", import.meta.url), "utf8");
@@ -1594,6 +1608,19 @@ test("thumbnail preview keeps the shared renderer cadence independent from its d
 
   assert.match(previewSource, /function applyPreviewFrameRate\(\)[\s\S]*?thumbnailPreview: false/);
   assert.doesNotMatch(previewSource, /thumbnailPreview: pendingState\?\.ui\?\.debugPreview === false/);
+});
+
+test("Preview GPU phase alignment follows Output cadence rather than its throttled duplicate cadence", () => {
+  const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+  const frameRatePolicy = previewSource.slice(
+    previewSource.indexOf("function applyPreviewFrameRate()"),
+    previewSource.indexOf("function schedulePreviewPhaseShift", previewSource.indexOf("function applyPreviewFrameRate()")),
+  );
+
+  assert.match(frameRatePolicy, /const outputFrameRate = renderMaxFrameRate\(pendingState\?\.render\)/);
+  assert.match(frameRatePolicy, /frameRate: outputFrameRate/);
+  assert.match(frameRatePolicy, /schedulePreviewPhaseShift\(outputFrameRate\)/);
+  assert.doesNotMatch(frameRatePolicy, /schedulePreviewPhaseShift\(target\)/);
 });
 
 test("ordinary UI interactions do not wait through a fixed post-click quiet period", () => {
@@ -2108,6 +2135,15 @@ test("embedded Live preview arms timed transitions while keeping cuts immediate"
   assert.equal(shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, workspace: "scene" } }, current), false);
   assert.equal(shouldPrepareEmbeddedLiveState({ ...incoming, liveTransition: undefined }, current), false);
   assert.equal(shouldPrepareEmbeddedLiveState(incoming, { ...current, liveTransition: incoming.liveTransition }), false);
+  assert.equal(hasActiveRendererTransition({
+    surfaceRuntime: { hasActiveTransitions: () => true },
+  }), true);
+  assert.equal(hasActiveRendererTransition({
+    surfaceRuntime: { hasActiveTransitions: () => false },
+  }), false);
+  const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+  assert.match(previewSource, /if \(hasActiveRendererTransition\(renderer\)\) return false/);
+  assert.match(previewSource, /commandedTransition\.id[\s\S]*?activeRetimedTransition\.id/);
   const retimed = retimeEmbeddedLiveTransition(incoming, 2500);
   assert.equal(retimed.liveTransition.startedAtMs, 2500);
   assert.equal(incoming.liveTransition.startedAtMs, 100, "preparation must not mutate commanded state");
@@ -2270,7 +2306,7 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(inputSource.includes('nodeId = String(target.nodeId || "")'));
   assert.ok(previewSource.includes("pendingState?.ui?.outputWindowOpen"));
   assert.ok(!previewSource.includes('outputWindowOpen && pendingState?.ui?.workspace !== "live"'));
-  assert.ok(previewSource.includes('renderer.setState(previewSizedState(), { normalized: true });'));
+  assert.ok(previewSource.includes('activateRendererState(previewSizedState(), resolvedActivation)'));
   assert.ok(previewSource.includes('renderer.setUiState(nextState, { normalized: true })'));
   assert.ok(previewSource.includes('renderer.setMappingState(nextState, { normalized: true })'));
   assert.ok(previewSource.includes('renderer.setProjectionState(nextState, { normalized: true })'));

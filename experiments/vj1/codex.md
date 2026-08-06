@@ -268,6 +268,10 @@ standby roles and releases only the obsolete executable branch; the Surface A/B
 targets and transition kernel stay mounted for reuse. Static endpoint results
 are keyed by semantic state rather than A/B role. Preview and standalone Output
 use this same preparation, activation, and compositor lifecycle.
+If another command arrives during a blend, latest-wins preparation may replace
+the queued target, but activation waits for the current incoming slot to be
+promoted. The next command then arms the opposite slot from the actually
+presented endpoint; it never replaces the active transition's incoming slot.
 
 The destination-scoped transition coordinator owns effect parameters, target
 routing, requested duration, and latest-wins pending commands. Renderer-local
@@ -412,6 +416,13 @@ not separate rendering implementations. Their shared host lifecycle owns setup
 claiming, resize observation, deferred resize delivery, and disposal. A host may
 add transport or editor interaction, but wake/suspend, readiness, patch,
 transition, projection, and rendering semantics stay in shared runtimes.
+When standalone Output is open, embedded Preview may run at a lower cadence but
+its GPU phase offset is calculated from Output's presentation cadence. The two
+hosts must not submit in the same phase merely because Preview is throttled to
+an integer divisor of Output's frame rate.
+Model import prepares and project-caches the direct surface payload for every
+selectable LOD in its worker. Geometry Detail or ROI selection must never move
+mesh expansion back onto Preview or Output's first presentation frame.
 
 Preview activation is scoped. Navigation retains programs; structural changes
 recompile only reachable ownership scopes; parameters, transforms, boundaries,

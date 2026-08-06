@@ -17,7 +17,7 @@ self.onmessage = async (event) => {
       resolution: "automatic",
       levels,
     })).mesh;
-    prepareHighestDetailSurface(mesh);
+    prepareLodSurfaces(mesh);
     text = null;
     const transfer = transferableMeshArrays(mesh);
     self.postMessage({ requestId, mesh }, transfer);
@@ -36,15 +36,18 @@ function transferableMeshArrays(mesh) {
   return Array.from(buffers);
 }
 
-function prepareHighestDetailSurface(mesh) {
-  // Geometry Detail selects progressively smaller retained LODs. Only the
-  // highest one creates a material first-frame risk large enough to disturb a
-  // transition, so prepare that interleaved GPU payload off the presentation
-  // thread without multiplying every cached LOD's memory footprint.
-  const lod = mesh?.lods?.[0] || mesh;
-  if (!lod) return;
-  lod.surfaceVertices = buildParsedModelSurfaceVertices(lod);
-  if (mesh !== lod && mesh?.positions === lod.positions) {
-    mesh.surfaceVertices = lod.surfaceVertices;
+function prepareLodSurfaces(mesh) {
+  // Geometry Detail and requested raster size may select any retained LOD.
+  // Every selectable surface payload must therefore be expanded in the worker;
+  // preparing only LOD 0 merely moved the long task to the first presentation
+  // frame whenever the authored detail selected another level.
+  const lods = mesh?.lods?.length ? mesh.lods : [mesh];
+  for (const lod of lods) {
+    if (!lod) continue;
+    lod.surfaceVertices = buildParsedModelSurfaceVertices(lod);
+  }
+  const first = lods[0];
+  if (mesh !== first && mesh?.positions === first?.positions) {
+    mesh.surfaceVertices = first.surfaceVertices;
   }
 }

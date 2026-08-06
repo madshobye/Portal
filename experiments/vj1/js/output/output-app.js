@@ -471,7 +471,10 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       return true;
     }
     if (status.blocked) return false;
-    if (hasActiveLiveTransition(acceptedState)) return false;
+    // Control's descriptor can expire before this host-local blend because
+    // preparation retimes each renderer independently. Slot ownership follows
+    // the renderer lane, never the older transport clock.
+    if (renderer.surfaceRuntime.hasActiveTransitions()) return false;
     // Readiness delays activation of the already-compiled Live program. It
     // does not own a second transition scheduler or reconstruct an endpoint
     // from mutable renderer state. Preview and Output therefore consume the
@@ -607,13 +610,16 @@ export function outputSceneId(state) {
 
 export function shouldPrepareLiveSceneState(nextState, currentState, mode = "output") {
   if (mode !== "output" || !nextState || !currentState) return false;
-  const nextSceneId = outputSceneId(nextState);
-  const currentSceneId = outputSceneId(currentState);
-  const transitionDurationMs = Math.max(0, Number(nextState.liveTransition?.durationMs) || 0);
+  const transition = nextState.liveTransition || nextState.liveTransitions?.[0];
+  const currentTransition = currentState.liveTransition || currentState.liveTransitions?.[0];
+  const transitionDurationMs = Math.max(0, Number(transition?.durationMs) || 0);
   // A cut is immediate user truth. Media readiness may make the target render
-  // black/loading, but it must not leave a different Scene on air. Only a
-  // genuine timed transition retains the previous Scene while preparing.
-  return transitionDurationMs > 0 && !!nextSceneId && !!currentSceneId && nextSceneId !== currentSceneId;
+  // black/loading, but it must not leave a different target on air. Every new
+  // timed command owns an A/B promotion boundary, including Component changes
+  // inside one Scene. Scene identity cannot decide slot ownership.
+  return transitionDurationMs > 0
+    && !!transition?.id
+    && String(transition.id) !== String(currentTransition?.id || "");
 }
 
 export function retimePreparedSceneTransition(state, startedAtMs = Date.now() + 50) {

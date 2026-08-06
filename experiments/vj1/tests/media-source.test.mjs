@@ -1498,6 +1498,20 @@ test("output defers a requested Live Scene and starts its transition at activati
   assert.equal(shouldPrepareLiveSceneState(requested, current, "output"), true);
   assert.equal(shouldPrepareLiveSceneState(requested, current, "preview"), false);
   assert.equal(shouldPrepareLiveSceneState(current, current, "output"), false);
+  const sameSceneCurrent = {
+    ...current,
+    liveTransition: { id: "transition-a", startedAtMs: 10, durationMs: 1000 },
+  };
+  const sameSceneNext = {
+    ...sameSceneCurrent,
+    liveTransition: { id: "transition-b", startedAtMs: 20, durationMs: 1000 },
+  };
+  assert.equal(
+    shouldPrepareLiveSceneState(sameSceneNext, sameSceneCurrent, "output"),
+    true,
+    "a new Component transition inside one Scene must arm the opposite slot",
+  );
+  assert.equal(shouldPrepareLiveSceneState(sameSceneCurrent, sameSceneCurrent, "output"), false);
   const activated = retimePreparedSceneTransition(requested, 5000);
   assert.equal(activated.liveTransition.startedAtMs, 5000);
   assert.equal(requested.liveTransition.startedAtMs, 10);

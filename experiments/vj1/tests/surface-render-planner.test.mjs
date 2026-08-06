@@ -792,7 +792,10 @@ test("surface runtime resumes an already-running restored transition clock", () 
   const runtime = new OutputSurfaceRuntime(renderer);
 
   assert.equal(runtime.currentLiveTransition(1500).progress, 0.25);
+  assert.equal(runtime.currentLiveTransition(1500).restoredWithoutBranch, true);
+  assert.equal(runtime.hasActiveTransitions(1500), true);
   assert.equal(runtime.currentLiveTransition(3000), null);
+  assert.equal(runtime.hasActiveTransitions(3000), false);
 });
 
 test("surface runtime transfers the exact presented program branch into a transition", () => {

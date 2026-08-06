@@ -181,6 +181,10 @@ export class OutputSurfaceRuntime {
     return this.currentLiveTransitions(nowMs)[0] || null;
   }
 
+  hasActiveTransitions(nowMs = Date.now()) {
+    return this.currentLiveTransitions(nowMs).length > 0;
+  }
+
   currentLiveTransitions(nowMs = Date.now()) {
     const state = this.renderer.state || {};
     const candidates = Array.isArray(state.liveTransitions) && state.liveTransitions.length
@@ -199,6 +203,11 @@ export class OutputSurfaceRuntime {
         descriptor: transition,
         armed: true,
         startedAtMs: Number(transition.startedAtMs) || Number(nowMs),
+        // This host opened or recovered after Control scheduled the blend. It
+        // has the incoming snapshot and clock, but no historical executable
+        // branch. That recovery boundary is an expected cut, not an invariant
+        // failure in a locally armed transition.
+        restoredWithoutBranch: !this.transitionBranches.has(id),
       });
     }
     const transitions = [];
@@ -223,6 +232,7 @@ export class OutputSurfaceRuntime {
       transitions.push({
         ...transition,
         ...resolved,
+        restoredWithoutBranch: lane.restoredWithoutBranch === true,
         startedAtMs: lane.startedAtMs,
         progress,
         arming: !lane.armed,
@@ -261,7 +271,9 @@ export class OutputSurfaceRuntime {
     const renderer = this.renderer;
     const targetState = renderer.state;
     if (renderer.readinessRuntime.isBlackout()) return;
-    const outgoingBranch = this.retainedTransitionBranch(transition);
+    const outgoingBranch = this.retainedTransitionBranch(transition, {
+      diagnose: transition.restoredWithoutBranch !== true,
+    });
     if (!outgoingBranch) return this.renderMappingSurfaces();
     renderer.profileRuntime.recordTransitionBoundary(renderer, transition, outgoingBranch);
     const retainedSurfaceIds = new Set(transition.retainedSurfaceIds || []);
@@ -606,12 +618,12 @@ export class OutputSurfaceRuntime {
     this.activeTransitionResourceSignature = signature;
   }
 
-  retainedTransitionBranch(transition = {}) {
+  retainedTransitionBranch(transition = {}, { diagnose = true } = {}) {
     const id = String(transition?.id || "");
     if (!id) return null;
     const current = this.transitionBranches.get(id);
     if (current) return current;
-    if (!this.missingTransitionBranchDiagnostics.has(id)) {
+    if (diagnose && !this.missingTransitionBranchDiagnostics.has(id)) {
       this.missingTransitionBranchDiagnostics.add(id);
       console.error("[VJ1_TRANSITION_BRANCH_MISSING]", {
         transitionId: id,

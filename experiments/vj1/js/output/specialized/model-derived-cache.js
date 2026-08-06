@@ -2,10 +2,10 @@ import { loadProjectDirectoryHandle } from "../../services/directory-handle-stor
 
 const CACHE_ROOT = "vj1-cache";
 const CACHE_DIRECTORY = "models";
-// The format includes the automatic LOD policy. V6 also retains the worker-
-// prepared highest-detail surface payload, so an old cache cannot defer that
-// expansion to the first presentation frame.
-const CACHE_FORMAT = "meshopt-0.25-qem-v6-surface";
+// The format includes the automatic LOD policy. V7 retains the worker-prepared
+// surface payload for every selectable LOD, so Geometry Detail and ROI changes
+// cannot defer a different LOD's expansion to a presentation frame.
+const CACHE_FORMAT = "meshopt-0.25-qem-v7-all-surfaces";
 const MAGIC = new Uint8Array([86, 74, 49, 77, 79, 68, 76, 49]); // VJ1MODL1
 const HEADER_OFFSET = 12;
 

@@ -37,6 +37,13 @@ test("routine model cache and LOD success paths stay quiet", () => {
   assert.match(source, /VJ1_MODEL_SIMPLIFICATION_LIMITED/);
 });
 
+test("model worker prepares the direct surface payload for every selectable LOD", () => {
+  const source = readFileSync(new URL("../js/output/specialized/model-processing-worker.js", import.meta.url), "utf8");
+  assert.match(source, /for \(const lod of lods\)/);
+  assert.match(source, /lod\.surfaceVertices = buildParsedModelSurfaceVertices\(lod\)/);
+  assert.doesNotMatch(source, /prepareHighestDetailSurface/);
+});
+
 test("slow model processing warns without cancelling the requested import", () => {
   const source = readFileSync(new URL("../js/output/specialized/model-processing-client.js", import.meta.url), "utf8");
   const slowHandler = source.slice(
@@ -225,7 +232,9 @@ f 1 2 3 4
 test("derived model cache round-trips progressive LOD geometry and rejects another source", () => {
   const source = subdividedCubeMesh(12);
   const mesh = buildAutomaticModelLods(source, [1200, 600, 300]);
-  mesh.lods[0].surfaceVertices = buildParsedModelSurfaceVertices(mesh.lods[0]);
+  for (const lod of mesh.lods) {
+    lod.surfaceVertices = buildParsedModelSurfaceVertices(lod);
+  }
   const cacheKey = modelDerivedCacheKey({ type: "stl", sourceKey: "media/skull.stl:revision-a" });
   const payload = serializeDerivedModel(mesh, cacheKey);
   const restored = deserializeDerivedModel(payload, cacheKey);
@@ -233,8 +242,10 @@ test("derived model cache round-trips progressive LOD geometry and rejects anoth
   assert.deepEqual(restored.lods.map(modelTriangleCount), mesh.lods.map(modelTriangleCount));
   assert.equal(restored.sourceTriangleCount, mesh.sourceTriangleCount);
   assert.ok(restored.lods.every((lod) => lod.derivedCache === true));
-  assert.deepEqual(restored.lods[0].surfaceVertices, mesh.lods[0].surfaceVertices);
-  assert.equal(restored.lods[1].surfaceVertices, undefined, "only the expensive highest-detail payload is retained");
+  assert.ok(restored.lods.every((lod) => lod.surfaceVertices instanceof Float32Array));
+  for (let index = 0; index < mesh.lods.length; index++) {
+    assert.deepEqual(restored.lods[index].surfaceVertices, mesh.lods[index].surfaceVertices);
+  }
   assert.deepEqual(Array.from(restored.lods.at(-1).positions.slice(0, 18)), Array.from(mesh.lods.at(-1).positions.slice(0, 18)));
   assert.throws(() => deserializeDerivedModel(payload, `${cacheKey}:other-source`), /does not match/);
 });

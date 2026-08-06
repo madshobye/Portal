@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { OutputRenderer } from "./output-renderer.js";
-import { MAX_PIXEL_DENSITY, normalizePixelDensity, renderPresentationFrameRate } from "../domain/render-settings.js";
+import { MAX_PIXEL_DENSITY, normalizePixelDensity, renderMaxFrameRate, renderPresentationFrameRate } from "../domain/render-settings.js";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js";
 import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvasLogicalSize, previewViewportForUi, resolveViewportForFit } from "./preview-viewport.js";
@@ -99,6 +99,7 @@ export function createEmbeddedPreviewApp({
       stage === nextStage &&
       hud === nextHud;
     const modeChanged = !!renderer && pendingMode !== mode;
+    const resolvedActivation = previewModeChangeActivation(pendingMode, mode, activation);
     const stageChanged = !!canvas && stage !== nextStage;
     if (sameMount && !modeChanged && !stageChanged) {
       setState(state, mode, { activation });
@@ -122,8 +123,11 @@ export function createEmbeddedPreviewApp({
       renderer.mode = pendingMode;
       renderer.hud = hud;
       if (needsSettledReveal) hideCanvasUntilSettledDraw();
-      const resized = resizeToStage({ forceFit: modeChanged || stageChanged });
-      if (!resized) renderer.setState(previewSizedState(), { normalized: true });
+      const resized = resizeToStage({
+        forceFit: modeChanged || stageChanged,
+        activation: resolvedActivation,
+      });
+      if (!resized) activateRendererState(previewSizedState(), resolvedActivation);
       importMediaFilesIfChanged();
       renderer.mappingRuntime.setCalibrate(pendingMode === "preview" && pendingState.global.calibrating);
       scheduleSettledResize({ revealAfterDraw: needsSettledReveal });
@@ -666,10 +670,15 @@ export function createEmbeddedPreviewApp({
       appliedFrameRate = target;
     }
     const outputWindowOpen = !!pendingState?.ui?.outputWindowOpen;
+    const outputFrameRate = renderMaxFrameRate(pendingState?.render);
     const shouldRealign = previewPhaseNeedsRealignment({
       outputWindowOpen,
       wasOutputWindowOpen: outputPhaseOpen,
-      frameRate: target,
+      // Alignment is relative to presentation truth, not the throttled
+      // duplicate Preview. At Output 60 / Preview 30, using 30 here delays by
+      // 16.7 ms—one complete Output frame—and puts both GPU submissions back
+      // into the same phase. The correct opposite phase is 8.3 ms.
+      frameRate: outputFrameRate,
       alignedFrameRate,
     });
     outputPhaseOpen = outputWindowOpen;
@@ -679,8 +688,8 @@ export function createEmbeddedPreviewApp({
       return;
     }
     if (!shouldRealign) return;
-    alignedFrameRate = target;
-    schedulePreviewPhaseShift(target);
+    alignedFrameRate = outputFrameRate;
+    schedulePreviewPhaseShift(outputFrameRate);
   }
 
   function schedulePreviewPhaseShift(targetFrameRate) {
@@ -730,6 +739,10 @@ export function createEmbeddedPreviewApp({
       return false;
     }
     if (status.blocked) return false;
+    // The current incoming slot must be promoted before the next command can
+    // arm the opposite slot. Replacing renderer.state here would make the new
+    // target occupy the still-active `to` branch and appear as a cut.
+    if (hasActiveRendererTransition(renderer)) return false;
     const state = retimeEmbeddedLiveTransition(preparedLiveState);
     activeRetimedTransition = state.liveTransition || null;
     activeRetimedTransitionSceneId = activeRetimedTransition ? previewSceneId(state) : "";
@@ -751,6 +764,13 @@ export function createEmbeddedPreviewApp({
 
   function preserveActiveRetimedTransition(state) {
     if (!activeRetimedTransition) return state;
+    const commandedTransition = state?.liveTransition || state?.liveTransitions?.[0];
+    if (commandedTransition?.id
+      && String(commandedTransition.id) !== String(activeRetimedTransition.id)) {
+      // A distinct command belongs in the standby queue. Never rewrite it to
+      // the locally retimed descriptor that is currently completing.
+      return state;
+    }
     const sameScene = previewSceneId(state) === activeRetimedTransitionSceneId;
     const endsAt = Number(activeRetimedTransition.startedAtMs) + Number(activeRetimedTransition.durationMs);
     if (!sameScene || !Number.isFinite(endsAt) || Date.now() >= endsAt) {
@@ -1040,6 +1060,20 @@ export function shouldPrepareEmbeddedLiveState(nextState, currentState) {
   return durationMs > 0
     && !!transition?.id
     && String(transition.id) !== String(currentTransition?.id || "");
+}
+
+export function hasActiveRendererTransition(renderer = null) {
+  return renderer?.surfaceRuntime?.hasActiveTransitions?.() === true;
+}
+
+// Workspace navigation changes presentation reachability, not authored visual
+// topology. Keep already-compiled Component programs when crossing preview
+// modes and rebuild only the program family the destination actually owns.
+export function previewModeChangeActivation(previousMode = "", nextMode = "", activation = "full") {
+  if (previousMode === nextMode || activation !== "ui") return activation;
+  if (nextMode === "live") return "projection";
+  if (nextMode === "preview") return "mapping";
+  return "ui";
 }
 
 export function retimeEmbeddedLiveTransition(state, startedAtMs = Date.now() + 50) {
