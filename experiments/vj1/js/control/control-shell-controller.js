@@ -450,8 +450,10 @@ export function createControlShell({
         renderTopbar(state);
         // Mapping drags originate in the embedded mapper, so its scrub echo
         // must not be fed back as a complete preview state on every pointer
-        // sample. The final commit still reconciles programmatic/reset edits.
-        if (change.command.phase !== "scrub") renderPreview(state, { reason, change });
+        // sample. The final commit reconciles only retained Mapping state; the
+        // Preview DOM and tools are already mounted and must not be rebuilt for
+        // projection fit, visibility, calibration, or reset changes.
+        if (change.command.phase !== "scrub") updatePreviewState(state, "mapping");
         return;
       }
       if (change.effects.preview.mode === "metrics") {

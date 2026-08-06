@@ -253,6 +253,9 @@ Direct outputs use persisted `destination.parentSurfaceId`. Explicit parent
 mounts suppress unpatched descendants; explicit descendants override their
 parent; parent backplanes render first. Missing parents, duplicates,
 self-parenting, and cycles fail explicitly.
+Transition route sets may omit a transparent parent draw, but their temporary
+ordering program retains the parent's structural ancestor closure. This does
+not weaken hierarchy validation or invent a drawable route for that parent.
 
 Each Surface transition is a retained two-slot compositor. The active slot
 continues executing live while the inactive slot is armed with the incoming
@@ -430,6 +433,10 @@ animation fields, and Live overrides cross as compact retained patches. A patch
 accepted by Preview remains authoritative through pointer release and deferred
 DOM reconciliation. Direct manipulation may keep an optimistic local overlay
 only for its active pointer transaction.
+Entering Mapping or Live uses projection activation because either destination
+can make runtime-only Component roots newly reachable; subsequent Mapping edits
+use Mapping-only activation, retain the already materialized programs, and
+update the mounted Preview without rebuilding its Control DOM or tools.
 
 Render patches have one stable address: target kind, Component ID, optional
 graph node ID, and a path relative to that node's configuration. Compound UI

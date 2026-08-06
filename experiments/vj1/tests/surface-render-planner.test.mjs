@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { createInitialState } from "../js/domain/models.js";
-import { orderedSurfaceProgram, planSurfaceRoutes } from "../js/output/surface-render-planner.js";
+import { orderedSurfaceProgram, planSurfaceRoutes, surfaceProgramWithDirectAncestors } from "../js/output/surface-render-planner.js";
 import { unifyTransitionComponentRenderRequests } from "../js/output/component-render-layout.js";
 import {
   OutputSurfaceRuntime,
@@ -676,9 +676,28 @@ test("invalid direct Surface parent edges fail explicitly", () => {
 });
 
 test("transition compositor uses the same direct-backplane ordering", () => {
+  const directAll = {
+    id: "surface-direct-all",
+    destination: { type: "direct", outputIds: ["main"], parentSurfaceId: "" },
+  };
+  const directMain = {
+    id: "surface-direct-output-main",
+    destination: { type: "direct", outputIds: ["main"], parentSurfaceId: directAll.id },
+  };
+  const mapped = { id: "mapped", destination: { type: "mapped" } };
+  const transitional = surfaceProgramWithDirectAncestors(
+    [directMain, mapped],
+    [directAll, directMain, mapped],
+  );
+  assert.deepEqual(
+    orderedSurfaceProgram(transitional).map((surface) => surface.id),
+    [directAll.id, directMain.id, mapped.id],
+  );
+
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   assert.ok(runtimeSource.includes("for (const route of [...toRoutes, ...fromRoutes])"));
-  assert.ok(runtimeSource.includes("orderedSurfaceProgram(transitionSurfaces).map((surface) => surface.id)"));
+  assert.ok(runtimeSource.includes("surfaceProgramWithDirectAncestors("));
+  assert.ok(runtimeSource.includes("orderedSurfaceProgram(transitionOrderingProgram).map((surface) => surface.id)"));
 });
 
 test("embedded Live outlines the selected projection without exposing Mapping handles", () => {

@@ -1072,7 +1072,11 @@ export function hasActiveRendererTransition(renderer = null) {
 export function previewModeChangeActivation(previousMode = "", nextMode = "", activation = "full") {
   if (previousMode === nextMode || activation !== "ui") return activation;
   if (nextMode === "live") return "projection";
-  if (nextMode === "preview") return "mapping";
+  // Entering Mapping makes runtime-only sources such as its test pattern newly
+  // reachable. Projection activation retains existing Component programs,
+  // materializes those destination roots, and then rebuilds Mapping geometry.
+  // Mapping-only activation is reserved for edits after that topology exists.
+  if (nextMode === "preview") return "projection";
   return "ui";
 }
 

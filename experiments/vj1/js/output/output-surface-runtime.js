@@ -26,7 +26,7 @@ import {
   renderTargetImageGeometry,
   withShaderInstancePrefix,
 } from "./render-draw-utils.js";
-import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js";
+import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest, surfaceProgramWithDirectAncestors } from "./surface-render-planner.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
@@ -371,7 +371,11 @@ export class OutputSurfaceRuntime {
       transitionSurfaceIds.add(surfaceId);
       transitionSurfaces.push(route.surface);
     }
-    const surfaceIds = orderedSurfaceProgram(transitionSurfaces).map((surface) => surface.id);
+    const transitionOrderingProgram = surfaceProgramWithDirectAncestors(
+      transitionSurfaces,
+      [...(targetState.surfaces || []), ...(inputState.surfaces || [])],
+    );
+    const surfaceIds = orderedSurfaceProgram(transitionOrderingProgram).map((surface) => surface.id);
     for (const surfaceId of surfaceIds) {
       const fromRoute = fromBySurface.get(surfaceId);
       const toRoute = toBySurface.get(surfaceId);

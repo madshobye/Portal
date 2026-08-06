@@ -1482,7 +1482,8 @@ test("embedded preview retargets resize observation after workspace DOM replacem
 test("workspace preview mode changes retain compiled programs and target only destination topology", () => {
   assert.equal(previewModeChangeActivation("live", "component", "ui"), "ui");
   assert.equal(previewModeChangeActivation("component", "live", "ui"), "projection");
-  assert.equal(previewModeChangeActivation("component", "preview", "ui"), "mapping");
+  assert.equal(previewModeChangeActivation("component", "preview", "ui"), "projection");
+  assert.equal(previewModeChangeActivation("live", "preview", "ui"), "projection");
   assert.equal(previewModeChangeActivation("live", "component", "full"), "full");
   assert.equal(previewModeChangeActivation("component", "component", "ui"), "ui");
 
@@ -2401,7 +2402,7 @@ test("studio scrubs patch previews without replacing their complete state", () =
   assert.ok(controllerSource.includes("const context = deferredRenderContext || {}"));
   assert.ok(controllerSource.includes("if (!context.previewPatched) renderPreview(state, context)"));
   assert.ok(controllerSource.includes('if (change.effects.preview.mode === "mapping")'));
-  assert.ok(controllerSource.includes('if (change.command.phase !== "scrub") renderPreview(state, { reason, change })'));
+  assert.ok(controllerSource.includes('if (change.command.phase !== "scrub") updatePreviewState(state, "mapping")'));
   assert.ok(previewSource.includes("applyLiveRenderPatchesImmutable(pendingState, patches)"));
   assert.ok(previewSource.includes("pendingState = pendingResult.state"));
   assert.ok(previewSource.includes('applyRetainedPreviewPatches(patches, "live")'));

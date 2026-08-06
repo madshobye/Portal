@@ -51,6 +51,36 @@ export function orderedSurfaceProgram(surfaces = []) {
   }).map(({ surface }) => surface);
 }
 
+// A transition orders only routes that actually draw, while direct-output
+// hierarchy also contains structural backplanes that may be transparent on one
+// endpoint. Add just the missing ancestor closure for validation and ordering;
+// callers still draw only surfaces with a from/to route.
+export function surfaceProgramWithDirectAncestors(routeSurfaces = [], availableSurfaces = []) {
+  const program = [];
+  const included = new Set();
+  const availableById = new Map();
+  for (const surface of availableSurfaces || []) {
+    const id = String(surface?.id || "");
+    if (id) availableById.set(id, surface);
+  }
+  const include = (surface) => {
+    const id = String(surface?.id || "");
+    if (!id || included.has(id)) return;
+    included.add(id);
+    program.push(surface);
+  };
+  for (const surface of routeSurfaces || []) include(surface);
+  for (let index = 0; index < program.length; index++) {
+    const surface = program[index];
+    if (surface?.destination?.type !== "direct") continue;
+    const parentId = String(surface.destination?.parentSurfaceId || "");
+    if (!parentId || included.has(parentId)) continue;
+    const parent = availableById.get(parentId);
+    if (parent) include(parent);
+  }
+  return program;
+}
+
 export function stableSurfaceRenderRequest(render = {}, meta = {}) {
   const frame = frameSize(render);
   return createRenderRequest("surface", {
