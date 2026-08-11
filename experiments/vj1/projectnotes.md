@@ -127,7 +127,7 @@ there seems to be a difference in how to grab elements between components and sc
 We need to review the difference between components and scenes. They should foundamentally be the same except the following: surface frame as mapped in scene view and scenes cannot be added to components. We have earlier had the rule that components cannot be added to components however i think that should be possible. here it is of course super relevant to make a solid verification that it is not recursive or at least that if it is recursive it only creates interesting glitches but does not create a stall.
 
 we need to make an animatronics interface where either a hand tracking view computer vision or via a gamepad can be used as a generic animation interface that controls multiple parameters .e.g the eye moving around blinking and looking around and getting smaller and bigger. Think in terms of a hand puppeting. we also need a posenet input. have a look at portal for code pieces for this.
-
+  
 we need to add a pulse sensor over ble to the possible inputs. look at the portal system and see the pulse sensor input system and copy it over and make it a general omponent for animations.
 
 In portal there is a facemesh component look at that and integrate it as a generator. make sure to optimize such that we are using existing generators if it is a 3d object and make sure to render it in a shader and not through p5 line drawings etc. give it similar params as other 3d objects. 
