@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scholar Mapping</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div><p>Research landscape</p><h1>Scholar Mapping</h1></div>
+        </div>
+        <p id="dataset-meta" class="dataset-meta">No dataset loaded</p>
+        <button id="load-button" class="button button-light" type="button">Load JSON</button>
+        <input id="file-input" type="file" accept="application/json,.json" hidden />
+      </header>
+
+      <main id="empty-state" class="empty-state">
+        <div class="drop-card">
+          <p class="eyebrow">Paper · author · topic network</p>
+          <h2>Drop your scholar dataset</h2>
+          <p>Explore one connected research system through clusters, relationships, time, filters, and linked paper details.</p>
+          <button id="empty-load-button" class="button button-primary" type="button">Choose JSON file</button>
+          <p class="privacy-note">The file stays in this browser tab and is never uploaded or saved.</p>
+        </div>
+      </main>
+
+      <main id="workspace" class="workspace" hidden>
+        <section class="toolbar" aria-label="Graph controls">
+          <label class="search-control">
+            <span>Search and filter</span>
+            <input id="search" type="search" placeholder="Paper, author, topic, keyword…" autocomplete="off" />
+          </label>
+          <fieldset class="segmented-control">
+            <legend>Arrangement</legend>
+            <button type="button" data-layout="clusters" class="is-active">Clusters</button>
+            <button type="button" data-layout="bridges">Bridges</button>
+            <button type="button" data-layout="timeline">Timeline</button>
+          </fieldset>
+          <label class="select-control"><span>Circle size</span><select id="size-by">
+            <option value="connections">Connections</option>
+            <option value="recency">Recency</option>
+            <option value="citations">Citations</option>
+            <option value="uniform">Uniform</option>
+          </select></label>
+          <button id="fit-button" class="button button-quiet" type="button">Fit graph</button>
+        </section>
+
+        <section class="explorer">
+          <aside class="filter-panel panel" aria-label="Filters">
+            <div class="panel-heading"><div><p class="eyebrow">Refine</p><h2>Filters</h2></div><button id="clear-filters" class="text-button" type="button">Clear</button></div>
+            <div class="filter-section">
+              <div class="filter-title"><h3>Topics</h3><span id="topic-count"></span></div>
+              <button id="all-topics" class="topic-chip is-active" type="button">All topics</button>
+              <div id="topic-filters" class="topic-filters"></div>
+            </div>
+            <div class="filter-section two-column">
+              <label class="select-control"><span>Record type</span><select id="record-type"><option value="">All types</option></select></label>
+              <label class="select-control"><span>Access</span><select id="access-filter"><option value="">All</option><option value="open">Open access</option></select></label>
+            </div>
+            <div class="filter-section toggles">
+              <label><input id="verified-only" type="checkbox" /> Verified records only</label>
+              <label><input id="hide-single-authors" type="checkbox" checked /> Hide one-paper authors</label>
+            </div>
+            <div class="filter-section node-types">
+              <h3>Node types</h3>
+              <label><input type="checkbox" data-node-type="topic" checked /><span class="legend-dot topic"></span> Topics</label>
+              <label><input type="checkbox" data-node-type="paper" checked /><span class="legend-dot paper"></span> Papers</label>
+              <label><input type="checkbox" data-node-type="author" checked /><span class="legend-dot author"></span> Authors</label>
+            </div>
+          </aside>
+
+          <section class="graph-panel panel" aria-label="Interactive research network">
+            <div class="graph-status">
+              <div><strong id="visible-summary"></strong><span id="layout-description"></span></div>
+              <p>Scroll to zoom · drag to pan · click a node to inspect</p>
+            </div>
+            <svg id="network" viewBox="0 0 1000 700" role="img" aria-label="Network of topics, papers, and authors">
+              <g id="viewport"><g id="links"></g><g id="nodes"></g><g id="labels"></g></g>
+            </svg>
+            <div class="zoom-controls" aria-label="Zoom controls">
+              <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+              <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+            </div>
+            <div id="graph-tooltip" class="graph-tooltip" hidden></div>
+          </section>
+
+          <aside id="details" class="detail-panel panel" aria-live="polite">
+            <div class="detail-empty"><p class="eyebrow">Inspect</p><h2>Select a node</h2><p>Choose any circle to see its papers, authors, topics, metadata, and direct relationships.</p></div>
+          </aside>
+        </section>
+
+        <section class="timeline-panel panel" aria-label="Time filter">
+          <div class="timeline-copy"><p class="eyebrow">Alert timeline</p><strong id="time-label"></strong><span>Drag either handle to filter the entire system.</span></div>
+          <div class="timeline-control">
+            <div id="histogram" class="histogram" aria-hidden="true"></div>
+            <div class="range-stack">
+              <input id="time-start" type="range" min="0" max="1" value="0" aria-label="Timeline start" />
+              <input id="time-end" type="range" min="0" max="1" value="1" aria-label="Timeline end" />
+            </div>
+          </div>
+        </section>
+
+        <section class="results-panel panel">
+          <div class="results-heading"><div><p class="eyebrow">Filtered collection</p><h2 id="result-count">Papers</h2></div><label class="select-control"><span>Sort</span><select id="result-sort"><option value="newest">Newest alert</option><option value="title">Title</option><option value="authors">Most authors</option><option value="topics">Most topics</option></select></label></div>
+          <div id="paper-results" class="paper-results"></div>
+        </section>
+      </main>
+
+      <div id="drop-overlay" class="drop-overlay" hidden><div><p class="eyebrow">JSON dataset</p><strong>Drop to explore</strong></div></div>
+      <div id="error-toast" class="error-toast" hidden></div>
+    </div>
+    <script src="model.js"></script>
+    <script src="app.js"></script>
+    <script src="../../P1/portalLoader.js"></script>
+  </body>
+</html>
