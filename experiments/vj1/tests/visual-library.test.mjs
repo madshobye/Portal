@@ -122,7 +122,7 @@ test("the static built-in catalog is projected into the common visual-library mo
 
 test("the built-in proving set is file-backed ISF with stable node identity and explicit lowering", () => {
   assert.equal(BuiltInIsfRepository.id, BuiltInVisualLibraryLayer.id);
-  assert.equal(BuiltInIsfRepository.records.length, 312);
+  assert.equal(BuiltInIsfRepository.records.length, 313);
   const black = BuiltInIsfRepository.records.find((record) => record.visualId === "black");
   const invert = BuiltInIsfRepository.records.find((record) => record.visualId === "invert");
   const gray = BuiltInIsfRepository.records.find((record) => record.visualId === "gray");
@@ -199,6 +199,28 @@ test("the built-in proving set is file-backed ISF with stable node identity and 
       },
     ],
   );
+});
+
+test("buffered echo is a generic persistent ISF effect with local trigger and stutter controls", () => {
+  const record = BuiltInIsfRepository.records.find(
+    (candidate) => candidate.visualId === "buffered-echo",
+  );
+  const params = new Map(
+    (record?.component?.params || []).map((param) => [param.id, param]),
+  );
+
+  assert.equal(record?.definition.id, "vj1.visual.effect.buffered-echo");
+  assert.equal(record?.component?.fusible, false);
+  assert.equal(record?.component?.isf?.passes.length, 2);
+  assert.equal(record?.component?.isf?.passes[0]?.target, "echoBuffer");
+  assert.equal(record?.component?.isf?.passes[0]?.persistent, true);
+  assert.equal(params.get("captureNow")?.type, "event");
+  assert.equal(params.get("clearBuffer")?.type, "event");
+  assert.equal(params.get("stutterFrames")?.defaultValue, 1);
+  assert.equal(params.get("fadeAmount")?.defaultValue, 0.02);
+  assert.equal(params.get("blendMode")?.defaultValue, "Screen");
+  assert.deepEqual(params.get("blendMode")?.isfValues, [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.match(record?.definition.parts[0].source || "", /captureNow \|\| scheduledCapture/);
 });
 
 test("the curated ISF collection is WebGL2-profiled, attributed, and catalogued by capability", () => {

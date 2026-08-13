@@ -34,9 +34,9 @@ export function chainGeneralControlValue(configuration = {}, parameterId = "") {
     case CHAIN_GENERAL_CONTROL_PATHS.OPACITY:
       return finite(configuration.opacity, 1);
     case CHAIN_GENERAL_CONTROL_PATHS.CONTENT_X:
-      return finite(transform.x, 0);
+      return finite(transform.x, 0.5);
     case CHAIN_GENERAL_CONTROL_PATHS.CONTENT_Y:
-      return finite(transform.y, 0);
+      return finite(transform.y, 0.5);
     case CHAIN_GENERAL_CONTROL_PATHS.CONTENT_SCALE:
       return Math.max(0.000001, finite(transform.scale, 1));
     case CHAIN_GENERAL_CONTROL_PATHS.BOUNDARY_X:

@@ -45,9 +45,11 @@ export function transformedPlacementDemandRect(rect = {}, transform = {}) {
 }
 
 export function normalizePlacedTransform(transform = {}) {
+  const x = Number(transform.x);
+  const y = Number(transform.y);
   return {
-    x: Number(transform.x) || 0,
-    y: Number(transform.y) || 0,
+    x: Math.max(0, Math.min(1, Number.isFinite(x) ? x : 0.5)),
+    y: Math.max(0, Math.min(1, Number.isFinite(y) ? y : 0.5)),
     scale: Math.max(0.0001, Number(transform.scale) || 1),
     rotation: Number(transform.rotation) || 0,
   };

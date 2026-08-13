@@ -1,5 +1,5 @@
 import {
-  applyLiveRenderPatches,
+  applyLiveRenderPatchesImmutable,
   interpolatedLiveRenderValue,
   isInterpolableLiveRenderPath,
   resolveLiveRenderPatches,
@@ -49,9 +49,10 @@ export function renderPatchRejectionDiagnostic(host, patches, result, metadata =
   };
 }
 
-// Owns the transition from authored live patches to already-compiled program
-// configuration. Temporary interpolation is applied only around one render
-// frame and canonical project state is restored immediately afterward.
+// Owns the transition from sparse Live overrides to already-compiled program
+// configuration. The renderer path-copies its private state snapshot so a
+// patch can never write through shared references into the authored project.
+// Temporary interpolation is applied only around one render frame.
 export class LiveRenderPatchRuntime {
   constructor(host, { warn = console.warn } = {}) {
     this.host = host;
@@ -84,10 +85,9 @@ export class LiveRenderPatchRuntime {
     if (!resolution.applied) return finish(resolution);
     host.invalidatePresentation("render-patch");
     if (resolution.statePaths.length) {
-      const nextState = { ...host.state };
-      const result = applyLiveRenderPatches(nextState, patches);
+      const result = applyLiveRenderPatchesImmutable(host.state, patches);
       if (!result.applied) return finish(result);
-      host.state = nextState;
+      host.state = result.state;
       if (result.statePaths.includes("mappingCalibration")) {
         const mapping = host.mappingRuntime;
         const signature = mapping.currentSignature();
@@ -127,10 +127,14 @@ export class LiveRenderPatchRuntime {
         : destination.target[destination.leaf];
       return { destination, key, active, from };
     });
-    const result = applyLiveRenderPatches(host.state, patches);
+    const result = applyLiveRenderPatchesImmutable(host.state, patches);
     if (!result.applied) return finish(result);
-    for (const candidate of candidates) {
-      const { destination, key, active, from } = candidate;
+    host.state = result.state;
+    const appliedResolution = resolveLiveRenderPatches(host.state, patches);
+    if (!appliedResolution.applied) return finish(appliedResolution);
+    for (let index = 0; index < candidates.length; index++) {
+      const { key, active, from } = candidates[index];
+      const destination = appliedResolution.destinations[index];
       const to = destination.value;
       const canFade = durationMs > 0 &&
         destination.interpolation !== "immediate" &&
@@ -143,7 +147,13 @@ export class LiveRenderPatchRuntime {
         }
         continue;
       }
-      if (active && Object.is(active.to, to)) continue;
+      if (active && Object.is(active.to, to)) {
+        // Immutable patching moves the canonical value into a new state
+        // branch. Keep an already-running fade attached to that new branch.
+        active.target = destination.target;
+        active.leaf = destination.leaf;
+        continue;
+      }
       this.fades.set(key, {
         componentId: destination.componentId,
         target: destination.target,
@@ -161,9 +171,9 @@ export class LiveRenderPatchRuntime {
       host.componentProgramRuntime.programs.has(String(componentId || ""))
     );
     // Output compiles only Components reachable from its current Surface
-    // program. A persistent edit to another Component is still authoritative
-    // project state, but there is no retained program to synchronize until
-    // that Component becomes reachable. Rebuilding the same active roots
+    // program. A patch to another Component is still authoritative within
+    // this renderer snapshot, but there is no retained program to synchronize
+    // until that Component becomes reachable. Rebuilding the same active roots
     // cannot materialize it and treating that as a failed patch unnecessarily
     // breaks the transport revision stream.
     const requiresProgramRebuild =
@@ -217,13 +227,13 @@ export class LiveRenderPatchRuntime {
         ) || null,
       });
     }
-    // A retained patch is an authoritative edit, even though it deliberately
-    // avoids replacing the complete Preview state. Let completed pointer
+    // A retained patch is authoritative for this renderer snapshot, even
+    // though it never mutates the store-owned project. Let completed pointer
     // transactions release their optimistic overlay when the same item record
     // is patched; otherwise an older handle result can be restored over a
     // newer inspector-slider value during the next state activation.
     host.previewInteraction?.acceptAuthoritativeConfigurationPatches?.(
-      resolution.destinations,
+      appliedResolution.destinations,
     );
     return finish(result);
   }

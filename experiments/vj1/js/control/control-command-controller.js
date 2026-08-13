@@ -284,15 +284,23 @@ export function createControlCommandController({
     return true;
   }
 
-  function updateLiveValue(target = {}, value, { phase = "commit" } = {}) {
+  function updateLiveValue(target = {}, value, {
+    phase = "commit",
+    controlRegions = [],
+  } = {}) {
     const componentId = String(target.componentId || "");
     const nodeId = String(target.nodeId || "");
     const path = String(target.path || "");
     if (!componentId || !path) return false;
     const reason = phase === "change" ? "scrub:live" : "live:update";
     onLiveInput({ reason, componentId, nodeId, path, value, inputType: "ui-node" });
-    updateLiveAware(true, (draft) => setLiveOverride(draft, componentId, path, value, nodeId), reason,
-      [directManipulationRenderPatch(componentId, nodeId, path, value)]);
+    updateLiveAware(
+      true,
+      (draft) => setLiveOverride(draft, componentId, path, value, nodeId),
+      reason,
+      [directManipulationRenderPatch(componentId, nodeId, path, value)],
+      controlRegions,
+    );
     return true;
   }
 
@@ -364,8 +372,14 @@ export function createControlCommandController({
     return true;
   }
 
-  function updateLiveAware(isLive, recipe, reason, livePatches = []) {
-    if (isLive && typeof store.updateLive === "function") store.updateLive(recipe, { reason, livePatches });
+  function updateLiveAware(isLive, recipe, reason, livePatches = [], controlRegions = []) {
+    if (isLive && typeof store.updateLive === "function") store.updateLive(recipe, {
+      reason,
+      livePatches,
+      ...(controlRegions.length ? {
+        effects: { control: { regions: [...new Set(controlRegions)] } },
+      } : {}),
+    });
     else store.update(recipe, reason);
   }
 

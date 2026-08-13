@@ -6,7 +6,7 @@ import { renderSourceDetail } from "../js/libraries/render-engine/render-view/in
 
 test("visible ROI allocation stays bounded while source detail retains the physical boundary", () => {
   const parent = { width: 1600, height: 900, logicalWidth: 800, logicalHeight: 450 };
-  const request = nodeRoiRequest(parent, { x: 0.75, y: 0, width: 1, height: 1 });
+  const request = nodeRoiRequest(parent, { x: 0.875, y: 0.5, width: 1, height: 1 });
 
   assert.ok(request.width < parent.width);
   assert.equal(request.height, parent.height);
@@ -33,17 +33,12 @@ test("content zoom below one reduces source detail without changing allocation",
   assert.equal(detail.contentScale, 0.25);
 });
 
-test("fully offscreen boundaries have no source-detail demand", () => {
+test("authored boundary centers clamp to the direct zero-to-one range", () => {
   const request = nodeRoiRequest(
     { width: 1600, height: 900 },
     { x: 2, y: 0, width: 0.25, height: 0.25 },
   );
-  assert.equal(request.empty, true);
-  assert.deepEqual(renderSourceDetail(request, request, { contentScale: 20 }), {
-    width: 0,
-    height: 0,
-    physicalWidth: 0,
-    physicalHeight: 0,
-    contentScale: 20,
-  });
+  assert.equal(request.roi.centerX, 1600);
+  assert.equal(request.roi.centerY, 0);
+  assert.equal(request.empty, false);
 });

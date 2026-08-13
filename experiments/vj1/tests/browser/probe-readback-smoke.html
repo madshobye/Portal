@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 async probe readback smoke</title>
+  </head>
+  <body>
+    <pre id="results">initializing...</pre>
+    <script src="../../vendor/p5/p5-2.2.0.min.js"></script>
+    <script type="module">
+      import { AsyncPixelReadback } from "../../js/output/async-pixel-readback.js";
+      import { createSharedFramebufferTarget } from "../../js/output/shared-framebuffer-target.js";
+      import { withRenderTarget2D } from "../../js/output/render-target-contract.js";
+
+      const results = document.querySelector("#results");
+
+      function finish(payload) {
+        results.textContent = JSON.stringify(payload, null, 2);
+        document.documentElement.dataset.status = payload.ok ? "ok" : "error";
+      }
+
+      globalThis.setup = () => {
+        createCanvas(4, 4, WEBGL);
+        pixelDensity(1);
+        noLoop();
+        const target = createSharedFramebufferTarget(2, 1);
+        const readback = new AsyncPixelReadback();
+        withRenderTarget2D(target, () => {
+          target.clear();
+          target.noStroke();
+          target.fill(255, 0, 0, 255);
+          target.rect(0, 0, 1, 1);
+          target.fill(0, 255, 0, 255);
+          target.rect(1, 0, 1, 1);
+        });
+
+        let attempts = 0;
+        function poll() {
+          attempts++;
+          const sample = readback.read(target, "smoke", 2, 1, "frame-1");
+          if (sample.pixels) {
+            const pixels = [...sample.pixels];
+            const ok =
+              pixels[0] > 240 && pixels[1] < 15 &&
+              pixels[4] < 15 && pixels[5] > 240 &&
+              sample.revision === "frame-1";
+            readback.dispose();
+            target.remove();
+            finish({ ok, pixels, attempts, pending: sample.pending });
+            return;
+          }
+          if (!sample.supported || attempts > 30) {
+            readback.dispose();
+            target.remove();
+            finish({ ok: false, supported: sample.supported, attempts });
+            return;
+          }
+          requestAnimationFrame(poll);
+        }
+        poll();
+      };
+
+      window.addEventListener("error", (event) => finish({
+        ok: false,
+        error: event.error?.stack || event.message,
+      }));
+      window.addEventListener("unhandledrejection", (event) => finish({
+        ok: false,
+        error: event.reason?.stack || String(event.reason),
+      }));
+
+      new p5();
+    </script>
+  </body>
+</html>

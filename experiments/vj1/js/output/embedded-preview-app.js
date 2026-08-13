@@ -1066,12 +1066,22 @@ export function hasActiveRendererTransition(renderer = null) {
   return renderer?.surfaceRuntime?.hasActiveTransitions?.() === true;
 }
 
-// Workspace navigation changes presentation reachability, not authored visual
-// topology. Keep already-compiled Component programs when crossing preview
-// modes and rebuild only the program family the destination actually owns.
+// Workspace navigation normally changes presentation reachability, not authored
+// visual topology. Live is an authority boundary, however: its effective graph
+// includes sparse session diffs while every editor workspace must execute the
+// authored graph. Crossing that boundary must therefore replace the retained
+// Component programs in either direction. Other workspace changes can retain
+// programs and rebuild only the program family the destination owns.
 export function previewModeChangeActivation(previousMode = "", nextMode = "", activation = "full") {
   if (previousMode === nextMode || activation !== "ui") return activation;
-  if (nextMode === "live") return "projection";
+  // Live patches update the renderer's private Component programs in place.
+  // A UI-only/projection activation replaces the state pointer but retains
+  // those patched programs, leaking temporary Live values into Component,
+  // Scene, or Mapping previews. Crossing out of Live is the authority
+  // boundary. A full activation leaving Live restores authored values; a full
+  // activation entering Live compiles the effective graph materialized from
+  // those authored values plus the retained sparse diff bank.
+  if ((previousMode === "live") !== (nextMode === "live")) return "full";
   // Entering Mapping makes runtime-only sources such as its test pattern newly
   // reachable. Projection activation retains existing Component programs,
   // materializes those destination roots, and then rebuilds Mapping geometry.

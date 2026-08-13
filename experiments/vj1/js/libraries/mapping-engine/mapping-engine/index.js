@@ -748,57 +748,97 @@ export function mapperTransitionFragmentShaderSource({
       in vec3 vProjectiveUv;
       out vec4 vj1TransitionOutput;
       ${featherFunction}
-      ${transitionKernel?.source || DissolveTransitionKernel.source}
       ${fitTargetUvToSourceUvShaderSource()}
+      vec4 vj1SampleTransitionStartPrepared(
+        vec2 targetUv,
+        out vec2 sourceTargetUv,
+        out vec2 sampleUv
+      ) {
+        float projectionSourceAspect = uFromUseSourceFit ? uFromSourceTargetAspect : uFromSourceAspect;
+        vec3 projectionFit = vj1FitTargetUvToSourceUv(
+          targetUv,
+          projectionSourceAspect,
+          uTargetAspect,
+          uFromProjectionFit
+        );
+        sourceTargetUv = projectionFit.xy;
+        float inside = projectionFit.z;
+        sampleUv = sourceTargetUv;
+        if (uFromUseSourceFit) {
+          vec3 sourceFit = vj1FitTargetUvToSourceUv(
+            sourceTargetUv,
+            uFromSourceAspect,
+            uFromSourceTargetAspect,
+            uFromSourceFit
+          );
+          sampleUv = sourceFit.xy;
+          inside *= sourceFit.z;
+        }
+        float viewInside =
+          step(uFromTextureView.x, sampleUv.x) *
+          step(sampleUv.x, uFromTextureView.x + uFromTextureView.z) *
+          step(uFromTextureView.y, sampleUv.y) *
+          step(sampleUv.y, uFromTextureView.y + uFromTextureView.w);
+        inside *= viewInside;
+        vec2 viewUv = (sampleUv - uFromTextureView.xy) / max(uFromTextureView.zw, vec2(1e-9));
+        vec2 textureUv = uFromSourceRect.xy + clamp(viewUv, vec2(0.0), vec2(1.0)) * uFromSourceRect.zw;
+        return texture(fromTex, textureUv) * inside * uFromOpacity;
+      }
+      vec4 vj1SampleTransitionEndPrepared(
+        vec2 targetUv,
+        out vec2 sourceTargetUv,
+        out vec2 sampleUv
+      ) {
+        float projectionSourceAspect = uToUseSourceFit ? uToSourceTargetAspect : uToSourceAspect;
+        vec3 projectionFit = vj1FitTargetUvToSourceUv(
+          targetUv,
+          projectionSourceAspect,
+          uTargetAspect,
+          uToProjectionFit
+        );
+        sourceTargetUv = projectionFit.xy;
+        float inside = projectionFit.z;
+        sampleUv = sourceTargetUv;
+        if (uToUseSourceFit) {
+          vec3 sourceFit = vj1FitTargetUvToSourceUv(
+            sourceTargetUv,
+            uToSourceAspect,
+            uToSourceTargetAspect,
+            uToSourceFit
+          );
+          sampleUv = sourceFit.xy;
+          inside *= sourceFit.z;
+        }
+        float viewInside =
+          step(uToTextureView.x, sampleUv.x) *
+          step(sampleUv.x, uToTextureView.x + uToTextureView.z) *
+          step(uToTextureView.y, sampleUv.y) *
+          step(sampleUv.y, uToTextureView.y + uToTextureView.w);
+        inside *= viewInside;
+        vec2 viewUv = (sampleUv - uToTextureView.xy) / max(uToTextureView.zw, vec2(1e-9));
+        vec2 textureUv = uToSourceRect.xy + clamp(viewUv, vec2(0.0), vec2(1.0)) * uToSourceRect.zw;
+        return texture(toTex, textureUv) * inside * uToOpacity;
+      }
+      vec4 vj1SampleTransitionStart(vec2 targetUv) {
+        vec2 sourceTargetUv;
+        vec2 sampleUv;
+        return vj1SampleTransitionStartPrepared(targetUv, sourceTargetUv, sampleUv);
+      }
+      vec4 vj1SampleTransitionEnd(vec2 targetUv) {
+        vec2 sourceTargetUv;
+        vec2 sampleUv;
+        return vj1SampleTransitionEndPrepared(targetUv, sourceTargetUv, sampleUv);
+      }
+      ${transitionKernel?.source || DissolveTransitionKernel.source}
       void main() {
         float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
         vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
-        float fromProjectionSourceAspect = uFromUseSourceFit ? uFromSourceTargetAspect : uFromSourceAspect;
         vec2 fromSourceTargetUv = uv;
         vec2 fromUv = uv;
-        float fromInside = 1.0;
-        vec3 fromProjectionFit = vj1FitTargetUvToSourceUv(uv, fromProjectionSourceAspect, uTargetAspect, uFromProjectionFit);
-        fromSourceTargetUv = fromProjectionFit.xy;
-        fromInside = fromProjectionFit.z;
-        fromUv = fromSourceTargetUv;
-        if (uFromUseSourceFit) {
-          vec3 fromSourceFit = vj1FitTargetUvToSourceUv(fromSourceTargetUv, uFromSourceAspect, uFromSourceTargetAspect, uFromSourceFit);
-          fromUv = fromSourceFit.xy;
-          fromInside *= fromSourceFit.z;
-        }
-
-        float toProjectionSourceAspect = uToUseSourceFit ? uToSourceTargetAspect : uToSourceAspect;
         vec2 toSourceTargetUv = uv;
         vec2 toUv = uv;
-        float toInside = 1.0;
-        vec3 toProjectionFit = vj1FitTargetUvToSourceUv(uv, toProjectionSourceAspect, uTargetAspect, uToProjectionFit);
-        toSourceTargetUv = toProjectionFit.xy;
-        toInside = toProjectionFit.z;
-        toUv = toSourceTargetUv;
-        if (uToUseSourceFit) {
-          vec3 toSourceFit = vj1FitTargetUvToSourceUv(toSourceTargetUv, uToSourceAspect, uToSourceTargetAspect, uToSourceFit);
-          toUv = toSourceFit.xy;
-          toInside *= toSourceFit.z;
-        }
-
-        float fromViewInside =
-          step(uFromTextureView.x, fromUv.x) *
-          step(fromUv.x, uFromTextureView.x + uFromTextureView.z) *
-          step(uFromTextureView.y, fromUv.y) *
-          step(fromUv.y, uFromTextureView.y + uFromTextureView.w);
-        float toViewInside =
-          step(uToTextureView.x, toUv.x) *
-          step(toUv.x, uToTextureView.x + uToTextureView.z) *
-          step(uToTextureView.y, toUv.y) *
-          step(toUv.y, uToTextureView.y + uToTextureView.w);
-        fromInside *= fromViewInside;
-        toInside *= toViewInside;
-        vec2 fromViewUv = (fromUv - uFromTextureView.xy) / max(uFromTextureView.zw, vec2(1e-9));
-        vec2 toViewUv = (toUv - uToTextureView.xy) / max(uToTextureView.zw, vec2(1e-9));
-        vec2 fromTextureUv = uFromSourceRect.xy + clamp(fromViewUv, vec2(0.0), vec2(1.0)) * uFromSourceRect.zw;
-        vec2 toTextureUv = uToSourceRect.xy + clamp(toViewUv, vec2(0.0), vec2(1.0)) * uToSourceRect.zw;
-        vec4 fromColor = texture(fromTex, fromTextureUv) * fromInside * uFromOpacity;
-        vec4 toColor = texture(toTex, toTextureUv) * toInside * uToOpacity;
+        vec4 fromColor = vj1SampleTransitionStartPrepared(uv, fromSourceTargetUv, fromUv);
+        vec4 toColor = vj1SampleTransitionEndPrepared(uv, toSourceTargetUv, toUv);
         ${featherCode}
         vec4 color = vj1Transition(fromColor, toColor, uv, clamp(uTransition, 0.0, 1.0));
         vj1TransitionOutput = color;

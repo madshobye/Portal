@@ -5,15 +5,13 @@ import { forEachModelTriangle, modelTriangleCount } from "./mesh-types.js";
 export { parseObjPreviewMesh } from "./obj-parser/index.js";
 export { parseStlPreviewMesh } from "./stl-parser/index.js";
 
-const MAX_PREVIEW_TRIANGLES = 600;
-
 export function modelPreviewSvg(mesh = {}) {
   const triangleCount = modelTriangleCount(mesh);
   if (!triangleCount) throw new Error("Model preview has no triangles");
-  const stride = Math.max(1, Math.ceil(triangleCount / MAX_PREVIEW_TRIANGLES));
   const projected = [];
-  forEachModelTriangle(mesh, (triangle, index) => {
-    if (index % stride) return;
+  // Geometry resolution owns the bounded thumbnail LOD. Sampling faces again
+  // here changes its topology and turns a closed surface back into fragments.
+  forEachModelTriangle(mesh, (triangle) => {
     const points = (triangle.vertices || []).slice(0, 3).map(projectModelPoint);
     if (points.length !== 3) return;
     const depth = points.reduce((sum, point) => sum + point[2], 0) / 3;

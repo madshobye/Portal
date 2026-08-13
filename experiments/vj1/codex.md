@@ -95,6 +95,10 @@ Canonical state stores authored data and compact project-node diffs. It never
 stores DOM/p5 objects, generated instances, callbacks, GPU handles, decoded
 media, thumbnails, or compiled programs. Current authored visual sources are
 nodes/Components; legacy source records are migration inputs only.
+System Direct Surfaces are derived from `render.outputs`. Output Settings
+mutations reconcile them into every Mapping immediately, in parent-before-child
+order, using the same domain operation as project restore; they are never left
+for a browser reload to repair.
 
 ## Nodes, graphs, and libraries
 
@@ -155,6 +159,9 @@ thumbnail shares `ProjectDerivedAssetStore` and `vj1-cache/thumbnails`; media
 filenames include their source revision. None is authored state. UI nodes only
 acquire and release display claims, so closing a modal cannot invalidate an
 unchanged generated thumbnail or cause the full source media to be decoded.
+Model thumbnail revisions also include the model-preview pipeline version.
+STL and OBJ previews use a single bounded topology-preserving simplification;
+sparse face sampling must not be rendered as though it were a closed surface.
 
 The Application graph is both compiled bootstrap topology and indexed runtime
 dataflow, but it is not a universal graph scheduler. Dependency edges compile
@@ -198,7 +205,9 @@ Hard invariants:
 4. **Boundary and Content are separate.** Boundary controls placement and
    allocation. Content transforms operate inside it. Content scale participates
    in backing/source demand but must not resize the output canvas or bypass the
-   existing ROI/demand chain.
+   existing ROI/demand chain. Boundary X/Y and Content X/Y are direct normalized
+   center coordinates: their authored and displayed range is `0…1`, `0.5` is
+   centered, and renderers consume those values without an offset conversion.
 5. **Transforms have one conversion boundary.** Authored +X is right, +Y is
    down, and positive rotation is screen-oriented. Raw WebGL derives its matrix
    fresh each evaluation and converts Y/orientation once. Never accumulate
@@ -288,9 +297,17 @@ and serializable parameters, never executable functions or a serialized
 ## Animation and live control
 
 Temporary Live parameters are one sparse `parameterDiffs[targetId]` authority,
-never an active copy plus retained per-target copies. Preview and standalone
-Output materialize the same compiled Live program from authored Components and
-the selected target's diff bank. Editing an authored Component parameter also
+never an active copy plus retained per-target copies. An Overall source owns its
+target bank; when Overall is empty, a mounted Direct Component owns its bank by
+stable Component identity. Preview and standalone Output resolve that owner by
+the same rule; cold restore derives it from the selected materialized Surface
+route, never from transient inspector selection. They materialize the same
+compiled Live program from authored Components plus its diff bank. Component
+root Content transform is endpoint geometry and therefore participates in
+transition route identity even when both endpoints share a source. Every Live
+inspector parameter tab emits the
+same stable Component/node/path address into that bank; none writes through the
+authored Component/Scene command path. Editing an authored Component parameter also
 updates an existing matching diff in the active Live bank atomically, so the
 editor, Live controls, Preview, and Output cannot later restore competing
 values. Structural reconciliation rebases sparse chain entries by stable item
@@ -433,10 +450,14 @@ animation fields, and Live overrides cross as compact retained patches. A patch
 accepted by Preview remains authoritative through pointer release and deferred
 DOM reconciliation. Direct manipulation may keep an optimistic local overlay
 only for its active pointer transaction.
-Entering Mapping or Live uses projection activation because either destination
-can make runtime-only Component roots newly reachable; subsequent Mapping edits
-use Mapping-only activation, retain the already materialized programs, and
-update the mounted Preview without rebuilding its Control DOM or tools.
+Entering Mapping uses projection activation because it can make runtime-only
+Component roots newly reachable; subsequent Mapping edits use Mapping-only
+activation, retain the already materialized programs, and update the mounted
+Preview without rebuilding its Control DOM or tools. Live is a symmetric
+authority boundary: entering it fully activates the effective graph materialized
+from authored state plus sparse Live diffs, while leaving it fully activates the
+authored graph. This prevents retained compiled programs from leaking values in
+either direction.
 
 Render patches have one stable address: target kind, Component ID, optional
 graph node ID, and a path relative to that node's configuration. Compound UI

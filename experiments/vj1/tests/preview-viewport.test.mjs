@@ -57,6 +57,15 @@ test("automatic viewport fits use the same rule in Component, Scene, Mapping, an
   );
 });
 
+test("a missing per-workspace viewport defaults to automatic frame fitting", () => {
+  for (const workspace of ["component", "scene", "mapping", "live"]) {
+    assert.deepEqual(
+      previewViewportForUi({ workspace, previewViewports: {} }),
+      { fit: "frame", zoom: 1, x: 0, y: 0 },
+    );
+  }
+});
+
 test("manual viewport navigation is retained independently per workspace", () => {
   const ui = {
     workspace: "component",

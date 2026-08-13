@@ -6,7 +6,7 @@ import {
   normalizeComponentFrameShape,
   normalizeComponentResolutionScale,
 } from "../js/domain/component-frame.js";
-import { createSceneComponent, createDefaultComponent, createDefaultSurface, createInitialState, createMappingFromState, directOutputSurfaceId, normalizeCameraSettings, normalizeComponentPipelineSettings, normalizeProjectionFit, normalizeSamplingSettings, resolveSceneSourceNode, sanitizeState, sceneSourceNodes } from "../js/domain/models.js";
+import { createSceneComponent, createDefaultComponent, createDefaultMapping, createDefaultSurface, createInitialState, createMappingFromState, directOutputSurfaceId, normalizeCameraSettings, normalizeComponentPipelineSettings, normalizeProjectionFit, normalizeSamplingSettings, reconcileProjectOutputSurfaces, resolveSceneSourceNode, sanitizeState, sceneSourceNodes } from "../js/domain/models.js";
 
 const render = {
   componentAspectRatio: 10 / 7,
@@ -216,6 +216,35 @@ test("configured outputs derive locked direct surfaces without enabling new rout
   assert.equal(reducedDirect[0].destination.parentSurfaceId, "");
   assert.equal(reducedDirect[0].enabled, true);
   assert.equal(reducedDirect[0].feather, 0.2);
+});
+
+test("runtime output changes reconcile Direct Surfaces across every Mapping immediately", () => {
+  const state = sanitizeState(createInitialState());
+  state.ui.workspace = "mapping";
+  state.mappings.push(createDefaultMapping(1, [createDefaultSurface(2)]));
+  state.render.outputs.push({ id: "output-2", name: "Output 2", aspectRatio: 4 / 3 });
+
+  reconcileProjectOutputSurfaces(state);
+
+  const expectedIds = [
+    directOutputSurfaceId("all"),
+    directOutputSurfaceId("output-main"),
+    directOutputSurfaceId("output-2"),
+  ];
+  for (const mapping of state.mappings) {
+    assert.deepEqual(
+      mapping.surfaces.filter((surface) => surface.destination?.type === "direct").map((surface) => surface.id),
+      expectedIds,
+    );
+  }
+  assert.deepEqual(
+    state.surfaces.filter((surface) => surface.destination?.type === "direct").map((surface) => surface.id),
+    expectedIds,
+  );
+  assert.equal(
+    state.mappings[0].surfaces.find((surface) => surface.id === directOutputSurfaceId("output-2")).enabled,
+    false,
+  );
 });
 
 test("camera capture settings normalize resolution direction mirror and maximum mode", () => {

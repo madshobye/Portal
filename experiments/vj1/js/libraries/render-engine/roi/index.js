@@ -1,9 +1,9 @@
-export const FULL_NODE_BOUNDARY = Object.freeze({ x: 0, y: 0, width: 1, height: 1, rotation: 0 });
+export const FULL_NODE_BOUNDARY = Object.freeze({ x: 0.5, y: 0.5, width: 1, height: 1, rotation: 0 });
 
 export function normalizeNodeBoundary(boundary = {}) {
   return {
-    x: finiteClamp(boundary?.x, -2, 2, 0),
-    y: finiteClamp(boundary?.y, -2, 2, 0),
+    x: finiteClamp(boundary?.x, 0, 1, 0.5),
+    y: finiteClamp(boundary?.y, 0, 1, 0.5),
     width: finiteClamp(boundary?.width, 0.005, 4, 1),
     height: finiteClamp(boundary?.height, 0.005, 4, 1),
     rotation: finiteNumber(boundary?.rotation, 0),
@@ -12,7 +12,7 @@ export function normalizeNodeBoundary(boundary = {}) {
 
 export function isFullNodeBoundary(boundary = {}) {
   const value = normalizeNodeBoundary(boundary);
-  return Math.abs(value.x) < 0.000001 && Math.abs(value.y) < 0.000001 &&
+  return Math.abs(value.x - 0.5) < 0.000001 && Math.abs(value.y - 0.5) < 0.000001 &&
     Math.abs(value.width - 1) < 0.000001 && Math.abs(value.height - 1) < 0.000001 &&
     Math.abs(value.rotation) < 0.000001;
 }
@@ -32,8 +32,8 @@ export function nodeBoundaryPixelRect(boundary = {}, target = {}, halo = 0, opti
   const viewportTop = targetUv[1] * domainHeight;
   const width = value.width * domainWidth;
   const height = value.height * domainHeight;
-  const centerX = domainWidth * (0.5 + value.x * 0.5);
-  const centerY = domainHeight * (0.5 + value.y * 0.5);
+  const centerX = domainWidth * value.x;
+  const centerY = domainHeight * value.y;
   const padding = Math.max(0, Number(halo) || 0);
   // Transform the visible parent viewport into boundary-local coordinates.
   // Its local AABB is a conservative crop for a rotated rectangle: it may

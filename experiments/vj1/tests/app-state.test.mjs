@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { createAppState } from "../js/app-state.js";
 import { createVj1NodePackage } from "../js/app-node-package.js";
-import { componentLayerProjection } from "../js/domain/component-layer-projection.js";
+import { componentChainProjection, componentLayerProjection } from "../js/domain/component-layer-projection.js";
 import {
   createComponentEffect,
   createComponentGroup,
@@ -787,6 +787,61 @@ test("Live Surface patch assignment and removal use the configured transition", 
   assert.equal(createLiveScenePreviewState(after).liveTransition, undefined, "Overall preview ignores a Surface-only transition");
 });
 
+test("Direct Surface transitions materialize the incoming target's retained content transform", () => {
+  const state = createInitialState();
+  const scaled = state.components[0];
+  const alternate = createDefaultComponent(2);
+  state.components.push(alternate);
+  state.ui.live.transitionDuration = 0;
+  const store = createGraphAppState(state);
+
+  store.selectLiveComponent(scaled.id);
+  const direct = store.getState().mappings[0].surfaces.find(
+    (surface) => surface.destination?.type === "direct",
+  );
+  assert.ok(direct);
+  store.selectLivePreviewSurface(direct.id);
+  store.selectLiveComponent(scaled.id);
+  store.updateLive((draft) => {
+    draft.ui.live.parameterDiffs[scaled.id] = {
+      [scaled.id]: { transform: { scale: 0.05 } },
+    };
+    draft.ui.live.transitionDuration = 1;
+  }, "live:test-direct-transform");
+
+  assert.equal(
+    createLiveRenderState(store.getState()).components.find(
+      (component) => component.id === scaled.id,
+    ).transform.scale,
+    0.05,
+  );
+
+  store.selectLiveComponent(alternate.id);
+  let active = firstActiveTransition(store.getState());
+  assert.equal(active.surfaceId, direct.id);
+  assert.equal(active.toTargetId, alternate.id);
+  store.advanceLiveTransitions(active.startedAtMs + active.durationMs + 1);
+
+  store.selectLiveComponent(scaled.id);
+  active = firstActiveTransition(store.getState());
+  assert.equal(active.surfaceId, direct.id);
+  assert.equal(active.toTargetId, scaled.id);
+  const incoming = createLiveRenderState(store.getState());
+  assert.equal(
+    incoming.components.find((component) => component.id === scaled.id).transform.scale,
+    0.05,
+    "the armed incoming branch uses the target's persistent sparse diff bank",
+  );
+  assert.equal(incoming.liveTransition.toTargetId, scaled.id);
+  const incomingPreview = createLiveScenePreviewState(store.getState());
+  assert.equal(
+    incomingPreview.components.find((component) => component.id === scaled.id).transform.scale,
+    0.05,
+    "Preview and Output arm the same effective incoming Component",
+  );
+  assert.equal(incomingPreview.liveTransition.toTargetId, scaled.id);
+});
+
 test("Live Surface patches can be removed while Overall is explicitly empty", () => {
   const state = createInitialState();
   const scene = createSceneComponent(0, state.components[0].id);
@@ -985,15 +1040,15 @@ test("Live transition descriptors contain control metadata but no executable end
   assert.strictEqual(rendered.nodes, current.nodes);
   assert.strictEqual(rendered.mappings, current.mappings);
   assert.notStrictEqual(rendered.components, current.components);
-  assert.notStrictEqual(rendered.components[0].chain, current.components[0].chain);
+  assert.equal(Object.hasOwn(rendered.components[0], "chain"), false);
+  assert.equal(Object.hasOwn(current.components[0], "chain"), false);
   assert.ok(rendered.liveTransition);
   assert.equal(rendered.liveTransition.fromTargetId, firstScene.id);
   assert.equal(rendered.liveTransition.toTargetId, secondScene.id);
   assert.equal(Object.hasOwn(rendered.liveTransition, "fromProgram"), false);
   assert.equal(Object.hasOwn(rendered.liveTransition, "fromSurfaceRoutes"), false);
 
-  rendered.components[0].chain[0].source.params.renderQuality = 0.25;
-  assert.notEqual(current.components[0].chain[0].source.params.renderQuality, 0.25);
+  assert.strictEqual(rendered.nodes, current.nodes, "an unpatched endpoint safely shares immutable graph authority");
 });
 
 test("Live transition scheduling leaves endpoint visibility in the persistent diff bank", () => {
@@ -1266,7 +1321,7 @@ test("new Components start empty only after the visible Component list exceeds t
   tenState.components = Array.from({ length: 10 }, (_, index) => createDefaultComponent(index));
   const tenStore = createGraphAppState(tenState);
   tenStore.addComponent();
-  assert.equal(tenStore.getState().components.at(-1).chain[0]?.source?.generatorId, "testPattern");
+  assert.equal(componentChainProjection(tenStore.getState(), tenStore.getState().components.at(-1))[0]?.source?.generatorId, "testPattern");
 
   const elevenState = createInitialState();
   elevenState.components = [
@@ -1276,7 +1331,7 @@ test("new Components start empty only after the visible Component list exceeds t
   const elevenStore = createGraphAppState(elevenState);
   elevenStore.addComponent();
   const added = elevenStore.getState().components.at(-1);
-  assert.deepEqual(added.chain, []);
+  assert.deepEqual(componentChainProjection(elevenStore.getState(), added), []);
   assert.equal("source" in added, false);
   assert.equal("shaderChain" in added, false);
   assert.equal(elevenStore.getState().ui.selectedChainItemId, "");
@@ -1292,10 +1347,11 @@ test("an empty newly created Component accepts its first element immediately", (
   store.addChainSource(componentId, { type: "generator", generatorId: "gradient" });
 
   const added = store.getState().components.find((component) => component.id === componentId);
-  assert.equal(added.chain.length, 1);
-  assert.equal(added.chain[0].source.generatorId, "gradient");
+  const addedChain = componentChainProjection(store.getState(), added);
+  assert.equal(addedChain.length, 1);
+  assert.equal(addedChain[0].source.generatorId, "gradient");
   assert.equal("source" in added, false);
-  assert.equal(store.getState().ui.selectedChainItemId, added.chain[0].id);
+  assert.equal(store.getState().ui.selectedChainItemId, addedChain[0].id);
   assert.equal(componentLayerProjection(store.getState(), added).filter((layer) => layer.item.kind === "source").length, 1);
 });
 
@@ -1309,9 +1365,9 @@ test("new media elements keep their catalog-derived name out of project properti
     mediaId: "media/collections/projector/plate.png",
   });
 
-  const added = store.getState().components
-    .find((item) => item.id === component.id)
-    .chain.find((item) => item.source?.params?.mediaId === "media/collections/projector/plate.png");
+  const current = store.getState();
+  const added = componentChainProjection(current, current.components.find((item) => item.id === component.id))
+    .find((item) => item.source?.params?.mediaId === "media/collections/projector/plate.png");
   assert.equal(added.name, "");
   assert.equal(added.source.generatorId, "mediaImage");
   assert.equal(added.source.type, "generator");
@@ -1332,9 +1388,9 @@ test("state normalization keeps Camera and Black as semantic visual generators",
     instanceId: "black-instance",
   });
 
-  const sources = store.getState().components
-    .find((item) => item.id === component.id)
-    .chain.map((item) => item.source);
+  const current = store.getState();
+  const sources = componentChainProjection(current, current.components.find((item) => item.id === component.id))
+    .map((item) => item.source);
   assert.equal(sources.at(-2).type, "generator");
   assert.equal(sources.at(-2).generatorId, "cameraInput");
   assert.equal(sources.at(-2).params.fit, "cover");
@@ -1390,7 +1446,7 @@ test("Live slider updates use the lightweight live-only state path", () => {
   assert.equal(change?.command.domain, "live");
   const liveComponent = store.getLiveRenderState().components.find((item) => item.id === componentId);
   assert.equal(liveComponent.opacity, 0.35);
-  assert.deepEqual(liveComponent.transform, { x: 0.4, y: 0, scale: 1.5, rotation: 0 });
+  assert.deepEqual(liveComponent.transform, { x: 0.4, y: 0.5, scale: 1.5, rotation: 0 });
 });
 
 test("Live parameter edits invalidate source cards only when reset availability changes", () => {
@@ -1773,7 +1829,7 @@ test("graph reordering retains Live params by stable node identity", () => {
   store.reorderChain(component.id, first.id, second.id, "after");
 
   const reordered = store.getState();
-  const firstIndex = reordered.components[0].chain.findIndex(
+  const firstIndex = componentChainProjection(reordered, reordered.components[0]).findIndex(
     (item) => item.id === first.id,
   );
   assert.equal(firstIndex, 1);
@@ -1797,13 +1853,13 @@ test("ordinary components reject nested component sources while Canvas accepts t
   state.components.push(source, canvas);
   const store = createGraphAppState(state);
   const ordinary = store.getState().components[0];
-  const ordinaryLength = ordinary.chain.length;
+  const ordinaryLength = componentChainProjection(store.getState(), ordinary).length;
 
   store.addChainSource(ordinary.id, { type: "component", componentId: source.id });
-  assert.equal(store.getState().components.find((item) => item.id === ordinary.id).chain.length, ordinaryLength);
+  assert.equal(componentChainProjection(store.getState(), store.getState().components.find((item) => item.id === ordinary.id)).length, ordinaryLength);
 
   store.addChainSource(canvas.id, { type: "component", componentId: source.id });
-  const placed = store.getState().components.find((item) => item.id === canvas.id).chain.at(-1).source;
+  const placed = componentChainProjection(store.getState(), store.getState().components.find((item) => item.id === canvas.id)).at(-1).source;
   assert.equal(placed.componentId, source.id);
   assert.deepEqual(placed.placement, { scale: 1 });
   const placementBeforeProportionChange = structuredClone(placed.placement);
@@ -1811,7 +1867,7 @@ test("ordinary components reject nested component sources while Canvas accepts t
     draft.render.componentAspectRatio = 4 / 3;
   }, "update:render.componentAspectRatio");
   assert.deepEqual(
-    store.getState().components.find((item) => item.id === canvas.id).chain.at(-1).source.placement,
+    componentChainProjection(store.getState(), store.getState().components.find((item) => item.id === canvas.id)).at(-1).source.placement,
     placementBeforeProportionChange,
     "texture resolution changes do not rewrite Canvas placement data"
   );
@@ -1903,12 +1959,13 @@ test("Canvas components use ordinary source and effect chain items", () => {
 
   store.addChainEffect(canvas.id, "pixelate");
   const nextCanvas = store.getState().components.find((component) => component.id === canvas.id);
-  assert.equal(nextCanvas.chain[0].kind, "source");
-  assert.equal(nextCanvas.chain[0].source.type, "component");
-  assert.equal(nextCanvas.chain[0].source.componentId, source.id);
-  assert.equal(nextCanvas.chain[1].kind, "effect");
-  assert.equal(nextCanvas.chain[1].componentId, "pixelate");
-  assert.ok(!nextCanvas.chain.some((item) => item.role === "canvas-layer"));
+  const nextCanvasChain = componentChainProjection(store.getState(), nextCanvas);
+  assert.equal(nextCanvasChain[0].kind, "source");
+  assert.equal(nextCanvasChain[0].source.type, "component");
+  assert.equal(nextCanvasChain[0].source.componentId, source.id);
+  assert.equal(nextCanvasChain[1].kind, "effect");
+  assert.equal(nextCanvasChain[1].componentId, "pixelate");
+  assert.ok(!nextCanvasChain.some((item) => item.role === "canvas-layer"));
 });
 
 test("new Scenes start empty", () => {
@@ -1920,7 +1977,7 @@ test("new Scenes start empty", () => {
 
   const canvas = store.getState().components.find((component) => component.type === "scene");
   assert.ok(canvas);
-  assert.deepEqual(canvas.chain, []);
+  assert.deepEqual(componentChainProjection(store.getState(), canvas), []);
   assert.equal(store.getState().ui.selectedComponentId, canvas.id);
   assert.equal(store.getState().ui.selectedChainItemId, "");
 });
@@ -1964,9 +2021,10 @@ test("Canvas workspace selects a Canvas and components are added as ordinary sou
   const nextCanvas = next.components.find((component) => component.id === canvas.id);
 
   assert.equal(next.ui.selectedComponentId, canvas.id);
-  assert.equal(nextCanvas.chain[0].kind, "source");
-  assert.equal(nextCanvas.chain[0].source.componentId, source.id);
-  assert.ok(!("layout" in nextCanvas.chain[0]));
+  const nextCanvasChain = componentChainProjection(next, nextCanvas);
+  assert.equal(nextCanvasChain[0].kind, "source");
+  assert.equal(nextCanvasChain[0].source.componentId, source.id);
+  assert.ok(!("layout" in nextCanvasChain[0]));
 
   store.setWorkspace("component");
   assert.equal(store.getState().ui.selectedComponentId, source.id);
@@ -2144,7 +2202,7 @@ test("component chain preserves source elements and later effects", () => {
   state.components = [component];
 
   const store = createGraphAppState(state);
-  const chain = store.getState().components[0].chain;
+  const chain = componentChainProjection(store.getState(), store.getState().components[0]);
 
   assert.equal(chain.length, 5);
   assert.equal(chain[0].kind, "source");
@@ -2168,7 +2226,7 @@ test("adding a generator inserts a visible chain element without replacing media
   const store = createGraphAppState(state);
 
   store.addChainSource(component.id, { type: "generator", generatorId: "gradient" });
-  const chain = store.getState().components[0].chain;
+  const chain = componentChainProjection(store.getState(), store.getState().components[0]);
 
   assert.equal(chain.length, 3);
   assert.equal(chain[0].kind, "source");
@@ -2198,8 +2256,8 @@ test("new elements stay enabled until their Component graph is connected to a Li
   store.addChainEffect(component.id, "invert");
   let next = store.getState();
   let nextComponent = next.components.find((item) => item.id === component.id);
-  assert.equal(nextComponent.chain.at(-1).componentId, "invert");
-  assert.equal(nextComponent.chain.at(-1).enabled, true);
+  assert.equal(componentChainProjection(next, nextComponent).at(-1).componentId, "invert");
+  assert.equal(componentChainProjection(next, nextComponent).at(-1).enabled, true);
 
   store.updateRuntime((metrics) => {
     metrics.clients = 1;
@@ -2212,10 +2270,10 @@ test("new elements stay enabled until their Component graph is connected to a Li
   next = store.getState();
   nextComponent = next.components.find((item) => item.id === component.id);
   const nextCanvas = next.components.find((item) => item.id === canvas.id);
-  assert.equal(nextComponent.chain.at(-1).componentId, "pixelate");
-  assert.equal(nextComponent.chain.at(-1).enabled, false);
-  assert.equal(nextCanvas.chain.find((item) => item.source?.generatorId === "gradient")?.enabled, false);
-  assert.equal(nextCanvas.chain.find((item) => item.kind === "group")?.enabled, false);
+  assert.equal(componentChainProjection(next, nextComponent).at(-1).componentId, "pixelate");
+  assert.equal(componentChainProjection(next, nextComponent).at(-1).enabled, false);
+  assert.equal(componentChainProjection(next, nextCanvas).find((item) => item.source?.generatorId === "gradient")?.enabled, false);
+  assert.equal(componentChainProjection(next, nextCanvas).find((item) => item.kind === "group")?.enabled, false);
 });
 
 test("adding an element while a group is selected appends it inside the group", () => {
@@ -2233,7 +2291,7 @@ test("adding an element while a group is selected appends it inside the group", 
   const store = createGraphAppState(state);
 
   store.addChainEffect(component.id, "pixelate");
-  const nextGroup = store.getState().components[0].chain[1];
+  const nextGroup = componentChainProjection(store.getState(), store.getState().components[0])[1];
 
   assert.equal(nextGroup.kind, "group");
   assert.equal(nextGroup.chain.length, 1);
@@ -2311,7 +2369,7 @@ test("selected nested chain items can be removed through the shared store action
   store.removeChainItem(component.id, nested.id);
 
   const next = store.getState();
-  assert.equal(next.components[0].chain.find((item) => item.id === group.id)?.chain.length, 0);
+  assert.equal(componentChainProjection(next, next.components[0]).find((item) => item.id === group.id)?.chain.length, 0);
   assert.notEqual(next.ui.selectedChainItemId, nested.id);
 });
 
@@ -2325,7 +2383,7 @@ test("the final element in an ordinary Component chain can be removed", () => {
   store.removeChainItem(component.id, component.chain[0].id);
 
   const next = store.getState();
-  assert.deepEqual(next.components.find((item) => item.id === component.id).chain, []);
+  assert.deepEqual(componentChainProjection(next, next.components.find((item) => item.id === component.id)), []);
   assert.equal(next.ui.selectedChainItemId, "");
 });
 
@@ -2340,7 +2398,7 @@ test("existing chain item can move into a group by drag reorder", () => {
   const store = createGraphAppState(state);
 
   store.reorderChain(component.id, effect.id, group.id, "inside");
-  const chain = store.getState().components[0].chain;
+  const chain = componentChainProjection(store.getState(), store.getState().components[0]);
 
   assert.deepEqual(chain.map((item) => item.id), [source.id, group.id]);
   assert.equal(chain[1].chain.length, 1);
@@ -2359,7 +2417,7 @@ test("nested chain item can move out below a group at the end", () => {
   const store = createGraphAppState(state);
 
   store.reorderChain(component.id, effect.id, group.id, "after");
-  const chain = store.getState().components[0].chain;
+  const chain = componentChainProjection(store.getState(), store.getState().components[0]);
 
   assert.deepEqual(chain.map((item) => item.id), [source.id, group.id, effect.id]);
   assert.equal(chain[1].chain.length, 0);
@@ -2369,7 +2427,7 @@ test("group transform alpha and blend survive normalization", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
   const group = createComponentGroup(0);
-  group.transform = { x: 0.2, y: -0.1, scale: 0.7, rotation: 0.35 };
+  group.transform = { x: 0.2, y: 0.1, scale: 0.7, rotation: 0.35 };
   group.opacity = 0.42;
   group.blend = "screen";
   component.chain = [
@@ -2379,7 +2437,7 @@ test("group transform alpha and blend survive normalization", () => {
   state.components = [component];
 
   const store = createGraphAppState(state);
-  const normalizedGroup = store.getState().components[0].chain[1];
+  const normalizedGroup = componentChainProjection(store.getState(), store.getState().components[0])[1];
 
   assert.deepEqual(normalizedGroup.transform, group.transform);
   assert.equal(normalizedGroup.opacity, 0.42);
@@ -2411,15 +2469,10 @@ test("one scrub gesture is one authored transaction while intermediate samples r
   const events = [];
   store.subscribe((_state, _reason, event) => events.push(event));
 
-  store.update((draft) => {
-    draft.components[0].chain[0].boundary.x = 0.1;
-  }, "scrub:chain-boundary");
-  store.update((draft) => {
-    draft.components[0].chain[0].boundary.x = 0.2;
-  }, "scrub:chain-boundary");
-  store.update((draft) => {
-    draft.components[0].chain[0].boundary.x = 0.2;
-  }, "update:chain-boundary");
+  const layer = componentLayerProjection(store.getState(), store.getState().components[0])[0];
+  store.setComponentValue(`${layer.path}.boundary.x`, 0.1, { reason: "scrub:chain-boundary" });
+  store.setComponentValue(`${layer.path}.boundary.x`, 0.2, { reason: "scrub:chain-boundary" });
+  store.setComponentValue(`${layer.path}.boundary.x`, 0.2, { reason: "update:chain-boundary" });
 
   assert.deepEqual(events.slice(-3).map((event) => event.command.phase), ["scrub", "scrub", "commit"]);
   assert.equal(meter.snapshot().categories.transactions, 1);
@@ -2517,7 +2570,7 @@ test("Component and Scene visibility toggles are scoped project transactions", (
   const store = createGraphAppState(initial, {
     prepareState(value) {
       prepareCount++;
-      return value;
+      return appNodePackage.prepareProjectState(value);
     },
   });
   const events = [];
@@ -2525,35 +2578,37 @@ test("Component and Scene visibility toggles are scoped project transactions", (
   const componentIndex = store.getState().components.findIndex((item) => item.id === component.id);
   const sceneIndex = store.getState().components.findIndex((item) => item.id === scene.id);
 
+  const componentLayer = componentLayerProjection(store.getState(), store.getState().components[componentIndex])[0];
+  const sceneLayer = componentLayerProjection(store.getState(), store.getState().components[sceneIndex])[0];
   assert.equal(store.setComponentToggle(
-    `components.${componentIndex}.chain.0.enabled`,
+    `${componentLayer.path}.enabled`,
     false,
     {
-      reason: `toggle:components.${componentIndex}.chain.0.enabled`,
+      reason: "toggle:component-graph-node-enabled",
       selectAction: "chain-item",
       selectId: component.chain[0].id,
     },
   ), true);
   assert.equal(store.setComponentToggle(
-    `components.${sceneIndex}.chain.0.enabled`,
+    `${sceneLayer.path}.enabled`,
     false,
     {
-      reason: `toggle:components.${sceneIndex}.chain.0.enabled`,
+      reason: "toggle:component-graph-node-enabled",
       selectAction: "chain-item",
       selectId: scene.chain[0].id,
     },
   ), true);
 
   const next = store.getState();
-  assert.equal(next.components[componentIndex].chain[0].enabled, false);
-  assert.equal(next.components[sceneIndex].chain[0].enabled, false);
+  assert.equal(componentChainProjection(next, next.components[componentIndex])[0].enabled, false);
+  assert.equal(componentChainProjection(next, next.components[sceneIndex])[0].enabled, false);
   assert.equal(next.ui.selectedChainItemId, scene.chain[0].id);
   assert.notEqual(next.components[componentIndex].activity.updatedAt, "2020-01-01T00:00:00.000Z");
   assert.notEqual(next.components[sceneIndex].activity.updatedAt, "2020-01-01T00:00:00.000Z");
   assert.equal(prepareCount, 1, "an already-normalized boolean toggle must not normalize the complete project again");
   assert.equal(events.at(-1).command.domain, "project");
   assert.equal(events.at(-1).effects.persistence.history, true);
-  assert.equal(events.at(-1).command.topic, `components.${sceneIndex}.chain.0.enabled`);
+  assert.equal(events.at(-1).command.topic, "component-graph-node-enabled");
 });
 
 test("Mapping Surface visibility commits one scoped route transaction", () => {

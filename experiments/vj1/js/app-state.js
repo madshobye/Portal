@@ -614,6 +614,13 @@ export function createAppState(initial = null, {
         { components: [previousComponent] },
         { components: [nextComponent] },
       );
+      // Graph-authoritative element edits no longer alter a mirrored
+      // `component.chain`, so the Component metadata signature alone cannot
+      // observe them. The command already resolved the owning Component;
+      // stamp it directly when any addressed value belongs to its graph.
+      if (normalizedEntries.some((entry) => entry.nodeId)) {
+        nextComponent.activity.updatedAt = new Date().toISOString();
+      }
       const components = state.components.slice();
       components[componentIndex] = nextComponent;
       const ui = clone(state.ui);

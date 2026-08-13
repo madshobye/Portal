@@ -1,4 +1,7 @@
-import { createModelPreviewBlob } from "../libraries/mesh-engine/convert-3d-file-to-image/index.js";
+import {
+  createModelPreviewBlob,
+  MODEL_THUMBNAIL_PIPELINE_VERSION,
+} from "../libraries/mesh-engine/convert-3d-file-to-image/index.js";
 import { mediaSourceRevision } from "./media-rendition-service.js";
 
 const MODEL_RE = /\.(stl|obj)$/i;
@@ -32,8 +35,8 @@ export function createMediaThumbnailHandler({
     const existing = entries.get(key);
     if (existing) return existing.url || existing.promise;
 
-    const sourceRevision = mediaSourceRevision(file);
     const kind = mediaThumbnailKind(key);
+    const sourceRevision = thumbnailSourceRevision(file, kind);
     const entry = { url: "", promise: null, invalidated: false };
     entry.promise = resolveThumbnail(key, sourceRevision, kind, file, () => !entry.invalidated).then((blob) => {
       if (!blob) return "";
@@ -145,6 +148,13 @@ export function mediaThumbnailKind(id) {
   if (MODEL_RE.test(String(id || ""))) return "model";
   if (VIDEO_RE.test(String(id || ""))) return "video";
   return "image";
+}
+
+export function thumbnailSourceRevision(file, kind) {
+  const sourceRevision = mediaSourceRevision(file);
+  return kind === "model"
+    ? `${sourceRevision}-${MODEL_THUMBNAIL_PIPELINE_VERSION}`
+    : sourceRevision;
 }
 
 export async function createMediaThumbnailBlob(file, { id = "", kind = mediaThumbnailKind(id) } = {}) {

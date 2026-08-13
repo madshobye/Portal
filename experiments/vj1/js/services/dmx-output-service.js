@@ -30,7 +30,8 @@ export function createDmxOutputService({
   let cadenceStartedAt = 0;
   let lastFrameAt = 0;
   let lastFrameInterval = 0;
-  const fixtureValues = new Map();
+  const probeContributions = new Map();
+  let contributionSequence = 0;
   const testChannels = new Map();
   const listeners = new Set();
   if (typeof onStatus === "function") listeners.add(onStatus);
@@ -181,11 +182,30 @@ export function createDmxOutputService({
     if (nextState) state = nextState;
   }
 
-  function receiveProbe({ fixtureId = "", values = {} } = {}) {
+  function receiveProbe({ fixtureId = "", values = {}, source = {}, release = false } = {}) {
     if (!fixtureId) return false;
-    fixtureValues.set(String(fixtureId), { ...values });
+    const key = probeContributionKey(fixtureId, source);
+    if (release) probeContributions.delete(key);
+    else probeContributions.set(key, {
+      fixtureId: String(fixtureId),
+      values: { ...values },
+      priority: dmxSourcePriority(source),
+      sequence: ++contributionSequence,
+      source: { ...source },
+    });
     rebuildFrame();
     return true;
+  }
+
+  function releaseProbeSources(source = {}) {
+    let changed = false;
+    for (const [key, contribution] of probeContributions) {
+      if (!dmxSourceMatches(contribution.source, source)) continue;
+      probeContributions.delete(key);
+      changed = true;
+    }
+    if (changed) rebuildFrame();
+    return changed;
   }
 
   function setTestChannel(channelNumber, unitValue) {
@@ -204,6 +224,7 @@ export function createDmxOutputService({
 
   function rebuildFrame() {
     frame.fill(0);
+    const fixtureValues = mergedProbeFixtureValues(probeContributions);
     for (const fixture of settings.fixtures) {
       const { profile } = dmxFixtureProfile(settings, fixture.id);
       if (!profile) continue;
@@ -310,6 +331,7 @@ export function createDmxOutputService({
     disconnect,
     dispose,
     receiveProbe,
+    releaseProbeSources,
     sendFrame,
     setTestChannel,
     snapshot,
@@ -317,6 +339,52 @@ export function createDmxOutputService({
     syncState,
     tryReconnectKnown,
   };
+}
+
+function mergedProbeFixtureValues(contributions) {
+  const selected = new Map();
+  for (const contribution of contributions.values()) {
+    for (const [channelId, value] of Object.entries(contribution.values || {})) {
+      const key = `${contribution.fixtureId}:${channelId}`;
+      const current = selected.get(key);
+      if (
+        current &&
+        (current.priority > contribution.priority ||
+          (current.priority === contribution.priority && current.sequence > contribution.sequence))
+      ) continue;
+      selected.set(key, {
+        fixtureId: contribution.fixtureId,
+        channelId,
+        value,
+        priority: contribution.priority,
+        sequence: contribution.sequence,
+      });
+    }
+  }
+  const result = new Map();
+  for (const entry of selected.values()) {
+    const values = result.get(entry.fixtureId) || {};
+    values[entry.channelId] = entry.value;
+    result.set(entry.fixtureId, values);
+  }
+  return result;
+}
+
+function probeContributionKey(fixtureId, source = {}) {
+  const rendererId = String(source.rendererId || source.outputId || source.mode || "legacy");
+  const componentId = String(source.componentId || "");
+  const probeId = String(source.probeId || "");
+  return `${rendererId}:${componentId}:${probeId}:${fixtureId}`;
+}
+
+function dmxSourcePriority(source = {}) {
+  return String(source.mode || "") === "output" ? 2 : 1;
+}
+
+function dmxSourceMatches(candidate = {}, requested = {}) {
+  const keys = ["rendererId", "mode", "outputId", "componentId", "probeId"]
+    .filter((key) => requested[key] !== undefined && requested[key] !== "");
+  return keys.length > 0 && keys.every((key) => String(candidate[key] || "") === String(requested[key]));
 }
 
 function samePortHint(port, hint) {

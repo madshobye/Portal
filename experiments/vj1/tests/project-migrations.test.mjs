@@ -41,11 +41,12 @@ import {
   migrateProjectV37ToV38,
   migrateProjectV38ToV39,
   migrateProjectV39ToV40,
+  migrateProjectV40ToV41,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 40);
+  assert.equal(CURRENT_PROJECT_VERSION, 41);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -1218,6 +1219,58 @@ test("v39 to v40 removes per-Probe sampling cadence from chains and graph author
   assert.deepEqual(migrated.components[0].chain[0].params, {});
   assert.deepEqual(migrated.nodes.groups[0].nodes[0].parameters, {});
   assert.deepEqual(migrated.nodes.groups[0].nodes[0].configuration.params, {});
+});
+
+test("v40 to v41 migrates placement offsets into direct normalized coordinates", () => {
+  const migrated = migrateProjectV40ToV41({
+    version: 40,
+    components: [{
+      id: "component-a",
+      transform: { x: 0, y: 1, scale: 1 },
+      chain: [{
+        id: "group-a",
+        kind: "group",
+        transform: { x: -1, y: 0, scale: 1 },
+        boundary: { x: 1, y: -1, width: 1, height: 1 },
+        chain: [],
+      }],
+    }],
+    nodes: {
+      groups: [{
+        id: "component-a",
+        nodes: [{
+          id: "item-a",
+          parameters: { "$general.transform.x": 0 },
+          configuration: {
+            transform: { x: 0.5, y: -0.5, scale: 1 },
+            boundary: { x: 0, y: 0, width: 1, height: 1 },
+          },
+        }],
+      }],
+    },
+    ui: {
+      live: {
+        parameterDiffs: {
+          "scene-a": {
+            "component-a": {
+              nodes: {
+                "item-a": { transform: { x: -0.5 }, boundary: { y: 0.5 } },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(migrated.components[0].transform, { x: 0.5, y: 1, scale: 1 });
+  assert.deepEqual(migrated.components[0].chain[0].transform, { x: 0, y: 0.5, scale: 1 });
+  assert.deepEqual(migrated.components[0].chain[0].boundary, { x: 1, y: 0, width: 1, height: 1 });
+  assert.deepEqual(migrated.nodes.groups[0].nodes[0].configuration.transform, { x: 0.75, y: 0.25, scale: 1 });
+  assert.deepEqual(migrated.nodes.groups[0].nodes[0].configuration.boundary, { x: 0.5, y: 0.5, width: 1, height: 1 });
+  assert.equal(migrated.nodes.groups[0].nodes[0].parameters["$general.transform.x"], 0.5);
+  assert.equal(migrated.ui.live.parameterDiffs["scene-a"]["component-a"].nodes["item-a"].transform.x, 0.25);
+  assert.equal(migrated.ui.live.parameterDiffs["scene-a"]["component-a"].nodes["item-a"].boundary.y, 0.75);
 });
 
 test("migration runner applies every adjacent step in order", () => {

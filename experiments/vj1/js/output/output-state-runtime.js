@@ -23,6 +23,10 @@ export class OutputStateRuntime {
     this.current = normalized
       ? initialState
       : sanitizeState(initialState || {});
+    // Initial setup must consume the resolved preview viewport just like every
+    // later activation. Otherwise the geometry runtime keeps its constructor
+    // default (1x) until a workspace switch happens to assign the real fit.
+    host.presentationGeometry.assignViewport(this.current?.render);
     this.rebuildCompiledState();
     if (host.presentationRuntime.shouldUseThumbnailPreview()) {
       host.thumbnailRuntime.captureEditTransformBaselines();

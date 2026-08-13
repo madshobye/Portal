@@ -97,6 +97,7 @@ async function installControlApp() {
   }
   showStartupStage("Initializing application services…");
   let controlShell = null;
+  let dmxOutputService = null;
   const application = await nodePackage.createApplicationRuntime({
     group: applicationBootstrap.group,
     factories: {
@@ -129,6 +130,13 @@ async function installControlApp() {
         // direct patch transport but does not create a hidden parallel store
         // subscription when instantiated by the node program.
         subscribeStore: false,
+        onDmxFixture(payload) {
+          if (payload?.releaseSources) {
+            dmxOutputService?.releaseProbeSources(payload.source);
+          } else {
+            dmxOutputService?.receiveProbe(payload);
+          }
+        },
       }),
       "session-devices": (dependencies) => {
         const store = dependencies["data-store"];
@@ -136,6 +144,7 @@ async function installControlApp() {
         const dmxOutput = createDmxOutputService({
           onStatus: () => controlShell?.refreshDeviceStatus(),
         });
+        dmxOutputService = dmxOutput;
         const midiInput = createMidiInputService({
           onSignal(payload) {
             controlShell?.deliverControlSignal(payload);

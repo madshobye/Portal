@@ -53,10 +53,10 @@ test("component render signatures include nested dependencies without recursing 
 });
 
 test("intrinsic component render state excludes only its root placement transform", () => {
-  const child = { id: "child", transform: { x: 0.25, scale: 1.5 }, chain: [] };
+  const child = { id: "child", transform: { x: 0.625, scale: 1.5 }, chain: [] };
   const parent = {
     id: "parent",
-    transform: { y: -0.4 },
+    transform: { y: 0.3 },
     chain: [{ id: "child-ref", kind: "source", source: { type: "component", componentId: "child" } }],
   };
   const components = [parent, child];
@@ -64,7 +64,7 @@ test("intrinsic component render state excludes only its root placement transfor
   const graph = staticCompiledComponentGraphState(parent, programs, components, new Set(), false);
 
   assert.equal("transform" in graph, false);
-  assert.deepEqual(graph.dependencies[0].transform, { x: 0.25, y: 0, scale: 1.5, rotation: 0 });
+  assert.deepEqual(graph.dependencies[0].transform, { x: 0.625, y: 0.5, scale: 1.5, rotation: 0 });
 });
 
 test("canonical empty chains exclude legacy source state and media", () => {

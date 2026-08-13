@@ -1101,6 +1101,9 @@ export class OutputSurfaceRuntime {
 
 export function transitionRouteSourceKey(route = {}) {
   const surface = route.surface || {};
+  const transform = normalizedContentTransform(route.component?.transform);
+  const stableNumber = (value) =>
+    Math.round((Number(value) || 0) * 1e6) / 1e6;
   return JSON.stringify([
     surface.sourceNodeId || "",
     surface.componentId || "",
@@ -1108,6 +1111,10 @@ export function transitionRouteSourceKey(route = {}) {
     surface.sourceFit || "cover",
     surface.sourceFitActive === true,
     Math.round((Number(surface.sourceAspect) || 1) * 1e6) / 1e6,
+    stableNumber(transform.x),
+    stableNumber(transform.y),
+    stableNumber(transform.scale),
+    stableNumber(transform.rotation),
   ]);
 }
 

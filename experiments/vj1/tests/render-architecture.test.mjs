@@ -85,12 +85,12 @@ test("precomputed effect matrices are inverse transforms", () => {
 
 test("content coordinates preserve right and down across drag Canvas and UV boundaries", () => {
   assert.deepEqual(CONTENT_COORDINATE_CONVENTION, { x: "right", y: "down", rotation: "clockwise" });
-  assert.deepEqual(localContentDragDelta(20, 10, {}, 200, 100), { x: 0.2, y: 0.2 });
-  const placed = contentTransformCanvasPlacement({ x: 0.2, y: 0.2 }, 200, 100);
+  assert.deepEqual(localContentDragDelta(20, 10, {}, 200, 100), { x: 0.1, y: 0.1 });
+  const placed = contentTransformCanvasPlacement({ x: 0.6, y: 0.6 }, 200, 100);
   assert.equal(placed.centerX, 120);
   assert.equal(placed.centerY, 60);
 
-  const sampling = contentTransformUvMatrices({ x: 0.2, y: 0.2 }).sampling;
+  const sampling = contentTransformUvMatrices({ x: 0.6, y: 0.6 }).sampling;
   const sourceCenter = applyMat3(sampling, [0.6, 0.6]);
   assert.ok(Math.abs(sourceCenter[0] - 0.5) < 1e-9);
   assert.ok(Math.abs(sourceCenter[1] - 0.5) < 1e-9);
@@ -102,11 +102,11 @@ test("content transform matrices support allocation-stable in-place updates", ()
   const sampling = matrices.sampling;
   const placement = matrices.placement;
 
-  assert.equal(contentTransformUvMatrices({ y: -0.25, rotation: 0.4 }, matrices), matrices);
+  assert.equal(contentTransformUvMatrices({ y: 0.375, rotation: 0.4 }, matrices), matrices);
   assert.equal(matrices.value, value);
   assert.equal(matrices.sampling, sampling);
   assert.equal(matrices.placement, placement);
-  assert.equal(matrices.value.y, -0.25);
+  assert.equal(matrices.value.y, 0.375);
 });
 
 test("raw WebGL storage orientation is explicit and separate from Composition coordinates", () => {
@@ -510,8 +510,8 @@ test("scene dissolve mixes premultiplied surface routes inside one projection sh
   assert.match(source, /toColor \*= roundedFeatherMask\(toFeatherUv, toFeatherAspect\)/);
   assert.match(source, /uniform vec4 uFromSourceRect/);
   assert.match(source, /uniform vec4 uToSourceRect/);
-  assert.match(source, /vec2 fromTextureUv = uFromSourceRect\.xy/);
-  assert.match(source, /vec2 toTextureUv = uToSourceRect\.xy/);
+  assert.match(source, /vec2 textureUv = uFromSourceRect\.xy/);
+  assert.match(source, /vec2 textureUv = uToSourceRect\.xy/);
   assert.ok(source.indexOf("fromColor *= roundedFeatherMask") < source.indexOf("vec4 color = vj1Transition"));
 });
 

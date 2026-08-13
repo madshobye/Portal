@@ -54,12 +54,12 @@ test("spatial effects participate in the same preview handle contract as sources
 });
 
 test("nested chain transform context composes parent translation and scale", () => {
-  const child = { id: "child", kind: "source", source: { type: "media" }, transform: { x: 0.25, scale: 0.5 } };
-  const group = { id: "group", kind: "group", transform: { x: 0.5, scale: 2 }, chain: [child] };
+  const child = { id: "child", kind: "source", source: { type: "media" }, transform: { x: 0.625, scale: 0.5 } };
+  const group = { id: "group", kind: "group", transform: { x: 0.75, scale: 2 }, chain: [child] };
   const context = findChainItemTransformContext([group], child.id);
 
-  assert.deepEqual(context.parentTransform, { x: 0.5, y: 0, scale: 2, rotation: 0 });
-  assert.deepEqual(context.transform, { x: 1, y: 0, scale: 1, rotation: 0 });
+  assert.deepEqual(context.parentTransform, { x: 0.75, y: 0.5, scale: 2, rotation: 0 });
+  assert.deepEqual(context.transform, { x: 1, y: 0.5, scale: 1, rotation: 0 });
 });
 
 test("preview hit policy returns the containing group for nested physical children", () => {
@@ -105,7 +105,7 @@ test("oriented boundary picking rejects points inside only the rotated AABB", ()
 test("move scale and rotation drag calculations live outside the renderer", () => {
   const move = resolveChainTransformDrag({
     mode: "move",
-    transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+    transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
     parentTransform: { scale: 2 },
     startX: 0,
     startY: 0,
@@ -128,8 +128,8 @@ test("move scale and rotation drag calculations live outside the renderer", () =
   }, 0, 1);
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
-  assert.equal(move.x, 0.1);
-  assert.equal(move.y, 0);
+  assert.equal(move.x, 0.55);
+  assert.equal(move.y, 0.5);
   assert.equal(scale.scale, 2);
   assert.equal(rotate.rotation, Math.PI / 2);
   assert.match(renderer, /from "\.\/preview-interaction-geometry\.js"/);
@@ -169,8 +169,8 @@ test("a Group boundary is the union of its physical children rather than the who
   const group = {
     kind: "group",
     chain: [
-      { id: "left", kind: "source", source: { type: "component" }, transform: { x: -0.5 } },
-      { id: "right", kind: "source", source: { type: "component" }, transform: { x: 0.5 } },
+      { id: "left", kind: "source", source: { type: "component" }, transform: { x: 0.25 } },
+      { id: "right", kind: "source", source: { type: "component" }, transform: { x: 0.75 } },
     ],
   };
   const bounds = groupLocalBounds({

@@ -56,6 +56,9 @@ import { nodeBoundaryUniformScale, normalizeNodeBoundary } from "../libraries/re
 import { componentParameterAddressForPath } from "../domain/component-layer-projection.js";
 import { screenCaptureStatus } from "../libraries/device-engine/index.js";
 import { BLEND_MODES } from "../constants.js";
+import { catalogSortIcon } from "./catalog-view.js";
+
+export { catalogSortIcon } from "./catalog-view.js";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 const PARAMETER_TAB_FLOW_LAYOUT = Object.freeze({
@@ -394,15 +397,6 @@ export function thumbnailCatalogUiModel({
     }],
     commands,
   });
-}
-
-export function catalogSortIcon(mode = "recent") {
-  return {
-    recent: "history",
-    marker: "keep",
-    name: "sort_by_alpha",
-    created: "add_circle",
-  }[mode] || "history";
 }
 
 export function sceneSurfaceListItems(state) {
@@ -950,14 +944,15 @@ export function parameterTabsUiModel(model, { live = false } = {}) {
         state: model?.state,
       }))] : [
         ...(view.models || []).map(parameterTabFlowModel),
-        ...(view.parameterModel || view.videoModel) ? [parameterTabFillModel(
-          view.parameterModel
-            ? chainContentParameterUiModel(view.parameterModel, {
-                leadingControls: chainVideoParameterDescriptors(view.videoModel),
-              })
-            : chainVideoControlsUiModel(view.videoModel)
+        ...(view.parameterModel || (!live && view.videoModel)) ? [parameterTabFillModel(
+          live
+            ? liveChainContentParameterUiModel(view.parameterModel)
+            : view.parameterModel
+              ? chainContentParameterUiModel(view.parameterModel, {
+                  leadingControls: chainVideoParameterDescriptors(view.videoModel),
+                })
+              : chainVideoControlsUiModel(view.videoModel)
         )] : [],
-        ...view.liveParameterModel ? [parameterTabFillModel(liveChainContentParameterUiModel(view.liveParameterModel))] : [],
       ],
     })),
   });

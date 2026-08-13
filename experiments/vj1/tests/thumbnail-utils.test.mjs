@@ -9,6 +9,10 @@ import {
   graphicsToThumbnailBlob,
 } from "../js/output/thumbnail-utils.js";
 import { OutputThumbnailRuntime } from "../js/output/output-thumbnail-runtime.js";
+import {
+  compileComponentGroupTopology,
+  compileComponentRenderPrograms,
+} from "../js/libraries/composition-engine/index.js";
 
 test("thumbnail utilities own sizing signatures and PNG conversion", async () => {
   assert.deepEqual(fittedThumbnailSize(1920, 1080), { width: 768, height: 432 });
@@ -54,6 +58,56 @@ test("thumbnail invalidation is latest-wins and retains the published image whil
   assert.equal(runtime.pending.size, 1);
   assert.notEqual(runtime.pending.get(component.id).signature, firstSignature);
   runtime.dispose();
+});
+
+test("real compiled Component configuration changes invalidate an existing thumbnail", () => {
+  const component = {
+    id: "component-compiled-thumbnail",
+    type: "chain",
+    thumbnail: "blob:previous",
+    chain: [{
+      id: "source-a",
+      kind: "source",
+      enabled: true,
+      opacity: 1,
+      blend: "normal",
+      boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 },
+      transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+      source: { type: "generator", generatorId: "noise", params: { scale: 1 } },
+    }],
+  };
+  const group = compileComponentGroupTopology(component);
+  const program = compileComponentRenderPrograms([component], [group]).get(component.id);
+  const state = {
+    components: [component],
+    frames: [],
+    render: {},
+    ui: { selectedComponentId: component.id },
+  };
+  const runtime = new OutputThumbnailRuntime({
+    getState: () => state,
+    getComponentProgram: () => program,
+    sendThumbnail: () => true,
+  });
+  runtime.setInteractionActive(true);
+  assert.equal(runtime.invalidateSelectedComponent(), true);
+  const firstSignature = runtime.pending.get(component.id).signature;
+  runtime.pending.clear();
+  runtime.signatures.set(component.id, firstSignature);
+
+  const node = group.nodes[0];
+  program.replaceNodeConfiguration(node.id, {
+    ...node.configuration,
+    source: {
+      ...node.configuration.source,
+      params: { ...node.configuration.source.params, scale: 2 },
+    },
+  });
+
+  assert.equal(runtime.invalidateSelectedComponent(), true);
+  assert.notEqual(runtime.pending.get(component.id).signature, firstSignature);
+  runtime.dispose();
+  program.dispose();
 });
 
 test("an unavailable media render never replaces the last valid thumbnail", async () => {

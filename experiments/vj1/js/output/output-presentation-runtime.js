@@ -69,6 +69,7 @@ export class OutputPresentationRuntime {
       this.finishFrame();
       return;
     }
+    host.probeRuntime.beginFrame?.();
     host.componentRenderRuntime.beginFrame();
     host.presentationMetrics.beginFrame();
     host.frameRuntime.drainScheduledEvents();
@@ -144,6 +145,7 @@ export class OutputPresentationRuntime {
 
   finishFrame() {
     const host = this.host;
+    host.probeRuntime.endFrame?.();
     this.gpuTimer.sealFrame(host.frameRuntime.frameIndex);
     host.frameRuntime.finish();
   }

@@ -151,7 +151,7 @@ test("adaptive sampling safety multipliers are named render-contract constants",
 });
 
 test("boundary scale preserves the authored ROI proportion", () => {
-  const boundary = { x: 0.2, y: -0.1, width: 0.8, height: 0.4 };
+  const boundary = { x: 0.6, y: 0.45, width: 0.8, height: 0.4 };
   const scaled = nodeBoundaryWithUniformScale(boundary, nodeBoundaryUniformScale(boundary) * 2);
   assert.equal(scaled.x, boundary.x);
   assert.equal(scaled.y, boundary.y);
@@ -235,7 +235,7 @@ test("Test Pattern color-bar clipping stays inside its proportional circle", () 
 test("an off-screen boundary keeps its full logical domain while allocating only visible pixels", () => {
   const request = nodeRoiRequest(
     { role: "component", width: 1000, height: 500, logicalWidth: 1000, logicalHeight: 500 },
-    { x: -0.5, y: 0, width: 1, height: 1 }
+    { x: 0.25, y: 0.5, width: 1, height: 1 }
   );
   assert.equal(request.width, 750);
   assert.equal(request.height, 500);
@@ -302,28 +302,29 @@ test("standalone WebGL targets release their context before removal", () => {
 test("nested boundaries are positioned in the parent's full domain rather than its cropped allocation", () => {
   const parent = nodeRoiRequest(
     { width: 1000, height: 500, logicalWidth: 1000, logicalHeight: 500 },
-    { x: -0.5, y: 0, width: 1, height: 1 }
+    { x: 0.25, y: 0.5, width: 1, height: 1 }
   );
-  const child = nodeRoiRequest(parent, { x: -0.5, y: 0, width: 0.5, height: 1 });
+  const child = nodeRoiRequest(parent, { x: 0.25, y: 0.5, width: 0.5, height: 1 });
   assert.equal(child.roi.x, 0);
   assert.equal(child.width, 250);
   assert.equal(child.logicalWidth, 500);
   assert.deepEqual(child.uvRect, [0.5, 0, 0.5, 1]);
 });
 
-test("a fully invisible boundary has no visible ROI", () => {
+test("boundary centers are clamped to the authored zero-to-one range", () => {
   const roi = nodeBoundaryPixelRect(
     { x: -2, y: 0, width: 0.5, height: 0.5 },
     { width: 1000, height: 500 }
   );
-  assert.equal(roi.empty, true);
-  assert.equal(roi.width, 0);
+  assert.equal(roi.centerX, 0);
+  assert.equal(roi.centerY, 0);
+  assert.equal(roi.empty, false);
 });
 
 test("a rotated boundary stays boundary-sized and carries oriented composite geometry", () => {
   const request = nodeRoiRequest(
     { width: 1000, height: 500, logicalWidth: 1000, logicalHeight: 500 },
-    { x: 0, y: 0, width: 0.25, height: 0.25, rotation: Math.PI / 4 }
+    { x: 0.5, y: 0.5, width: 0.25, height: 0.25, rotation: Math.PI / 4 }
   );
   assert.equal(request.width, 250);
   assert.equal(request.height, 125);
@@ -336,8 +337,8 @@ test("a rotated boundary stays boundary-sized and carries oriented composite geo
 
 test("a covering axis-aligned source ROI renders on the consumer pixel grid", () => {
   const boundary = {
-    x: -0.01921501128622675,
-    y: 0,
+    x: 0.4903924943568866,
+    y: 0.5,
     width: 1.0787603048142944,
     height: 1.0787603048142944,
     rotation: 0,
@@ -368,8 +369,8 @@ test("a covering axis-aligned source ROI renders on the consumer pixel grid", ()
 test("consumer-grid ROI retains conservative allocation for rotation and halos", () => {
   const parent = { width: 1200, height: 800 };
   const boundary = {
-    x: -0.01921501128622675,
-    y: 0,
+    x: 0.4903924943568866,
+    y: 0.5,
     width: 1.0787603048142944,
     height: 1.0787603048142944,
     rotation: 0.001,

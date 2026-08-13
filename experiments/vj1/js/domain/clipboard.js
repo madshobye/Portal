@@ -181,7 +181,7 @@ function pasteMedia(draft, source, target) {
     enabled: true,
     opacity: 1,
     blend: "normal",
-    transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+    transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
     source: createAuthoredMediaSource(source.id, source),
   }));
 }
@@ -214,7 +214,7 @@ function createComponentReferenceLayer(draft, scene, source) {
     enabled: true,
     opacity: 1,
     blend: "normal",
-    transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+    transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
     source: {
       type: "component",
       componentId: source.id,

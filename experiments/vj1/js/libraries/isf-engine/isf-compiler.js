@@ -302,10 +302,10 @@ vec2 vj1IsfUv;
 float vj1IsfProgress;
 
 vec4 vj1IsfSampleStart(vec2 uv) {
-  return texture(fromTex, uFromSourceRect.xy + clamp(uv, vec2(0.0), vec2(1.0)) * uFromSourceRect.zw) * uFromOpacity;
+  return vj1SampleTransitionStart(uv);
 }
 vec4 vj1IsfSampleEnd(vec2 uv) {
-  return texture(toTex, uToSourceRect.xy + clamp(uv, vec2(0.0), vec2(1.0)) * uToSourceRect.zw) * uToOpacity;
+  return vj1SampleTransitionEnd(uv);
 }
 vec4 vj1IsfSampleStartPixel(vec2 pixelCoord) {
   return vj1IsfSampleStart(pixelCoord / max(startImage_imgSize, vec2(1.0)));

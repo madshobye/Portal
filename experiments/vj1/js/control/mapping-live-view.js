@@ -12,7 +12,10 @@ import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js
 import { parameterAnimationTracks } from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
 import { getByPath } from "./path-input-utils.js";
 import { dmxProbeComponentForState } from "../libraries/dmx-engine/index.js";
-import { liveParameterDiffBank } from "../domain/live-parameter-diffs.js";
+import {
+  liveParameterDiffBank,
+  liveParameterDiffTargetId,
+} from "../domain/live-parameter-diffs.js";
 import { mediaChoiceUiModel } from "./media-view.js";
 import {
   componentLayerProjection,
@@ -122,7 +125,11 @@ export function liveSignificantParameterAssignments(state = {}, limit = 8) {
 
 export function liveSignificantAssignmentValue(assignment, component, state) {
   if (assignment.kind === "animation") {
-    const override = liveParameterDiffBank(state.ui?.live)?.[component.id]
+    const live = state.ui?.live || {};
+    const override = liveParameterDiffBank(
+      live,
+      liveParameterDiffTargetId(live, component.id),
+    )?.[component.id]
       ?.animation?.[assignment.trackId]?.fields?.[assignment.field];
     if (override !== undefined) return override;
     return parameterAnimationTracks(
@@ -289,6 +296,19 @@ function liveLayerOutlineItems(layers, componentId, selectedNodeId, state, depth
       icon: chainItemToggleIcon(item),
       presentation: item.enabled !== false ? "enabled-toggle" : "disabled-toggle",
       position: "leading",
+      toggle: {
+        value: item.enabled !== false,
+        on: {
+          label: `Disable ${label}`,
+          icon: chainItemToggleIcon({ ...item, enabled: true }),
+          presentation: "enabled-toggle",
+        },
+        off: {
+          label: `Enable ${label}`,
+          icon: chainItemToggleIcon({ ...item, enabled: false }),
+          presentation: "disabled-toggle",
+        },
+      },
       payload: {
         componentId,
         nodeId: layer.nodeId,
@@ -337,7 +357,7 @@ export function selectedLiveParameterTabsModel(state) {
   for (const [viewId, paramView] of [["content", "primary"], ["details", "details"]]) {
     const parameterModel = selectedLiveRetainedParameterModel(state, paramView);
     const view = views.find((candidate) => candidate.id === viewId);
-    if (view && parameterModel) view.liveParameterModel = parameterModel;
+    if (view && parameterModel) view.parameterModel = parameterModel;
     if (view) view.models = selectedLiveSpecializedModels(state, component.id, selected, definition, paramView);
   }
   return {

@@ -1,6 +1,6 @@
 import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js";
 import { effectIcon, UI_ICONS } from "./ui-icons.js";
-import { sortComponentCatalog } from "./catalog-view.js";
+import { catalogSortIcon, sortComponentCatalog } from "./catalog-view.js";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js";
 import { mediaCategory } from "./media-view.js";
 import { catalogMarkerMeta } from "../domain/catalog-marker.js";
@@ -255,7 +255,12 @@ function catalogMarkedItem(descriptor, item, kind) {
   const marker = catalogMarkerMeta(item.catalogMarker);
   return {
     ...descriptor,
-    actions: [{ id: `marker:${kind}`, label: `${marker.label}; click to mark ${marker.nextLabel}`, icon: marker.icon }],
+    actions: [{
+      id: `marker:${kind}`,
+      label: `${marker.label}; click to mark ${marker.nextLabel}`,
+      icon: marker.icon,
+      presentation: `marker-${marker.marker}`,
+    }],
   };
 }
 
@@ -263,7 +268,11 @@ function catalogSortDescriptor(scope, activeMode) {
   const modes = ["recent", "marker", "name", "created"];
   const index = Math.max(0, modes.indexOf(activeMode));
   const next = modes[(index + 1) % modes.length];
-  return { id: `sort:${scope}:${next}`, label: `Sorted by ${modes[index]}; click to sort by ${next}`, icon: "sort" };
+  return {
+    id: `sort:${scope}:${next}`,
+    label: `Sorted by ${modes[index]}; click to sort by ${next}`,
+    icon: catalogSortIcon(modes[index]),
+  };
 }
 
 // A project may already contain an imported ISF file that later becomes part

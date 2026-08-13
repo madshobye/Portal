@@ -246,6 +246,7 @@ export function createCatalogPickerInstance({ id, host, inputs: initialInputs, s
       actionButton.type = "button";
       actionButton.dataset.uiCatalogItemAction = action.id;
       actionButton.dataset.uiCatalogItemId = item.id;
+      if (action.presentation) actionButton.dataset.uiActionVariant = action.presentation;
       actionButton.style.setProperty("--ui-catalog-action-index", String(index));
       actionButton.title = action.label;
       actionButton.setAttribute("aria-label", action.label);
@@ -558,7 +559,10 @@ function normalizeCatalogItem(item = {}) {
       load: item.media.load === "intent" ? "intent" : "visible",
     } : null,
     actions: (item.actions || []).map((action) => ({
-      id: String(action?.id || ""), label: String(action?.label || action?.id || "Action"), icon: String(action?.icon || ""),
+      id: String(action?.id || ""),
+      label: String(action?.label || action?.id || "Action"),
+      icon: String(action?.icon || ""),
+      presentation: String(action?.presentation || ""),
     })).filter((action) => action.id),
   };
 }

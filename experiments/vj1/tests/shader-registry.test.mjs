@@ -21,6 +21,12 @@ test("every rasterizing effect exposes the shared render quality budget", () => 
   const probe = getShaderComponent("probe");
   assert.equal(probe.processor, "observer");
   assert.equal(probe.params.some(({ id }) => id === "renderQuality"), false);
+  assert.deepEqual(probe.params.map(({ id }) => id), [
+    "flowGain",
+    "flowSmoothing",
+    "flowThreshold",
+    "flowResolution",
+  ]);
 });
 
 test("photo grade exposes common one-pass image tweak controls", () => {

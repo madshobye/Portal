@@ -30,7 +30,7 @@ export function createMappingTestPatternRuntimeComponent() {
       source: createGeneratorSource("testPattern"),
       opacity: 1,
       blend: "normal",
-      transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+      transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
       boundary: { ...FULL_NODE_BOUNDARY },
     }],
   };

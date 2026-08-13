@@ -19,6 +19,7 @@ const RESERVED_UNIFORMS = new Set([
   "uCanvasSize",
   "uHinv",
 ]);
+const RAW_ENDPOINT_SYMBOL_RE = /\b(?:fromTex|toTex|uFromSourceRect|uToSourceRect|uFromOpacity|uToOpacity)\b/;
 
 export function defineTransitionKernel({
   id,
@@ -44,6 +45,11 @@ export function defineTransitionKernel({
   const fragmentSource = String(source || "").trim();
   if (!/\bvec4\s+vj1Transition\s*\(\s*vec4\b[\s\S]*\bfloat\b[\s\S]*\)/.test(fragmentSource)) {
     throw new Error(`TRANSITION_KERNEL_ENTRY_MISSING:${kernelId}`);
+  }
+  // Endpoint textures belong to the host. Kernels must use the supplied colors
+  // or host samplers so warped samples retain the same fit/crop as their endpoints.
+  if (RAW_ENDPOINT_SYMBOL_RE.test(fragmentSource)) {
+    throw new Error(`TRANSITION_KERNEL_RAW_ENDPOINT_ACCESS:${kernelId}`);
   }
   const normalizedUniforms = Object.fromEntries(Object.entries(uniforms || {}).map(([uniformId, specification]) => {
     const type = typeof specification === "string" ? specification : specification?.type;
@@ -166,11 +172,19 @@ uniform float uToOpacity;
 uniform float uTransition;
 in vec2 vTexCoord;
 out vec4 vj1TransitionOutput;
+vec4 vj1SampleTransitionStart(vec2 uv) {
+  vec2 sampleUv = clamp(uv, vec2(0.0), vec2(1.0));
+  return texture(fromTex, uFromSourceRect.xy + sampleUv * uFromSourceRect.zw) * uFromOpacity;
+}
+vec4 vj1SampleTransitionEnd(vec2 uv) {
+  vec2 sampleUv = clamp(uv, vec2(0.0), vec2(1.0));
+  return texture(toTex, uToSourceRect.xy + sampleUv * uToSourceRect.zw) * uToOpacity;
+}
 ${kernel.source}
 void main() {
   vec2 uv = clamp(vTexCoord, vec2(0.0), vec2(1.0));
-  vec4 startColor = texture(fromTex, uFromSourceRect.xy + uv * uFromSourceRect.zw) * uFromOpacity;
-  vec4 endColor = texture(toTex, uToSourceRect.xy + uv * uToSourceRect.zw) * uToOpacity;
+  vec4 startColor = vj1SampleTransitionStart(uv);
+  vec4 endColor = vj1SampleTransitionEnd(uv);
   vec4 color = vj1Transition(startColor, endColor, uv, clamp(uTransition, 0.0, 1.0));
   ${kernel.alpha === TRANSITION_ALPHA_MODES.STRAIGHT ? "color.rgb *= color.a;" : ""}
   vj1TransitionOutput = color;

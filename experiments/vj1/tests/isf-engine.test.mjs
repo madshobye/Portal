@@ -233,7 +233,13 @@ test("single-pass ISF transitions compile into the mapper transition kernel cont
   assert.equal(kernel.uniforms.softness.defaultValue, 0.1);
   assert.equal(kernel.uniforms.startImage_imgSize.host, "startImageSize");
   assert.match(kernel.source, /vj1IsfOutput = mix\(vj1IsfStartColor, vj1IsfEndColor, edge\)/);
+  assert.match(kernel.source, /return vj1SampleTransitionStart\(uv\)/);
+  assert.match(kernel.source, /return vj1SampleTransitionEnd\(uv\)/);
+  assert.doesNotMatch(kernel.source, /texture\(fromTex/);
+  assert.doesNotMatch(kernel.source, /texture\(toTex/);
   assert.match(mapperSource, /vec4 color = vj1Transition\(fromColor, toColor, uv/);
+  assert.match(mapperSource, /vec4 vj1SampleTransitionStartPrepared/);
+  assert.match(mapperSource, /vj1FitTargetUvToSourceUv\([\s\S]*uFromProjectionFit/);
   assert.match(mapperSource, /uniform float softness/);
 });
 

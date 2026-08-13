@@ -78,6 +78,7 @@ export function createControlBridge({
   lifecycleTarget = globalThis,
   controlId = persistentControlId(),
   channelName = VJ1.channelName,
+  onDmxFixture = null,
 }) {
   const channel = new BroadcastChannel(channelName);
   const sessionId = `control-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -239,6 +240,23 @@ export function createControlBridge({
             draft.ui.mappingStatus = msg.status || "Mapping updated";
           }, reason);
         }
+      }
+      if (msg.type === "dmx-fixture") {
+        onDmxFixture?.({
+          ...(msg.payload || {}),
+          source: {
+            ...(msg.payload?.source || {}),
+            rendererId: msg.clientId,
+            mode: msg.mode === "output" ? "output" : "preview",
+            outputId: String(msg.outputId || ""),
+          },
+        });
+      }
+      if (msg.type === "dmx-source-release") {
+        onDmxFixture?.({
+          releaseSources: true,
+          source: { rendererId: msg.clientId },
+        });
       }
     } finally {
       const elapsedMs = performance.now() - messageStartedAt;
@@ -925,6 +943,17 @@ export function createOutputBridge({
     recoveryTimers.add(timer);
   }
 
+  function dmxFixture(payload = {}) {
+    channel.postMessage(protocolMessage({
+      type: "dmx-fixture",
+      clientId,
+      mode,
+      outputId,
+      payload,
+      sessionId: controlSessionId,
+    }));
+  }
+
   hello();
   const helloInterval = setInterval(hello, 2000);
   return {
@@ -935,10 +964,18 @@ export function createOutputBridge({
     requestMediaFiles,
     requestState,
     recoveryState,
+    dmxFixture,
     markTransportApplied: transportProfiler.applied,
     markTransportRendered: transportProfiler.rendered,
     recordTransportResync: transportProfiler.resync,
     close: () => {
+      channel.postMessage(protocolMessage({
+        type: "dmx-source-release",
+        clientId,
+        mode,
+        outputId,
+        sessionId: controlSessionId,
+      }));
       cancelPendingLivePatch();
       clearInterval(helloInterval);
       for (const timer of recoveryTimers) clearTimeout(timer);

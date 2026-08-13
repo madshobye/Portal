@@ -138,7 +138,7 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
   if (!existingGroup || existingGroup.generatedBy !== COMPONENT_PROGRAM_GENERATOR) {
     const group = compileComponentGroupTopology(component, options);
     return {
-      component: withProjectedChain(component, component.chain || [], group.projectionSignature),
+      component: withoutLegacyChain(component, group.projectionSignature),
       group,
       source: "component-import",
     };
@@ -154,7 +154,7 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
       existingGroup,
     );
     return {
-      component: withProjectedChain(component, component.chain || [], group.projectionSignature),
+      component: withoutLegacyChain(component, group.projectionSignature),
       group,
       source: "legacy-component-import",
     };
@@ -163,7 +163,8 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
   const graphSignature = componentChainSignature(graphChain);
   const componentSignature = componentChainSignature(component.chain || []);
   const projectionMarker = String(component.nodeProjectionSignature || "");
-  const compatibilityEdit = projectionMarker
+  const compatibilityEdit = Array.isArray(component.chain)
+    && projectionMarker
     && projectionMarker === storedSignature
     && graphSignature === storedSignature
     && componentSignature !== projectionMarker;
@@ -177,15 +178,15 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
       existingGroup,
     );
     return {
-      component: withProjectedChain(component, component.chain || [], group.projectionSignature),
+      component: withoutLegacyChain(component, group.projectionSignature),
       group,
       source: "component-projection-edit",
     };
   }
 
-  // Persisted graph configuration wins on load and after graph edits. The
-  // chain remains a materialized compatibility view for the current product
-  // UI; it is not a second persisted authority.
+  // Persisted graph configuration wins on load and after graph edits. A
+  // legacy Component chain is consumed only while importing old project data;
+  // never republish it beside the graph as a second in-memory authority.
   const definitions = options.definitions || new Map();
   const nodes = annotateComponentCompositionTopology(
     refreshVisualCompilerHooks(existingGroup.nodes || [], definitions),
@@ -201,7 +202,7 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
     projectionSignature: graphSignature,
   };
   return {
-    component: withProjectedChain(component, graphChain, graphSignature),
+    component: withoutLegacyChain(component, graphSignature),
     group,
     source: graphSignature === storedSignature ? "node-graph" : "node-graph-edit",
   };
@@ -441,7 +442,14 @@ export class CompiledComponentRenderProgram {
     const requested = new Set(Array.from(nodeIds || [], String).filter(Boolean));
     const configurations = new Map();
     collectGraphNodeConfigurations(group.nodes || [], requested, configurations);
-    const missingIds = [...requested].filter((id) => !configurations.has(id));
+    // The authored Group can advance before a retained program is rebuilt.
+    // Report that stale compiled target through the ordinary synchronization
+    // result so LiveRenderPatchRuntime can rebuild once and retry. Calling the
+    // strict single-node replacement here used to throw before that recovery
+    // boundary could run.
+    const missingIds = [...requested].filter((id) =>
+      !configurations.has(id) || !this.plan.hasConfiguration(id)
+    );
     if (missingIds.length) return Object.freeze({
       applied: false,
       changedIds: Object.freeze([]),
@@ -457,6 +465,14 @@ export class CompiledComponentRenderProgram {
       changedIds: Object.freeze(changedIds),
       missingIds: Object.freeze([]),
     });
+  }
+
+  configurationState() {
+    // Thumbnail identity follows the current compiled configurations rather
+    // than the disposable Component chain projection. Build the lightweight
+    // projection on invalidation so retained node replacements and topology
+    // rebuilds are visible immediately without maintaining a second cache.
+    return visualRenderPlanConfiguration(this.plan);
   }
 
   isRegionSafe(component = null, options = {}) {
@@ -772,12 +788,9 @@ function materializeChain(topologyNodes, currentChain, groupId) {
   });
 }
 
-function withProjectedChain(component, chain, signature) {
-  return {
-    ...component,
-    chain: cloneJson(chain || []),
-    nodeProjectionSignature: signature,
-  };
+function withoutLegacyChain(component, signature) {
+  const { chain: _legacyChain, ...metadata } = component || {};
+  return { ...metadata, nodeProjectionSignature: signature };
 }
 
 function componentChainSignature(chain) {

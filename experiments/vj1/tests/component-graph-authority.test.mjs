@@ -36,7 +36,7 @@ test("Component controls edit graph configuration and publish stable node render
   const after = store.getState();
   const changed = componentLayerProjection(after, after.components[0])[0];
   assert.equal(changed.item.enabled, false);
-  assert.equal(after.components[0].chain[0].enabled, false, "the disposable execution projection is refreshed");
+  assert.equal(Object.hasOwn(after.components[0], "chain"), false, "the migrated Component has no duplicate chain authority");
   assert.deepEqual(events.at(-1).renderPatches, [{
     componentId: component.id,
     nodeId: layer.nodeId,
@@ -62,7 +62,7 @@ test("render patches resolve and copy graph nodes without touching the Component
   assert.equal(result.applied, true);
   assert.strictEqual(result.state.components, state.components);
   assert.equal(componentLayerProjection(result.state, component)[0].item.enabled, false);
-  assert.equal(state.components[0].chain[0].enabled, true);
+  assert.equal(componentLayerProjection(state, component)[0].item.enabled, true);
 });
 
 test("semantic layer commands change Group topology before refreshing the execution projection", () => {

@@ -95,6 +95,10 @@
         textureTransitionFragmentShaderSource,
       } from "../../js/libraries/transition-engine/index.js";
       import {
+        mapperTransitionFragmentShaderSource,
+        mapperTransitionVertexShaderSource,
+      } from "../../js/libraries/mapping-engine/mapping-engine/index.js";
+      import {
         MESH_PATTERN_FILL_FRAGMENT_SHADER,
         MESH_PATTERN_FILL_VERTEX_SHADER,
         MESH_PATTERN_WIRE_FRAGMENT_SHADER,
@@ -1340,12 +1344,20 @@
             component.vertexCode || vertexSource,
             component.code,
           )),
-          ...transitions.map((entry) => compileCuratedPair(
-            gl,
-            `curated-isf-transition:${entry.id}`,
-            vertexSource,
-            textureTransitionFragmentShaderSource(entry.kernel),
-          )),
+          ...transitions.flatMap((entry) => [
+            compileCuratedPair(
+              gl,
+              `curated-isf-transition:${entry.id}`,
+              vertexSource,
+              textureTransitionFragmentShaderSource(entry.kernel),
+            ),
+            compileCuratedPair(
+              gl,
+              `curated-isf-mapper-transition:${entry.id}`,
+              mapperTransitionVertexShaderSource(),
+              mapperTransitionFragmentShaderSource({ transitionKernel: entry.kernel }),
+            ),
+          ]),
         ];
         return {
           compiled: programs.every((entry) => entry.compiled),

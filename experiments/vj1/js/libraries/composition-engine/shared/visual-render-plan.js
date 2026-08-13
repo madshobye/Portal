@@ -553,6 +553,10 @@ export class VisualRenderPlan {
     return result.changed;
   }
 
+  hasConfiguration(itemId) {
+    return operationConfigurationExists(this.operations, String(itemId || ""));
+  }
+
   dispose() {
     disposeVisualOperations(this.operations);
     this.runtimeStates.clear();
@@ -1417,6 +1421,20 @@ function replaceOperationConfiguration(operations, itemId, nextConfiguration) {
       Math.max(0, Number(operation.configurationRevision) || 0) + 1;
   }
   return { changed, operations };
+}
+
+function operationConfigurationExists(operations, itemId) {
+  if (!itemId) return false;
+  for (const operation of operations || []) {
+    if (String(operation?.id || "") === itemId) return true;
+    if (
+      operation?.opcode === VISUAL_RENDER_OPCODES.GROUP &&
+      operationConfigurationExists(operation.operations, itemId)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function compileCompoundPublicParameterBindings(definition, operations, controlProgram, valueProgram, path) {

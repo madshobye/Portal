@@ -158,7 +158,11 @@ export function normalizeComponentPipelineSettings(render = {}) {
 }
 
 export function normalizePreviewViewport(viewport = {}) {
-  const fit = ["frame", "world", "manual"].includes(viewport.fit) ? viewport.fit : "world";
+  // A fresh editor viewport should present the authored output at the largest
+  // contained size. "world" remains an explicit navigation choice, but using
+  // it as the missing-value fallback makes every project refresh start with
+  // Scene, Mapping, and Live visibly inset inside the larger project world.
+  const fit = ["frame", "world", "manual"].includes(viewport.fit) ? viewport.fit : "frame";
   return {
     zoom: clampNumber(viewport.zoom, 0.1, 6, 1),
     x: clampNumber(viewport.x, -100000, 100000, 0),

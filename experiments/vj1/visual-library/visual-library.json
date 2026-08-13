@@ -78,6 +78,27 @@
       "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
+      "id": "vj1.visual.effect.buffered-echo",
+      "visualId": "buffered-echo",
+      "version": "0.1.0",
+      "name": "Buffered Echo",
+      "description": "Fades a persistent buffer and conditionally blends the current image into it.",
+      "artifactType": "effect",
+      "resource": "shaders/effects/buffered-echo.fs",
+      "categories": [
+        "feedback",
+        "temporal"
+      ],
+      "tags": [
+        "feedback",
+        "buffer",
+        "echo",
+        "stutter",
+        "trigger"
+      ],
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
       "id": "vj1.transition.dissolve",
       "visualId": "vj1.transition.dissolve",
       "nodeId": "vj1.visual.transition.vj1.transition.dissolve",

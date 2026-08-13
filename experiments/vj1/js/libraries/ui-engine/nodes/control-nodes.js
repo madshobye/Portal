@@ -228,10 +228,8 @@ export function createControlInstance({ id, host, inputs: initialInputs, stateAd
     if (kind === "button") {
       updateButtonContent();
     } else if (kind === "toggle") {
-      const enabled = inputs.value === true;
       updateButtonContent();
-      control.setAttribute("aria-pressed", String(enabled));
-      control.classList.toggle("is-enabled", enabled);
+      updateToggleValue(inputs.value);
     } else if (kind === "select") {
       reconcileOptions(control, inputs.options, inputs.value, document);
     } else if (kind === "slider") {
@@ -263,9 +261,24 @@ export function createControlInstance({ id, host, inputs: initialInputs, stateAd
     buttonText.hidden = inputs.iconOnly;
   }
 
+  function updateToggleValue(value) {
+    const enabled = value === true;
+    inputs = { ...inputs, value: enabled };
+    control.setAttribute("aria-pressed", String(enabled));
+    control.classList.toggle("is-enabled", enabled);
+  }
+
   function onButtonClick() {
-    if (kind === "toggle") emit("change", { value: inputs.value !== true });
-    else emit("activate", inputs.commandPayload);
+    if (kind === "toggle") {
+      // Retained controls own the immediate gesture presentation. Some UI-only
+      // state updates deliberately avoid rebuilding their panel, so waiting for
+      // a graph projection would leave the pressed state stale until an
+      // unrelated invalidation. The next authoritative update still reconciles
+      // this optimistic value through update().
+      const value = inputs.value !== true;
+      updateToggleValue(value);
+      emit("change", { value });
+    } else emit("activate", inputs.commandPayload);
   }
 
   function onContextMenu(event) {
@@ -612,8 +625,12 @@ function stepPrecision(step) {
   return text.includes(".") ? Math.min(8, text.split(".")[1].length) : 0;
 }
 
-function sliderPosition(value, inputs) {
-  const numeric = Math.max(inputs.min, Math.min(inputs.max, Number(value) || inputs.min));
+export function sliderPosition(value, inputs) {
+  const parsed = value === null || value === "" ? NaN : Number(value);
+  const numeric = Math.max(
+    inputs.min,
+    Math.min(inputs.max, Number.isFinite(parsed) ? parsed : inputs.min),
+  );
   if (inputs.scale !== "log") return numeric;
   return Math.log(numeric / inputs.min) / Math.log(inputs.max / inputs.min);
 }

@@ -95,6 +95,19 @@ function componentElementListItems(layers, component, state, depth = 0) {
         icon: chainItemToggleIcon(item),
         presentation: item.enabled !== false ? "enabled-toggle" : "disabled-toggle",
         position: "leading",
+        toggle: {
+          value: item.enabled !== false,
+          on: {
+            label: "Disable",
+            icon: chainItemToggleIcon({ ...item, enabled: true }),
+            presentation: "enabled-toggle",
+          },
+          off: {
+            label: "Enable",
+            icon: chainItemToggleIcon({ ...item, enabled: false }),
+            presentation: "disabled-toggle",
+          },
+        },
         payload: {
           operation: "toggle-enabled",
           path: `${layer.path}.enabled`,

@@ -11,6 +11,8 @@ import {
 } from "./shader-target-runtime.js";
 import { unwrapRenderTarget } from "./shared-framebuffer-target.js";
 import { renderTargetNeedsShaderSampleFlip } from "./render-target-contract.js";
+import { AsyncPixelReadback } from "./async-pixel-readback.js";
+import { textureStateKey } from "../libraries/render-engine/render-node-contract.js";
 import {
   dmxFixtureProfile,
   dmxProbeFixtureValues,
@@ -57,6 +59,21 @@ const PROBE_FEATURES = Object.freeze([
   "s",
   "v",
   "alpha",
+  "flow",
+  "flowX",
+  "flowY",
+  "flowRotation",
+  "flowExpansion",
+  "flowConfidence",
+]);
+
+const PROBE_FLOW_FEATURES = Object.freeze([
+  "flow",
+  "flowX",
+  "flowY",
+  "flowRotation",
+  "flowExpansion",
+  "flowConfidence",
 ]);
 
 export class ProbeRuntime {
@@ -67,7 +84,24 @@ export class ProbeRuntime {
     this.clock = clock;
     this.shaders = new Map();
     this.samples = new Map();
+    this.pixelReadback = new AsyncPixelReadback();
     this.sequence = 0;
+    this.dmxSources = new Map();
+    this.dmxFrameSources = null;
+  }
+
+  beginFrame() {
+    this.dmxFrameSources = new Set();
+  }
+
+  endFrame() {
+    if (!this.dmxFrameSources) return;
+    for (const [key, entry] of this.dmxSources) {
+      if (this.dmxFrameSources.has(key)) continue;
+      this.host.sendDmxFixture?.({ ...entry, values: {}, release: true });
+      this.dmxSources.delete(key);
+    }
+    this.dmxFrameSources = null;
   }
 
   observe(component, operation, renderedItem, state, renderRequest) {
@@ -89,11 +123,25 @@ export class ProbeRuntime {
       retained = { values: null };
       this.samples.set(key, retained);
     }
-    const values = this.sample(
-      state.buffer,
-      renderedItem?.boundary,
-      renderRequest,
+    const needsFlow = demandedFeatures.some((feature) =>
+      PROBE_FLOW_FEATURES.includes(feature)
     );
+    const values = needsFlow
+      ? this.sampleFlow(
+        state.buffer,
+        renderedItem,
+        renderRequest,
+        key,
+        textureStateKey(state),
+        retained,
+      )
+      : this.sample(
+        state.buffer,
+        renderedItem?.boundary,
+        renderRequest,
+        key,
+        textureStateKey(state),
+      );
     if (!values || !probeValuesChanged(retained.values, values)) return false;
     retained.values = values;
     const addresses = Object.fromEntries(demandedFeatures.map((feature) => [
@@ -106,6 +154,36 @@ export class ProbeRuntime {
     });
   }
 
+  sampleFlow(buffer, renderedItem, renderRequest, streamKey, sampleRevision, retained) {
+    const params = renderedItem?.params || {};
+    const resolution = Math.min(16, Math.max(
+      4,
+      Math.round(Number(params.flowResolution) || 8),
+    ));
+    const grid = this.sampleGrid(
+      buffer,
+      renderedItem?.boundary,
+      renderRequest,
+      { width: resolution, height: resolution },
+      `${streamKey}:flow:${resolution}`,
+      sampleRevision,
+    );
+    if (grid === null) return null;
+    if (!grid.length) return null;
+
+    const color = averageProbeColorFeatures(grid);
+    const rawFlow = retained.grid?.length === grid.length
+      ? probeOpticalFlowFeatures(retained.grid, grid, resolution, resolution, {
+        gain: params.flowGain,
+        threshold: params.flowThreshold,
+      })
+      : zeroProbeFlowFeatures();
+    const smoothing = clamp(Number(params.flowSmoothing) || 0, 0, 0.95);
+    const flow = smoothProbeFlowFeatures(retained.values, rawFlow, smoothing);
+    retained.grid = grid;
+    return Object.freeze({ ...color, ...flow });
+  }
+
   observeDmx(component, operation, renderedItem, state, renderRequest) {
     const settings = normalizeDmxDeviceSettings(this.host.state?.devices?.dmx);
     if (!settings.enabled || typeof this.host.sendDmxFixture !== "function") return false;
@@ -116,6 +194,20 @@ export class ProbeRuntime {
     const { fixture, profile } = dmxFixtureProfile(settings, fixtureId);
     if (!fixture || !profile || fixture.enabled === false) return false;
     const probeId = String(renderedItem?.id || operation?.id || "");
+    const sourceKey = `${component?.id || ""}:${probeId}`;
+    const source = {
+      rendererId: String(this.host.dmxRendererId || `${this.host.mode || "preview"}:${this.host.outputId || "local"}`),
+      mode: this.host.mode === "output" ? "output" : "preview",
+      outputId: String(this.host.outputId || ""),
+      componentId: String(component?.id || ""),
+      probeId,
+    };
+    this.dmxFrameSources?.add(sourceKey);
+    const previousSource = this.dmxSources.get(sourceKey);
+    if (previousSource && previousSource.fixtureId !== fixtureId) {
+      this.host.sendDmxFixture?.({ ...previousSource, values: {}, release: true });
+      this.dmxSources.delete(sourceKey);
+    }
     const key = `dmx:${component?.id || ""}:${probeId}:${fixtureId}`;
     const now = this.clock();
     let retained = this.samples.get(key);
@@ -130,30 +222,44 @@ export class ProbeRuntime {
         renderedItem?.boundary,
         renderRequest,
         dmxProbeSampleResolution(renderedItem, profile),
+        key,
+        textureStateKey(state),
       );
+    if (samples === null) return false;
     const values = dmxProbeFixtureValues(renderedItem, profile, samples);
+    this.dmxSources.set(sourceKey, { fixtureId, source });
     if (sameRecord(retained.values, values)) return false;
     retained.values = values;
     this.host.sendDmxFixture({
       fixtureId,
       values,
-      source: {
-        componentId: String(component?.id || ""),
-        probeId,
-      },
+      source,
       timestamp: now,
     });
     return true;
   }
 
-  sample(buffer, boundary, renderRequest) {
+  sample(
+    buffer,
+    boundary,
+    renderRequest,
+    streamKey = "probe:default",
+    sampleRevision = "direct",
+  ) {
     return this.sampleGrid(buffer, boundary, renderRequest, {
       width: 1,
       height: 1,
-    })[0] || null;
+    }, streamKey, sampleRevision)?.[0] || null;
   }
 
-  sampleGrid(buffer, boundary, renderRequest, resolution = {}) {
+  sampleGrid(
+    buffer,
+    boundary,
+    renderRequest,
+    resolution = {},
+    streamKey = "probe-grid:default",
+    sampleRevision = "direct",
+  ) {
     if (!buffer) return [];
     const sampleWidth = Math.min(32, Math.max(1, Math.round(Number(resolution.width) || 1)));
     const sampleHeight = Math.min(32, Math.max(1, Math.round(Number(resolution.height) || 1)));
@@ -202,8 +308,20 @@ export class ProbeRuntime {
       drawShaderTargetRect(target, sampleWidth, sampleHeight);
       resetShaderTarget(target);
     });
-    target.loadPixels?.();
-    const pixels = target.pixels;
+    const readback = this.pixelReadback.read(
+      target,
+      streamKey,
+      sampleWidth,
+      sampleHeight,
+      sampleRevision,
+    );
+    if (readback.pending) this.host.invalidatePresentation?.("probe-readback");
+    let pixels = readback.pixels;
+    if (!readback.supported) {
+      target.loadPixels?.();
+      pixels = target.pixels;
+    }
+    if (readback.supported && !pixels) return null;
     if (!pixels || pixels.length < sampleWidth * sampleHeight * 4) return [];
     return Array.from({ length: sampleWidth * sampleHeight }, (_, index) =>
       probeColorFeatures(pixels.subarray
@@ -213,6 +331,12 @@ export class ProbeRuntime {
   }
 
   dispose() {
+    for (const entry of this.dmxSources.values()) {
+      this.host.sendDmxFixture?.({ ...entry, values: {}, release: true });
+    }
+    this.dmxSources.clear();
+    this.dmxFrameSources = null;
+    this.pixelReadback.dispose();
     for (const shader of this.shaders.values()) disposeP5Shader(shader);
     this.shaders.clear();
     this.samples.clear();
@@ -282,6 +406,148 @@ export function probeValuesChanged(previous, next, epsilon = 1 / 255) {
   );
 }
 
+export function probeOpticalFlowFeatures(
+  previous = [],
+  current = [],
+  width = 0,
+  height = 0,
+  { gain = 2, threshold = 0.01 } = {},
+) {
+  const columns = Math.max(0, Math.round(Number(width) || 0));
+  const rows = Math.max(0, Math.round(Number(height) || 0));
+  if (columns < 3 || rows < 3 || previous.length !== columns * rows || current.length !== previous.length) {
+    return zeroProbeFlowFeatures();
+  }
+
+  const normal = Array.from({ length: 4 }, () => [0, 0, 0, 0]);
+  const right = [0, 0, 0, 0];
+  let temporalEnergy = 0;
+  let samples = 0;
+  const stepX = 2 / Math.max(1, columns - 1);
+  const stepY = 2 / Math.max(1, rows - 1);
+  const brightness = (grid, x, y) => Number(grid[y * columns + x]?.brightness) || 0;
+
+  for (let y = 1; y < rows - 1; y++) {
+    for (let x = 1; x < columns - 1; x++) {
+      const ix = (
+        brightness(previous, x + 1, y) - brightness(previous, x - 1, y) +
+        brightness(current, x + 1, y) - brightness(current, x - 1, y)
+      ) / (4 * stepX);
+      const iy = (
+        brightness(previous, x, y + 1) - brightness(previous, x, y - 1) +
+        brightness(current, x, y + 1) - brightness(current, x, y - 1)
+      ) / (4 * stepY);
+      const it = brightness(current, x, y) - brightness(previous, x, y);
+      const px = x * stepX - 1;
+      const py = y * stepY - 1;
+      const row = [ix, iy, -ix * py + iy * px, ix * px + iy * py];
+      for (let a = 0; a < 4; a++) {
+        right[a] -= row[a] * it;
+        for (let b = 0; b < 4; b++) normal[a][b] += row[a] * row[b];
+      }
+      temporalEnergy += it * it;
+      samples++;
+    }
+  }
+
+  const rmsChange = Math.sqrt(temporalEnergy / Math.max(1, samples));
+  const noiseFloor = Math.max(0, Number(threshold) || 0);
+  if (rmsChange <= noiseFloor) return zeroProbeFlowFeatures();
+  for (let index = 0; index < 4; index++) normal[index][index] += 0.0001;
+  const solution = solveLinearSystem4(normal, right);
+  const scale = Math.max(0, Number(gain) || 0);
+  const flowX = clamp(solution[0] * scale, -1, 1);
+  const flowY = clamp(solution[1] * scale, -1, 1);
+  const flowRotation = clamp(solution[2] * scale, -1, 1);
+  const flowExpansion = clamp(solution[3] * scale, -1, 1);
+  const residual = flowResidual(previous, current, columns, rows, solution);
+  const flowConfidence = clamp01((rmsChange - noiseFloor) / (rmsChange + residual + 0.0001));
+  return Object.freeze({
+    flow: clamp01(Math.hypot(flowX, flowY)),
+    flowX,
+    flowY,
+    flowRotation,
+    flowExpansion,
+    flowConfidence,
+  });
+}
+
+function averageProbeColorFeatures(grid) {
+  const total = grid.reduce((sum, feature) => {
+    sum[0] += feature.r;
+    sum[1] += feature.g;
+    sum[2] += feature.b;
+    sum[3] += feature.alpha;
+    return sum;
+  }, [0, 0, 0, 0]);
+  const divisor = Math.max(1, grid.length);
+  return probeColorFeatures(total.map((value) => value * 255 / divisor));
+}
+
+function zeroProbeFlowFeatures() {
+  return Object.freeze({
+    flow: 0,
+    flowX: 0,
+    flowY: 0,
+    flowRotation: 0,
+    flowExpansion: 0,
+    flowConfidence: 0,
+  });
+}
+
+function smoothProbeFlowFeatures(previous, next, smoothing) {
+  if (!previous || smoothing <= 0) return next;
+  return Object.freeze(Object.fromEntries(PROBE_FLOW_FEATURES.map((feature) => [
+    feature,
+    Number(previous[feature] || 0) * smoothing + Number(next[feature] || 0) * (1 - smoothing),
+  ])));
+}
+
+function solveLinearSystem4(matrix, vector) {
+  const rows = matrix.map((row, index) => [...row, vector[index]]);
+  for (let column = 0; column < 4; column++) {
+    let pivot = column;
+    for (let row = column + 1; row < 4; row++) {
+      if (Math.abs(rows[row][column]) > Math.abs(rows[pivot][column])) pivot = row;
+    }
+    [rows[column], rows[pivot]] = [rows[pivot], rows[column]];
+    const divisor = rows[column][column];
+    if (Math.abs(divisor) < 1e-9) continue;
+    for (let index = column; index < 5; index++) rows[column][index] /= divisor;
+    for (let row = 0; row < 4; row++) {
+      if (row === column) continue;
+      const factor = rows[row][column];
+      for (let index = column; index < 5; index++) rows[row][index] -= factor * rows[column][index];
+    }
+  }
+  return rows.map((row) => Number.isFinite(row[4]) ? row[4] : 0);
+}
+
+function flowResidual(previous, current, width, height, solution) {
+  const stepX = 2 / Math.max(1, width - 1);
+  const stepY = 2 / Math.max(1, height - 1);
+  const brightness = (grid, x, y) => Number(grid[y * width + x]?.brightness) || 0;
+  let error = 0;
+  let samples = 0;
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const ix = (brightness(current, x + 1, y) - brightness(current, x - 1, y)) / (2 * stepX);
+      const iy = (brightness(current, x, y + 1) - brightness(current, x, y - 1)) / (2 * stepY);
+      const px = x * stepX - 1;
+      const py = y * stepY - 1;
+      const predicted = ix * (solution[0] - solution[2] * py + solution[3] * px) +
+        iy * (solution[1] + solution[2] * px + solution[3] * py);
+      error += Math.abs(predicted + brightness(current, x, y) - brightness(previous, x, y));
+      samples++;
+    }
+  }
+  return error / Math.max(1, samples);
+}
+
 function clamp01(value) {
   return Math.min(1, Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0));
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, Number.isFinite(Number(value)) ? Number(value) : 0));
 }

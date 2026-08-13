@@ -1,12 +1,19 @@
-import { liveComponentLayerProjection } from "../domain/component-layer-projection.js";
+import {
+  componentLayerProjection,
+  liveComponentLayerProjection,
+} from "../domain/component-layer-projection.js";
+import { liveParameterDiffTargetId } from "../domain/live-parameter-diffs.js";
 
 // Expensive semantic snapshots for the bounded performance capture only.
 // Callers must gate this behind an active profiling session.
 export function captureControlLiveProfileDiagnostic(state = {}, renderState = {}, context = {}) {
   const live = state.ui?.live || {};
-  const liveTargetId = String(live.selectedComponentId || live.selectedSceneId || "");
   const relevantComponentIds = collectRelevantComponentIds(live, renderState);
   const componentIds = [...relevantComponentIds];
+  const liveTargetId = liveParameterDiffTargetId(
+    live,
+    live.inspectedComponentId || componentIds[0] || "",
+  );
   const common = {
     schema: "vj1-live-profile-diagnostic@4",
     capturedAtMs: performance.now(),
@@ -44,6 +51,11 @@ export function captureControlLiveProfileDiagnostic(state = {}, renderState = {}
         .map((id) => componentById.get(id))
         .filter(Boolean)
         .map((component) => snapshotComponent(renderState, component)),
+      authoredComponents: componentIds
+        .slice(0, 12)
+        .map((id) => state.components?.find((component) => String(component?.id || "") === id))
+        .filter(Boolean)
+        .map((component) => snapshotComponent(state, component, { authored: true })),
     },
   };
 }
@@ -67,7 +79,7 @@ function collectRelevantComponentIds(live = {}, renderState = {}) {
   return ids;
 }
 
-function snapshotComponent(state = {}, component = {}) {
+function snapshotComponent(state = {}, component = {}, { authored = false } = {}) {
   return {
     id: String(component.id || ""),
     name: String(component.name || ""),
@@ -76,7 +88,9 @@ function snapshotComponent(state = {}, component = {}) {
     speed: component.speed,
     blend: component.blend,
     transform: boundedProfileValue(component.transform),
-    nodes: liveComponentLayerProjection(state, component)
+    nodes: (authored
+      ? componentLayerProjection(state, component)
+      : liveComponentLayerProjection(state, component))
       .slice(0, 32)
       .map(snapshotLayer),
   };

@@ -19,7 +19,7 @@ import {
 
 import { applyLiveRenderPatches, applyLiveRenderPatchesImmutable, createComponentRenderPatch, createRenderStatePatch, resolveLiveRenderPatches } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
-import { createMediaThumbnailHandler } from "../js/services/media-thumbnail-service.js";
+import { createMediaThumbnailHandler, thumbnailSourceRevision } from "../js/services/media-thumbnail-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
 import { produceStructuralShare } from "../js/libraries/data-store/data-store/structural-sharing.js";
@@ -666,6 +666,12 @@ test("media thumbnail handler centralizes image video STL and OBJ generation lif
   assert.deepEqual(revoked.sort(), ["blob:image-1", "blob:model-3", "blob:model-4", "blob:model-5", "blob:video-2"]);
 });
 
+test("model thumbnail revisions invalidate cached previews when their render pipeline changes", () => {
+  const file = { name: "shape.stl", size: 42, lastModified: 9, type: "model/stl" };
+  assert.equal(thumbnailSourceRevision(file, "image"), mediaSourceRevision(file));
+  assert.match(thumbnailSourceRevision(file, "model"), /-topology-v2$/);
+});
+
 test("media thumbnail handler restores every revision-matched media type from project thumbnail storage", async () => {
   const cached = new Map();
   let generations = 0;
@@ -1220,8 +1226,8 @@ test("media runtime pauses videos that are no longer claimed by the rendered fra
 });
 
 test("thumbnail runtime owns nested chain transform baselines", () => {
-  const source = { id: "source-a", kind: "source", transform: { x: 0.25, scale: 2 } };
-  const group = { id: "group-a", kind: "group", transform: { y: -0.5 }, chain: [source] };
+  const source = { id: "source-a", kind: "source", transform: { x: 0.625, scale: 2 } };
+  const group = { id: "group-a", kind: "group", transform: { y: 0.25 }, chain: [source] };
   const runtime = new OutputThumbnailRuntime({
     getState: () => ({ components: [{ id: "component-a", chain: [group] }] }),
     getComponentProgram: () => ({
@@ -1234,8 +1240,8 @@ test("thumbnail runtime owns nested chain transform baselines", () => {
 
   runtime.captureEditTransformBaselines();
 
-  assert.deepEqual(runtime.transformBaselines.get("component-a:group-a"), { x: 0, y: -0.5, scale: 1, rotation: 0 });
-  assert.deepEqual(runtime.transformBaselines.get("component-a:source-a"), { x: 0.25, y: 0, scale: 2, rotation: 0 });
+  assert.deepEqual(runtime.transformBaselines.get("component-a:group-a"), { x: 0.5, y: 0.25, scale: 1, rotation: 0 });
+  assert.deepEqual(runtime.transformBaselines.get("component-a:source-a"), { x: 0.625, y: 0.5, scale: 2, rotation: 0 });
 });
 
 test("media runtime replaces changed files and revisions completed loads", () => {
@@ -1390,6 +1396,58 @@ test("output diagnostics cross the bridge with origin and bounded occurrence cou
       count: 4,
     }]);
     output.close();
+    control.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("Output DMX proposals cross the bridge with authoritative renderer identity and release", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const channels = [];
+  const received = [];
+  globalThis.BroadcastChannel = class {
+    constructor() { channels.push(this); }
+    postMessage(message) {
+      for (const channel of channels) {
+        if (channel !== this) channel.onmessage?.({ data: message });
+      }
+    }
+    close() {}
+  };
+  try {
+    const state = { metrics: { clients: 0, outputs: {} } };
+    const control = createControlBridge({
+      store: {
+        subscribe() { return () => {}; },
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+      onDmxFixture: (payload) => received.push(payload),
+    });
+    const output = createOutputBridge({ mode: "output", outputId: "projector-a" });
+    output.dmxFixture({
+      fixtureId: "fixture-a",
+      values: { red: 0.8 },
+      source: { componentId: "component-a", probeId: "probe-a" },
+    });
+
+    assert.equal(received[0].fixtureId, "fixture-a");
+    assert.deepEqual(received[0].values, { red: 0.8 });
+    assert.equal(received[0].source.mode, "output");
+    assert.equal(received[0].source.outputId, "projector-a");
+    assert.equal(received[0].source.componentId, "component-a");
+    assert.equal(received[0].source.probeId, "probe-a");
+    assert.match(received[0].source.rendererId, /^output-projector-a-/);
+
+    output.close();
+    assert.deepEqual(received.at(-1), {
+      releaseSources: true,
+      source: { rendererId: received[0].source.rendererId },
+    });
     control.close();
   } finally {
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
@@ -2975,6 +3033,34 @@ test("Live render patches may author omitted parameter defaults but not structur
   ]).applied, false);
 });
 
+test("retained node placement patches can materialize an omitted default boundary", () => {
+  const state = {
+    components: [{ id: "component-a" }],
+    nodes: { groups: [{
+      generatedBy: "vj1-component-compiler",
+      componentId: "component-a",
+      nodes: [{
+        id: "item-a",
+        configuration: {
+          kind: "source",
+          source: { type: "generator", generatorId: "noise", params: {} },
+        },
+      }],
+    }] },
+  };
+  const boundary = { x: 0.1, y: -0.2, width: 0.8, height: 0.7, rotation: 0 };
+  const result = applyLiveRenderPatchesImmutable(state, [
+    createComponentRenderPatch("component-a", "item-a", "boundary", boundary),
+  ]);
+
+  assert.equal(result.applied, true);
+  assert.deepEqual(result.state.nodes.groups[0].nodes[0].configuration.boundary, boundary);
+  assert.equal(state.nodes.groups[0].nodes[0].configuration.boundary, undefined);
+  assert.equal(applyLiveRenderPatches(state, [
+    createComponentRenderPatch("component-a", "item-a", "unknown-structure", {}),
+  ]).applied, false);
+});
+
 test("revisioned slider patches update the compiled visual plan without rebuilding it", () => {
   const component = {
     id: "component-a",
@@ -3028,6 +3114,11 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
   assert.strictEqual(program.plan, originalPlan, "a parameter scrub does not recompile the plan");
   assert.equal(program.plan.operations[0].configuration.source.params.scale, 3);
   assert.equal(
+    persistedGroup.nodes[0].configuration.source.params.scale,
+    1,
+    "a Live patch cannot mutate the store-owned authored graph through a shared object",
+  );
+  assert.equal(
     program.plan.operations[0].configurationRevision,
     1,
     "the addressed visual item advances its shared authored-configuration epoch",
@@ -3065,6 +3156,80 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
     afterPlacementSignature,
     beforePlacementSignature,
     "a static Component cannot reuse its retained frame after Content X/Y/Scale changes",
+  );
+});
+
+test("a retained Component program rebuilds when a graph patch addresses a newly compiled node", () => {
+  const source = (id, scale) => ({
+    id,
+    kind: "source",
+    enabled: true,
+    opacity: 1,
+    blend: "normal",
+    boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 },
+    transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+    source: { type: "generator", generatorId: "noise", params: { scale } },
+  });
+  const initialComponent = {
+    id: "component-stale-program",
+    type: "chain",
+    chain: [source("source-a", 1)],
+  };
+  const renderer = new OutputRenderer({ mode: "output" });
+  renderer.state = {
+    components: [initialComponent],
+    nodes: { groups: [compileComponentGroupTopology(initialComponent)] },
+    frames: [],
+    surfaces: [],
+    ui: { live: { paramFadeDuration: 0 } },
+  };
+  renderer.componentProgramRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuildLookups();
+  const retainedProgram = renderer.componentProgramRuntime.programs.get(initialComponent.id);
+
+  const nextComponent = {
+    ...initialComponent,
+    chain: [source("source-a", 1), source("source-b", 2)],
+  };
+  renderer.state = {
+    ...renderer.state,
+    components: [nextComponent],
+    nodes: { groups: [compileComponentGroupTopology(nextComponent)] },
+  };
+  const nextGroup = renderer.state.nodes.groups[0];
+  assert.deepEqual(
+    retainedProgram.syncGraphNodes(nextGroup, ["source-b"]),
+    {
+      applied: false,
+      changedIds: [],
+      missingIds: ["source-b"],
+    },
+    "a stale retained plan reports its missing target instead of throwing",
+  );
+
+  const rebuild = renderer.componentProgramRuntime.rebuild.bind(renderer.componentProgramRuntime);
+  let rebuilds = 0;
+  renderer.componentProgramRuntime.rebuild = (...args) => {
+    rebuilds++;
+    return rebuild(...args);
+  };
+  const result = renderer.livePatchRuntime.apply([
+    createComponentRenderPatch(
+      nextComponent.id,
+      "source-b",
+      "source.params.scale",
+      3,
+    ),
+  ]);
+
+  assert.equal(result.applied, true);
+  assert.equal(rebuilds, 1, "the retained runtime rebuilds once before retrying synchronization");
+  assert.equal(
+    renderer.componentProgramRuntime.programs
+      .get(nextComponent.id)
+      .plan.operations.find((operation) => operation.id === "source-b")
+      .configuration.source.params.scale,
+    3,
   );
 });
 
@@ -3226,7 +3391,7 @@ test("Live numeric patches preserve target truth while the renderer interpolates
   const result = renderer.livePatchRuntime.applyLive([
     createComponentRenderPatch("component-a", "item-a", "params.amount", 1),
   ], 100);
-  const params = renderer.state.nodes.groups[0].nodes[0].configuration.params;
+  let params = renderer.state.nodes.groups[0].nodes[0].configuration.params;
   assert.equal(result.applied, true);
   assert.equal(params.amount, 1, "the commanded target remains canonical between frames");
 
@@ -3238,6 +3403,7 @@ test("Live numeric patches preserve target truth while the renderer interpolates
   renderer.livePatchRuntime.applyLive([
     createComponentRenderPatch("component-a", "item-a", "params.amount", 0),
   ], 600);
+  params = renderer.state.nodes.groups[0].nodes[0].configuration.params;
   renderer.livePatchRuntime.applyFrame(1100);
   assert.equal(params.amount, 0.25, "retargeting continues from the currently displayed value");
   renderer.livePatchRuntime.restoreFrame();
@@ -3259,12 +3425,12 @@ test("directly manipulated Live parameters bypass Param fade during pointer inpu
   };
   renderer.componentProgramRuntime.rebuildLookups();
 
-  const params = renderer.state.nodes.groups[0].nodes[0].configuration.params;
   const result = renderer.livePatchRuntime.applyLive([
     createComponentRenderPatch("component-a", "item-a", "params.amount", 1, {
       interpolation: "immediate",
     }),
   ], 100);
+  const params = renderer.state.nodes.groups[0].nodes[0].configuration.params;
 
   assert.equal(result.applied, true);
   assert.equal(params.amount, 1);

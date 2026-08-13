@@ -41,7 +41,10 @@ import {
   materializeStructuralValue,
 } from "../libraries/data-store/data-store/structural-sharing.js";
 import { firstEnabledLiveSurfaceId } from "./live-ui-state.js";
-import { liveParameterDiffBank } from "./live-parameter-diffs.js";
+import {
+  liveParameterDiffBank,
+  liveParameterDiffTargetId,
+} from "./live-parameter-diffs.js";
 import { applyEditorSelection } from "./editor-selection.js";
 import { createSessionTimeline, normalizeSessionTimeline } from "../libraries/timing-engine/session-timeline/index.js";
 import {
@@ -320,11 +323,11 @@ export function directOutputSurfaceDefinitions(render = {}) {
 
 export function reconcileDirectOutputSurfaces(surfaces = [], render = {}) {
   const expected = directOutputSurfaceDefinitions(render);
-  const expectedById = new Map(expected.map((definition) => [definition.id, definition]));
-  const seen = new Set();
-  const normalized = [];
+  const existingDirectById = new Map((surfaces || [])
+    .filter((surface) => surface?.destination?.type === "direct")
+    .map((surface) => [String(surface.id || ""), surface]));
+  const normalized = (surfaces || []).filter((surface) => surface?.destination?.type !== "direct");
   const addDirect = (definition, existing = null) => {
-    seen.add(definition.id);
     const keepProportions = existing?.keepProportions !== false;
     const authoredRect = normalizeRelativeRect(existing || definition, definition);
     const rect = keepProportions
@@ -350,18 +353,35 @@ export function reconcileDirectOutputSurfaces(surfaces = [], render = {}) {
       },
     }));
   };
-  for (const surface of surfaces || []) {
-    if (surface?.destination?.type !== "direct") {
-      normalized.push(surface);
-      continue;
-    }
-    const definition = expectedById.get(surface.id);
-    if (definition) addDirect(definition, surface);
-  }
   for (const definition of expected) {
-    if (!seen.has(definition.id)) addDirect(definition);
+    addDirect(definition, existingDirectById.get(definition.id) || null);
   }
   return normalized;
+}
+
+// Output definitions own the system Direct Surfaces. Settings mutations run
+// against an already-normalized project, so they must apply the same
+// reconciliation that project restore performs instead of waiting for a
+// browser reload to rebuild those derived Mapping entries.
+export function reconcileProjectOutputSurfaces(state = {}) {
+  state.mappings = (state.mappings || []).map((mapping) => ({
+    ...mapping,
+    surfaces: reconcileDirectOutputSurfaces(mapping.surfaces || [], state.render || {}),
+  }));
+  const selected = state.mappings.find((mapping) =>
+    String(mapping.id || "") === String(state.ui?.selectedMappingId || "")
+  ) || state.mappings[0] || null;
+  if (!selected) return state;
+  const surfaceIds = new Set((selected.surfaces || []).map((surface) => String(surface.id || "")));
+  if (state.ui?.workspace === "mapping") projectSelectedMapping(state, selected);
+  if (state.ui && !surfaceIds.has(String(state.ui.selectedSurfaceId || ""))) {
+    state.ui.selectedSurfaceId = selected.surfaces?.[0]?.id || "";
+  }
+  if (state.ui?.live && state.ui.live.previewSurfaceId !== "__mapping__"
+      && !surfaceIds.has(String(state.ui.live.previewSurfaceId || ""))) {
+    state.ui.live.previewSurfaceId = "__mapping__";
+  }
+  return state;
 }
 
 export function createInitialState({ startupTemplate = false } = {}) {
@@ -427,10 +447,10 @@ export function createInitialState({ startupTemplate = false } = {}) {
         transitionCoordinator: {},
       },
       previewViewports: {
-        component: { zoom: 1, x: 0, y: 0, fit: "world" },
-        scene: { zoom: 1, x: 0, y: 0, fit: "world" },
-        mapping: { zoom: 1, x: 0, y: 0, fit: "world" },
-        live: { zoom: 1, x: 0, y: 0, fit: "world" },
+        component: { zoom: 1, x: 0, y: 0, fit: "frame" },
+        scene: { zoom: 1, x: 0, y: 0, fit: "frame" },
+        mapping: { zoom: 1, x: 0, y: 0, fit: "frame" },
+        live: { zoom: 1, x: 0, y: 0, fit: "frame" },
       },
       shaderStatus: "Shader ready",
       shaderError: "",
@@ -570,17 +590,19 @@ export function sanitizeState(input = {}) {
   );
 
   next.render = normalizeRenderSettings(input.render || {});
-  next.components = normalizeComponents(input, base);
+  next.components = normalizeComponents(input, base, next.nodes);
   const importedSurfaces = Array.isArray(input.surfaces) && input.surfaces.length
     ? input.surfaces.map((surface) => normalizeSurfaceRoute(surface))
     : [createDefaultSurface(0), createDefaultSurface(1)];
   next.ui.previewViewports = normalizePreviewViewports(input.ui?.previewViewports);
   next.ui.previewDiagnostics = input.ui?.previewDiagnostics === true;
   next.media = Array.isArray(input.media) ? input.media.map(normalizeMediaMeta) : [];
-  next.components = next.components.map((component) => ({
-    ...component,
-    chain: canonicalizeAuthoredVisualChain(component.chain || [], next.media),
-  }));
+  next.components = next.components.map((component) => Array.isArray(component.chain)
+    ? {
+        ...component,
+        chain: canonicalizeAuthoredVisualChain(component.chain, next.media),
+      }
+    : component);
   next.ui.workspace = WORKSPACES.includes(next.ui.workspace) ? next.ui.workspace : "mapping";
   next.ui.selectedComponentId = next.components.some((component) => component.id === next.ui.selectedComponentId)
     ? next.ui.selectedComponentId
@@ -608,16 +630,23 @@ export function sanitizeState(input = {}) {
   );
   delete next.ui.previewQualities;
   const selectedComponent = next.components.find((component) => component.id === next.ui.selectedComponentId) || next.components[0];
+  const selectedGraphNodes = next.nodes?.groups?.find((group) =>
+    group?.generatedBy === "vj1-component-compiler"
+      && String(group.componentId || "") === String(selectedComponent?.id || "")
+  )?.nodes || [];
+  const selectedContainsItemId = (id) => Array.isArray(selectedComponent?.chain)
+    ? chainContainsItemId(selectedComponent.chain, id)
+    : graphContainsItemId(selectedGraphNodes, id);
   next.ui.selectedChainItemIds = normalizeArtifactElementSelectionIds(
     next.ui.selectedChainItemIds,
     next.components,
   );
   const rememberedChainItemId = next.ui.selectedChainItemIds[selectedComponent?.id];
-  next.ui.selectedChainItemId = chainContainsItemId(selectedComponent?.chain, rememberedChainItemId)
+  next.ui.selectedChainItemId = selectedContainsItemId(rememberedChainItemId)
     ? rememberedChainItemId
-    : chainContainsItemId(selectedComponent?.chain, next.ui.selectedChainItemId)
+    : selectedContainsItemId(next.ui.selectedChainItemId)
       ? next.ui.selectedChainItemId
-      : selectedComponent?.chain?.[0]?.id || "";
+      : firstGraphItemId(selectedGraphNodes) || selectedComponent?.chain?.[0]?.id || "";
   if (selectedComponent?.id && next.ui.selectedChainItemId) {
     next.ui.selectedChainItemIds[selectedComponent.id] = next.ui.selectedChainItemId;
   }
@@ -790,9 +819,23 @@ export function createLiveScenePreviewState(state = createInitialState()) {
 // No second Live parameter/routing model is maintained here.
 function createLiveExecutionProjection(state) {
   const program = compileLiveProjectionProgram(state);
+  // The Overall selection normally owns the active sparse bank. A Direct
+  // Surface can remain mounted while Overall is intentionally empty; in that
+  // case the inspected mounted Component is the stable bank owner used by the
+  // Live inspector. Execution must resolve through the same target rule or the
+  // controls display the effective value while a cold Preview compiles the
+  // authored value.
+  const presentedSurfaceComponentId = program.currentRoutes.surfaces.find(
+    (surface) => String(surface.id || "") === String(program.previewSurfaceId || ""),
+  )?.componentId || "";
+  const presentedTargetId = liveParameterDiffTargetId(program.live,
+    program.target?.id ||
+      program.live.inspectedComponentId ||
+      presentedSurfaceComponentId
+  );
   const presentedOverrides = program.transitions.find(
     (transition) => transition.scope === "overall"
-  )?.currentComponentOverrides || liveParameterDiffBank(program.live);
+  )?.currentComponentOverrides || liveParameterDiffBank(program.live, presentedTargetId);
   return {
     program,
     next: createLiveEndpointState(state, presentedOverrides),
@@ -930,37 +973,16 @@ function materializeLiveAnimationOverrides(nodes, overrides = {}) {
 }
 
 function createLiveEndpointComponent(component = {}, override = {}) {
+  const { chain: _legacyChain, ...metadata } = component || {};
   return {
-    ...component,
+    ...metadata,
     opacity: override.opacity !== undefined ? clamp01(override.opacity) : component.opacity,
     speed: override.speed !== undefined ? Math.max(0, Number(override.speed) || 0) : component.speed,
     blend: override.blend || component.blend,
     transform: override.transform && typeof override.transform === "object"
       ? normalizeTransform({ ...(component.transform || {}), ...override.transform })
       : normalizeTransform(component.transform),
-    chain: (component.chain || []).map(materializeLiveEndpointChainItem),
   };
-}
-
-function materializeLiveEndpointChainItem(item = {}) {
-  const next = {
-    ...item,
-    transform: normalizeTransform(item.transform),
-    boundary: normalizeNodeBoundary(item.boundary),
-  };
-  if (item.kind === "effect") {
-    next.params = { ...(item.params && typeof item.params === "object" ? item.params : {}) };
-  } else if (item.kind === "source") {
-    next.source = {
-      ...(item.source || {}),
-      ...(item.source && ["generator", "media"].includes(item.source.type)
-        ? { params: { ...(item.source.params && typeof item.source.params === "object" ? item.source.params : {}) } }
-        : {}),
-    };
-  } else if (item.kind === "group") {
-    next.chain = (item.chain || []).map(materializeLiveEndpointChainItem);
-  }
-  return next;
 }
 
 function applyLivePreviewProjection(
@@ -1046,19 +1068,18 @@ function liveComponentMonitorAspect(render = {}, component = {}) {
 }
 
 export function createLiveComponentView(component = {}, state = createInitialState()) {
-  const override = liveParameterDiffBank(state.ui?.live)?.[component.id] || {};
+  const live = state.ui?.live || {};
+  const targetId = liveParameterDiffTargetId(live, component.id);
+  const override = liveParameterDiffBank(live, targetId)?.[component.id] || {};
+  const { chain: _legacyChain, ...metadata } = component || {};
   return {
-    ...component,
+    ...metadata,
     opacity: override.opacity !== undefined ? clamp01(override.opacity) : component.opacity,
     speed: override.speed !== undefined ? Math.max(0, Number(override.speed) || 0) : component.speed,
     blend: override.blend || component.blend,
     transform: override.transform && typeof override.transform === "object"
       ? normalizeTransform({ ...(component.transform || {}), ...override.transform })
       : normalizeTransform(component.transform),
-    // The chain is a disposable execution projection only. Node-level Live
-    // values are exposed through liveComponentLayerProjection and never
-    // written back into this compatibility-shaped view.
-    chain: component.chain,
   };
 }
 
@@ -1153,7 +1174,7 @@ function normalizeLiveComponentOverrides(overrides = {}, state = {}) {
       ...(override.speed !== undefined ? { speed: Math.max(0, Number(override.speed) || 0) } : {}),
       ...(override.blend ? { blend: override.blend } : {}),
       ...(override.transform && typeof override.transform === "object"
-        ? { transform: normalizeTransform(override.transform) }
+        ? { transform: normalizeSparseTransform(override.transform) }
         : {}),
       ...(Array.isArray(override.chain)
         ? { chain: override.chain.map((item, index) => normalizeLiveChainItemOverride(item, component?.chain?.[index])) }
@@ -1242,15 +1263,15 @@ function normalizeCoordinatedTransition(value, state, pending = false) {
 }
 
 function normalizeLiveSourceFilters(live = {}) {
-  const hasExplicitFilters = typeof live.showScenes === "boolean" || typeof live.showComponents === "boolean";
-  let showScenes = hasExplicitFilters
-    ? live.showScenes !== false
-    : true;
-  let showComponents = hasExplicitFilters
-    ? live.showComponents === true
-    : true;
-  if (!showScenes && !showComponents) showScenes = true;
-  return { showScenes, showComponents };
+  // Scene and Part controls are independent catalog filters, but an empty
+  // source catalog is not a useful operator state. Direct interaction enables
+  // the opposite filter when the final active filter is turned off; state
+  // normalization also repairs persisted legacy/corrupt false+false values.
+  const showScenes = typeof live.showScenes === "boolean" ? live.showScenes : true;
+  const showComponents = typeof live.showComponents === "boolean" ? live.showComponents : true;
+  return showScenes || showComponents
+    ? { showScenes, showComponents }
+    : { showScenes: true, showComponents: false };
 }
 
 function normalizeSurfaceRoutes(routeState = {}, state = {}) {
@@ -1274,22 +1295,33 @@ function normalizeLiveChainItemOverride(item = {}, authoredItem = {}) {
     ...(item.blend ? { blend: item.blend } : {}),
     ...(!isSource && Object.keys(params).length ? { params } : {}),
     ...(isSource && Object.keys(sourceParams).length ? { source: { params: sourceParams } } : {}),
-    ...(item.transform && typeof item.transform === "object" ? { transform: normalizeTransform(item.transform) } : {}),
+    ...(item.transform && typeof item.transform === "object"
+      ? { transform: normalizeSparseTransform(item.transform) }
+      : {}),
+    ...(item.boundary && typeof item.boundary === "object"
+      ? { boundary: normalizeSparseBoundary(item.boundary) }
+      : {}),
     ...(Array.isArray(item.chain) ? { chain: item.chain.map((child, index) => normalizeLiveChainItemOverride(child, authoredItem?.chain?.[index])) } : {}),
   };
 }
 
-function normalizeComponents(input, base) {
+function normalizeComponents(input, base, nodes = {}) {
   const authored = (input.components || []).filter((component) =>
     component?.systemRole !== "mapping-test-pattern" &&
     String(component?.id || "") !== MAPPING_TEST_PATTERN_COMPONENT_ID
   );
+  const graphComponentIds = new Set((nodes?.groups || [])
+    .filter((group) => group?.generatedBy === "vj1-component-compiler")
+    .map((group) => String(group.componentId || "")));
   return Array.isArray(input.components) && authored.length
-    ? authored.map(normalizeComponent)
+    ? authored.map((component) => normalizeComponent(component, {
+        omitLegacyChain: !Object.hasOwn(component || {}, "chain")
+          && graphComponentIds.has(String(component?.id || "")),
+      }))
     : [createDefaultComponent(0)];
 }
 
-export function normalizeComponent(component = {}) {
+export function normalizeComponent(component = {}, { omitLegacyChain = false } = {}) {
   const fallback = createDefaultComponent(0);
   const {
     enabled,
@@ -1300,7 +1332,7 @@ export function normalizeComponent(component = {}) {
   const type = componentData.type === "scene" ? "scene" : "chain";
   const chain = Array.isArray(componentData.chain) ? componentData.chain.map(normalizeComponentChainItem) : [];
   const scene = type === "scene" ? normalizeSceneComponentData(componentData.scene, componentData.id) : null;
-  return {
+  const normalized = {
     ...fallback,
     ...componentData,
     type,
@@ -1322,6 +1354,8 @@ export function normalizeComponent(component = {}) {
     chain,
     ...(type === "scene" ? { scene } : {}),
   };
+  if (omitLegacyChain) delete normalized.chain;
+  return normalized;
 }
 
 function normalizeSignificantAnimationParams(value = []) {
@@ -1659,16 +1693,35 @@ function formatSourceLabel(value = "") {
 }
 
 function createDefaultTransform() {
-  return { x: 0, y: 0, scale: 1, rotation: 0 };
+  return { x: 0.5, y: 0.5, scale: 1, rotation: 0 };
 }
 
 function normalizeTransform(transform = {}) {
   return {
-    x: Number(transform.x) || 0,
-    y: Number(transform.y) || 0,
+    x: normalizedPosition(transform.x),
+    y: normalizedPosition(transform.y),
     scale: Math.max(0.01, Number(transform.scale) || 1),
     rotation: Number(transform.rotation) || 0,
   };
+}
+
+function normalizedPosition(value) {
+  const number = Number(value);
+  return Math.max(0, Math.min(1, Number.isFinite(number) ? number : 0.5));
+}
+
+function normalizeSparseTransform(transform = {}) {
+  const normalized = normalizeTransform(transform);
+  return Object.fromEntries(["x", "y", "scale", "rotation"]
+    .filter((key) => Object.hasOwn(transform, key))
+    .map((key) => [key, normalized[key]]));
+}
+
+function normalizeSparseBoundary(boundary = {}) {
+  const normalized = normalizeNodeBoundary(boundary);
+  return Object.fromEntries(["x", "y", "width", "height", "rotation"]
+    .filter((key) => Object.hasOwn(boundary, key))
+    .map((key) => [key, normalized[key]]));
 }
 
 function normalizeShaderPassParams(pass = {}) {
@@ -1736,6 +1789,20 @@ function chainContainsItemId(chain = [], id = "") {
     if (item.kind === "group" && chainContainsItemId(item.chain, id)) return true;
   }
   return false;
+}
+
+function graphContainsItemId(nodes = [], id = "") {
+  if (!id) return false;
+  return (nodes || []).some((node) =>
+    String(node?.id || "") === String(id)
+      || graphContainsItemId(node?.nodes || [], id)
+  );
+}
+
+function firstGraphItemId(nodes = []) {
+  return String((nodes || []).find((node) =>
+    ["source", "effect", "group"].includes(node?.role) && !node?.auxiliaryFor
+  )?.id || "");
 }
 
 function mergeShaderPassOverride(pass = {}, override = {}) {

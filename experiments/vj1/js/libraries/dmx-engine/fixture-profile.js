@@ -255,18 +255,18 @@ export function dmxProbeFixtureValues(item = {}, profile = {}, samples = []) {
     ? String(item.params.zone)
     : "all";
   const fallbackSample = samples[0] || {};
-  return Object.fromEntries((profile?.channels || []).map((entry) => {
+  return Object.fromEntries((profile?.channels || []).flatMap((entry) => {
     if (selectedZone !== "all" && entry.zone && entry.zone !== selectedZone) {
-      return [entry.id, entry.blackoutValue];
+      return [];
     }
     const authored = clamp01(item?.params?.[dmxFixtureChannelParameterId(entry.id)] ?? entry.defaultValue);
-    if (mode === "control" || entry.sampleFeature === "none") return [entry.id, authored];
+    if (mode === "control" || entry.sampleFeature === "none") return [[entry.id, authored]];
     const width = Math.max(1, Number(profile?.sampleResolution?.width) || 1);
     const sampleIndex = selectedZone === "all"
       ? entry.sampleCell.y * width + entry.sampleCell.x
       : 0;
     const sampled = samples[sampleIndex] || fallbackSample;
-    return [entry.id, clamp01(sampled?.[entry.sampleFeature] ?? authored)];
+    return [[entry.id, clamp01(sampled?.[entry.sampleFeature] ?? authored)]];
   }));
 }
 

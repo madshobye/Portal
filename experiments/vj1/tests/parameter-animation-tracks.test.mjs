@@ -30,6 +30,7 @@ import {
   updateParameterAnimationTrack,
 } from "../js/libraries/composition-engine/shared/parameter-animation-tracks.js";
 import { compileComponentRenderPrograms } from "../js/libraries/composition-engine/shared/component-program-compiler.js";
+import { componentChainProjection } from "../js/domain/component-layer-projection.js";
 import {
   CHAIN_GENERAL_CONTROL_PATHS,
   chainGeneralControlParameterId,
@@ -269,7 +270,7 @@ test("Animation graph fragments survive project serialization and ordinary param
   const component = previous.components[componentIndex];
   const nextComponent = {
     ...component,
-    chain: component.chain.map((item) => item.id === targetNodeId
+    chain: componentChainProjection(previous, component).map((item) => item.id === targetNodeId
       ? {
         ...item,
         source: {
@@ -458,6 +459,16 @@ test("animation source catalog exposes pointer audio beat and local Probe featur
     kind === "probe" &&
     address === `component:${componentId}:probe:probe-a:brightness` &&
     label === "Stage Probe · Brightness"
+  ));
+  assert.ok(sources.some(({ kind, address, label }) =>
+    kind === "probe" &&
+    address === `component:${componentId}:probe:probe-a:flowX` &&
+    label === "Stage Probe · Optical flow X difference"
+  ));
+  assert.ok(sources.some(({ kind, address, label }) =>
+    kind === "probe" &&
+    address === `component:${componentId}:probe:probe-a:flowRotation` &&
+    label === "Stage Probe · Optical flow rotation"
   ));
 });
 
@@ -754,7 +765,7 @@ test("General animation fallbacks survive reconciliation and follow the latest s
     components: previous.components.map((component) => component.id === componentId
       ? {
         ...component,
-        chain: component.chain.map((item) =>
+        chain: componentChainProjection(previous, component).map((item) =>
           item.id === targetNodeId ? { ...item, opacity: 0.4 } : item
         ),
       }
@@ -1081,6 +1092,7 @@ test("Plasma exposes one editable default track and ordinary addable animation s
   const fixture = plasmaState();
   const component = fixture.state.components
     .find((entry) => entry.id === fixture.componentId);
+  component.chain = componentChainProjection(fixture.state, component);
   const source = component.chain.find((entry) => entry.id === fixture.targetNodeId);
   source.source.params.motionMode = "drift";
   const state = fixture.packageRoot.prepareProjectState({

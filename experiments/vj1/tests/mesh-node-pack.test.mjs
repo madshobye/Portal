@@ -136,11 +136,25 @@ test("Convert 3D File to Image exposes recursive prepare render and resize struc
   const graph = Convert3dFileToImageGroup.parts.find((part) => part.kind === "graph");
 
   assert.equal(converted.format, "stl");
-  assert.equal(modelTriangleCount(converted.mesh), 600, "thumbnail parsing must remain bounded before rendering");
+  assert.equal(modelTriangleCount(converted.mesh), 600, "thumbnail simplification must remain bounded before rendering");
+  assert.equal(converted.mesh.sourceTriangleCount, 1000, "thumbnail geometry is derived from the complete source topology");
   assert.equal(converted.renderResult.backend, "svg");
   assert.deepEqual(graph.nodes.map((node) => node.id), ["prepare", "render", "resize"]);
   assert.match(converted.image.data, /^<svg/);
   assert.match(readFileSync(new URL("../js/services/media-thumbnail-service.js", import.meta.url), "utf8"), /libraries\/mesh-engine\/convert-3d-file-to-image\/index\.js/);
+});
+
+test("model thumbnail rendering preserves every face selected by topology simplification", async () => {
+  const source = readFileSync(new URL("../assets/stl/inferno-symbols/02_spiral_descent.stl", import.meta.url));
+  const converted = await convert3dFileToImage({
+    source,
+    name: "02_spiral_descent.stl",
+    profile: "thumbnail",
+  });
+  const polygons = converted.image.data.match(/<polygon/g) || [];
+
+  assert.ok(modelTriangleCount(converted.mesh) < converted.mesh.sourceTriangleCount);
+  assert.equal(polygons.length, modelTriangleCount(converted.mesh), "the SVG renderer must not punch holes into the selected LOD");
 });
 
 test("model previews execute the declared recursive child topology", async () => {
@@ -152,7 +166,7 @@ test("model previews execute the declared recursive child topology", async () =>
   instrumentChildren(instance, calls);
   try {
     const result = await instance.run({ source: binaryStl(), name: "asset.stl" });
-    assert.deepEqual(calls, ["prepare", "parse", "detect", "stl", "render"]);
+    assert.deepEqual(calls, ["prepare", "parse", "detect", "stl", "resolution", "render"]);
     assert.equal(instance.children.get("prepare") instanceof NodeGroupInstance, true);
     assert.equal(instance.children.get("prepare").children.get("parse") instanceof NodeGroupInstance, true);
     assert.equal(result.renderResult.backend, "svg");

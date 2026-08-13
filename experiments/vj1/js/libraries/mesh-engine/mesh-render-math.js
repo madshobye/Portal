@@ -220,15 +220,17 @@ export function applyModelViewportProjection(target, cameraFov = Math.PI / 3, vi
 // framebuffer presentation owns storage orientation and must not compensate it.
 // Placement is derived from authored state each frame, never accumulated.
 function contentTransformRawWebglPlacement(transform = {}, width = 1, height = 1) {
+  const x = Number(transform.x);
+  const y = Number(transform.y);
   const normalized = {
-    x: Math.max(-2, Math.min(2, Number(transform.x) || 0)),
-    y: Math.max(-2, Math.min(2, Number(transform.y) || 0)),
+    x: Math.max(0, Math.min(1, Number.isFinite(x) ? x : 0.5)),
+    y: Math.max(0, Math.min(1, Number.isFinite(y) ? y : 0.5)),
     scale: Math.max(0.05, Math.min(20, Number(transform.scale) || 1)),
     rotation: Number(transform.rotation) || 0,
   };
   return {
-    x: normalized.x * Math.max(1, Number(width) || 1) * 0.5,
-    y: -normalized.y * Math.max(1, Number(height) || 1) * 0.5,
+    x: (normalized.x - 0.5) * Math.max(1, Number(width) || 1),
+    y: -(normalized.y - 0.5) * Math.max(1, Number(height) || 1),
     scale: normalized.scale,
     rotation: -normalized.rotation,
   };
@@ -265,9 +267,11 @@ function validModelBound(value, fallback) {
 }
 
 function normalizedContentTransform(transform = {}) {
+  const x = Number(transform.x);
+  const y = Number(transform.y);
   return {
-    x: Math.max(-2, Math.min(2, Number(transform.x) || 0)),
-    y: Math.max(-2, Math.min(2, Number(transform.y) || 0)),
+    x: Math.max(0, Math.min(1, Number.isFinite(x) ? x : 0.5)),
+    y: Math.max(0, Math.min(1, Number.isFinite(y) ? y : 0.5)),
     scale: Math.max(0.05, Math.min(20, Number(transform.scale) || 1)),
     rotation: Number(transform.rotation) || 0,
   };
@@ -275,8 +279,8 @@ function normalizedContentTransform(transform = {}) {
 
 function isIdentityTransform(transform = {}) {
   const normalized = normalizedContentTransform(transform);
-  return Math.abs(normalized.x) < 0.000001
-    && Math.abs(normalized.y) < 0.000001
+  return Math.abs(normalized.x - 0.5) < 0.000001
+    && Math.abs(normalized.y - 0.5) < 0.000001
     && Math.abs(normalized.scale - 1) < 0.000001
     && Math.abs(normalized.rotation) < 0.000001;
 }

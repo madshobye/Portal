@@ -122,6 +122,9 @@ export class OutputRenderer {
     this.onChainItemSelect = onChainItemSelect;
     this.onSceneSurfaceSelect = onSceneSurfaceSelect;
     this.sendDmxFixture = sendDmxFixture;
+    this.dmxRendererId = mode === "output"
+      ? `output:${outputId || "main"}`
+      : "preview:embedded";
     this.signalMeter = signalLoadMeter(mode === "output" ? "output" : "preview");
     this.stateRuntime = new OutputStateRuntime(this);
     this.resourceRuntime = new OutputResourceRuntime(this, { font });

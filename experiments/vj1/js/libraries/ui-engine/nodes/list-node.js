@@ -58,6 +58,7 @@ export function createListNodeInstance({
     window: document?.defaultView || globalThis,
   });
   const itemInstances = new Map();
+  const optimisticActionValues = new Map();
 
   function mount() {
     root = resolveListRoot(host, id);
@@ -79,7 +80,9 @@ export function createListNodeInstance({
   function update(nextInputs = {}) {
     inputs = normalizeListInputs(nextInputs);
     commandedSelectionId = selectedId();
+    optimisticActionValues.clear();
     render(false);
+    patchAuthoritativeActionToggles();
   }
 
   function updateMedia(entries = []) {
@@ -164,7 +167,23 @@ export function createListNodeInstance({
       const itemId = String(action.dataset.uiListItem || "");
       const actionId = String(action.dataset.uiListAction || "");
       const descriptor = inputs.items.find((item) => item.id === itemId)?.actions.find((itemAction) => itemAction.id === actionId);
-      emit("action", { id: itemId, action: actionId, ...(descriptor?.payload || {}) });
+      let payload = descriptor?.payload || {};
+      if (descriptor?.toggle) {
+        const key = `${itemId}:${actionId}`;
+        const current = optimisticActionValues.has(key)
+          ? optimisticActionValues.get(key)
+          : descriptor.toggle.value;
+        const next = !current;
+        optimisticActionValues.set(key, next);
+        patchListActionToggle(
+          action,
+          descriptor,
+          next,
+          inputs.items.find((item) => item.id === itemId)?.label,
+        );
+        payload = { ...payload, value: next };
+      }
+      emit("action", { id: itemId, action: actionId, ...payload });
       return;
     }
     const item = event.target.closest?.("[data-ui-list-select]");
@@ -311,6 +330,18 @@ export function createListNodeInstance({
     itemInstances.clear();
   }
 
+  function patchAuthoritativeActionToggles() {
+    root?.querySelectorAll?.("[data-ui-list-action]").forEach((element) => {
+      const itemId = String(element.dataset.uiListItem || "");
+      const actionId = String(element.dataset.uiListAction || "");
+      const item = inputs.items.find((candidate) => candidate.id === itemId);
+      const descriptor = item?.actions.find((candidate) => candidate.id === actionId);
+      if (descriptor?.toggle) {
+        patchListActionToggle(element, descriptor, descriptor.toggle.value, item.label);
+      }
+    });
+  }
+
   return Object.freeze({ mount, update, updateMedia, dispose, element: () => root });
 
   function selectedId() {
@@ -335,7 +366,7 @@ export function renderListItemsHtml(items = [], { selectedId = "", emptyText = "
       : item.media?.fallback
         ? `<span class="ui-node-list-media ui-node-list-media-fallback ${escapeAttribute(mediaPresentation)}"${mediaKey} aria-hidden="true">${escapeHtml(item.media.fallback)}</span>`
         : "";
-    const actionHtml = (action) => `<button type="button" class="ui-node-list-action ${escapeAttribute(presentationClassName(action.presentation))}" data-ui-presentation="${escapeAttribute(action.presentation)}" data-ui-list-action="${escapeAttribute(action.id)}" data-ui-list-item="${escapeAttribute(item.id)}" title="${escapeAttribute(action.label)}" aria-label="${escapeAttribute(action.label)} ${escapeAttribute(item.label)}" ${action.disabled ? "disabled" : ""}><span class="ui-node-list-action-icon" aria-hidden="true">${escapeHtml(action.icon || action.label)}</span></button>`;
+    const actionHtml = (action) => `<button type="button" class="ui-node-list-action ${escapeAttribute(presentationClassName(action.presentation))}" data-ui-presentation="${escapeAttribute(action.presentation)}" data-ui-list-action="${escapeAttribute(action.id)}" data-ui-list-item="${escapeAttribute(item.id)}" title="${escapeAttribute(action.label)}" aria-label="${escapeAttribute(action.label)} ${escapeAttribute(item.label)}"${action.toggle ? ` aria-pressed="${action.toggle.value}"` : ""} ${action.disabled ? "disabled" : ""}><span class="ui-node-list-action-icon" aria-hidden="true">${escapeHtml(action.icon || action.label)}</span></button>`;
     const leadingActionItems = item.actions.filter((action) => action.position === "leading");
     const trailingActionItems = item.actions.filter((action) => action.position !== "leading");
     const leadingActions = leadingActionItems.map(actionHtml).join("");
@@ -470,8 +501,37 @@ function normalizeListItems(items = []) {
       disabled: action?.disabled === true,
       position: action?.position === "leading" ? "leading" : "trailing",
       payload: Object.freeze({ ...(action?.payload && typeof action.payload === "object" ? action.payload : {}) }),
+      toggle: normalizeListActionToggle(action?.toggle),
     })).filter((action) => action.id)),
   })).filter((item) => item.id);
+}
+
+function normalizeListActionToggle(toggle) {
+  if (!toggle || typeof toggle !== "object") return null;
+  const state = (value = {}) => Object.freeze({
+    label: String(value.label || ""),
+    icon: String(value.icon || ""),
+    presentation: String(value.presentation || "default"),
+  });
+  return Object.freeze({
+    value: toggle.value === true,
+    on: state(toggle.on),
+    off: state(toggle.off),
+  });
+}
+
+function patchListActionToggle(element, descriptor, value, itemLabel = "") {
+  if (!element || !descriptor?.toggle) return;
+  const visual = value ? descriptor.toggle.on : descriptor.toggle.off;
+  const previousPresentation = String(element.dataset.uiPresentation || descriptor.presentation || "default");
+  element.classList.remove(...presentationClassNames(previousPresentation));
+  element.classList.add(...presentationClassNames(visual.presentation));
+  element.dataset.uiPresentation = visual.presentation;
+  element.setAttribute("aria-pressed", String(value));
+  element.setAttribute("title", visual.label);
+  element.setAttribute("aria-label", `${visual.label} ${itemLabel}`.trim());
+  const icon = element.querySelector?.(".ui-node-list-action-icon");
+  if (icon) icon.textContent = visual.icon || visual.label;
 }
 
 function listContentSignature(inputs) {

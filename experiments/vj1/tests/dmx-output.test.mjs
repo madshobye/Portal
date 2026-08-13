@@ -23,6 +23,8 @@ import DmxProbe from "../js/libraries/visual-nodes/effects/dmx-probe/index.js";
 import { createDmxOutputService } from "../js/services/dmx-output-service.js";
 import { buildProjectPayload } from "../js/services/project-serializer.js";
 import { SharedFramebufferTarget } from "../js/output/shared-framebuffer-target.js";
+import { ProbeRuntime } from "../js/output/probe-runtime.js";
+import { componentChainProjection } from "../js/domain/component-layer-projection.js";
 
 test("DMX fixture profiles normalize semantic channels and include the editable U’King 11CH profile", () => {
   const settings = normalizeDmxDeviceSettings();
@@ -63,15 +65,16 @@ test("DMX fixture profiles normalize semantic channels and include the editable 
     [{ r: 0.8, g: 0.4, b: 0.2, brightness: 0.5 }],
   );
   assert.equal(spotValues["main-red"], 0.8);
-  assert.equal(spotValues["main-white"], 0);
-  assert.equal(spotValues["ring-red"], 0);
+  assert.equal(Object.hasOwn(spotValues, "main-white"), false);
+  assert.equal(Object.hasOwn(spotValues, "ring-red"), false);
   const whiteValues = dmxProbeFixtureValues(
     { params: { mode: "canvas", zone: "spot-white" } },
     uking,
     [{ r: 0.8, g: 0.4, b: 0.2, brightness: 0.5 }],
   );
-  assert.equal(whiteValues["main-red"], 0);
+  assert.equal(Object.hasOwn(whiteValues, "main-red"), false);
   assert.equal(whiteValues["main-white"], 0.5);
+  assert.equal(Object.hasOwn(whiteValues, "ring-red"), false);
 
   const persistedBeforeZones = {
     ...uking,
@@ -299,6 +302,94 @@ test("global DMX service sends a retained raw serial frame with start code and s
   await service.disconnect();
 });
 
+test("DMX proposals merge by channel while Output overrides conflicting Preview channels", async () => {
+  const writes = [];
+  const writer = { async write(payload) { writes.push([...payload]); }, releaseLock() {} };
+  const port = {
+    async open() {},
+    writable: { getWriter: () => writer },
+    async setSignals() {},
+    getInfo: () => ({}),
+    async close() {},
+  };
+  const service = createDmxOutputService({
+    navigatorRef: {
+      serial: {
+        addEventListener() {},
+        removeEventListener() {},
+        requestPort: async () => port,
+        getPorts: async () => [],
+      },
+    },
+    storage: { getItem: () => null, setItem() {} },
+    setIntervalFn: () => 1,
+    clearIntervalFn() {},
+  });
+  const base = normalizeDmxDeviceSettings();
+  service.syncState({
+    devices: { dmx: {
+      enabled: true,
+      profiles: base.profiles,
+      fixtures: [{ id: "rgb-a", profileId: "dmx-rgb", startChannel: 1, enabled: true }],
+    } },
+  });
+  await service.connect();
+  service.receiveProbe({
+    fixtureId: "rgb-a",
+    values: { red: 0.25, green: 0.5 },
+    source: { rendererId: "preview", mode: "preview", probeId: "preview-probe" },
+  });
+  service.receiveProbe({
+    fixtureId: "rgb-a",
+    values: { red: 1, blue: 0.75 },
+    source: { rendererId: "output", mode: "output", probeId: "output-probe" },
+  });
+  await service.sendFrame();
+  assert.deepEqual(writes.at(-1), [0, 255, 128, 191]);
+
+  service.releaseProbeSources({ rendererId: "output" });
+  await service.sendFrame();
+  assert.deepEqual(writes.at(-1), [0, 64, 128, 0]);
+  await service.disconnect();
+});
+
+test("DMX Probe releases a proposal when its renderer no longer visits that active probe", () => {
+  const messages = [];
+  const settings = normalizeDmxDeviceSettings();
+  const fixture = createDmxFixture("dmx-rgb", 0);
+  fixture.id = "rgb-a";
+  const runtime = new ProbeRuntime({
+    mode: "output",
+    outputId: "main",
+    dmxRendererId: "output:main",
+    state: { devices: { dmx: { enabled: true, profiles: settings.profiles, fixtures: [fixture] } } },
+    sendDmxFixture: (payload) => messages.push(payload),
+  });
+  const component = { id: "component-a" };
+  const renderedItem = {
+    id: "probe-a",
+    params: {
+      fixtureId: "rgb-a",
+      mode: "control",
+      dmx_red: 0.8,
+      dmx_green: 0.2,
+      dmx_blue: 0.1,
+    },
+  };
+
+  runtime.beginFrame();
+  assert.equal(runtime.observeDmx(component, {}, renderedItem, {}, {}), true);
+  runtime.endFrame();
+  assert.equal(messages[0].source.mode, "output");
+  assert.equal(messages[0].release, undefined);
+
+  runtime.beginFrame();
+  runtime.endFrame();
+  assert.equal(messages.at(-1).release, true);
+  assert.equal(messages.at(-1).fixtureId, "rgb-a");
+  runtime.dispose();
+});
+
 test("DMX Probe lowers through the visual compiler as a passthrough hardware observer", () => {
   const packageRoot = createVj1NodePackage();
   let state = createInitialState();
@@ -353,9 +444,9 @@ test("fixture-specific DMX controls survive graph-authoritative project persiste
     "2026-07-27T00:00:00.000Z",
   )));
   const restored = packageRoot.prepareProjectState(sanitizeState(payload));
-  const restoredProbe = restored.components
-    .find((entry) => entry.id === component.id)
-    .chain.find((entry) => entry.id === probe.id);
+  const restoredComponent = restored.components.find((entry) => entry.id === component.id);
+  const restoredProbe = componentChainProjection(restored, restoredComponent)
+    .find((entry) => entry.id === probe.id);
   assert.equal(restoredProbe.params.fixtureId, fixture.id);
   assert.equal(restoredProbe.params[redParameterId], 0.73);
   assert.equal(restored.devices.dmx.fixtures[0].profileId, "dmx-rgb");

@@ -47,10 +47,19 @@ vec4 vj1Transition(vec4 startColor, vec4 endColor, vec2 uv, float progress) {
     id: "org.example.transition.invalid",
     source: "void main() {}",
   }), /TRANSITION_KERNEL_ENTRY_MISSING/);
+  assert.throws(() => defineTransitionKernel({
+    id: "org.example.transition.raw-endpoint",
+    source: `
+vec4 vj1Transition(vec4 startColor, vec4 endColor, vec2 uv, float progress) {
+  return texture(fromTex, uv);
+}`,
+  }), /TRANSITION_KERNEL_RAW_ENDPOINT_ACCESS/);
 });
 
 test("reusable graph transitions embed the same kernel contract used by Scene mapping", () => {
   const source = textureTransitionFragmentShaderSource(DissolveTransitionKernel);
+  assert.match(source, /vec4 vj1SampleTransitionStart\(vec2 uv\)/);
+  assert.match(source, /vec4 startColor = vj1SampleTransitionStart\(uv\)/);
   assert.match(source, /uniform sampler2D fromTex/);
   assert.match(source, /uniform sampler2D toTex/);
   assert.match(source, /vec4 vj1Transition/);

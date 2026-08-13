@@ -812,6 +812,23 @@
   visibility: hidden;
 }
 
+.ui-node-catalog-card-shell > [data-ui-catalog-item-action][data-ui-action-variant="marker-0"] {
+  opacity: 0.38;
+  color: var(--muted, var(--ui-muted));
+}
+
+.ui-node-catalog-card-shell > [data-ui-catalog-item-action][data-ui-action-variant="marker-0"]:is(:hover, :focus-visible) {
+  opacity: 1;
+}
+
+.ui-node-catalog-card-shell > [data-ui-catalog-item-action][data-ui-action-variant="marker-1"] { color: #e0a743; }
+.ui-node-catalog-card-shell > [data-ui-catalog-item-action][data-ui-action-variant="marker-2"] { color: #d46b78; }
+.ui-node-catalog-card-shell > [data-ui-catalog-item-action][data-ui-action-variant="marker-3"] { color: var(--accent, var(--ui-accent)); }
+
+.ui-node-catalog-card-shell > [data-ui-catalog-item-action][data-ui-action-variant]:not([data-ui-action-variant="marker-0"]) .ui-node-catalog-action-icon {
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+}
+
 .ui-node-metrics-summary {
   gap: 10px;
   color: var(--ui-text);
@@ -2184,6 +2201,14 @@ small {
 
 .performance-summary > :first-child {
   min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.performance-summary > .performance-analyze-button {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
 }
 
 .performance-summary.is-hidden {

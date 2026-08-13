@@ -24,6 +24,10 @@ import { CURRENT_PROJECT_VERSION } from "../js/domain/project-migrations.js";
 import { createAppState } from "../js/app-state.js";
 import { createVj1NodePackage } from "../js/app-node-package.js";
 import { createDefaultComponent, createInitialState } from "../js/domain/models.js";
+import {
+  componentChainProjection,
+  componentLayerProjection,
+} from "../js/domain/component-layer-projection.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 
 test("project lookup distinguishes a missing project from an unreadable existing project", async () => {
@@ -853,8 +857,8 @@ test("a graph-authoritative v34 project migrates, saves, edits, undoes, and redo
   const project = new ProjectMemoryDirectory("v34-migration-project");
   const nodePackage = createVj1NodePackage();
   const current = nodePackage.prepareProjectState(createInitialState());
-  const component = current.components.find((entry) => entry.chain?.length);
-  const chainItem = component.chain[0];
+  const component = current.components.find((entry) => componentLayerProjection(current, entry).length);
+  const chainItem = componentLayerProjection(current, component)[0].item;
   const payload = buildProjectPayload(current, "2026-07-25T00:00:00.000Z");
   payload.version = 34;
   payload.media = [{ id: "media/photo.png", name: "photo.png", path: "media/photo.png", type: "image", size: 1 }];
@@ -919,21 +923,27 @@ test("a graph-authoritative v34 project migrates, saves, edits, undoes, and redo
     assert.equal(migratedNode.configuration.source.generatorId, "mediaImage");
     assert.equal(migratedNode.configuration.source.params.mediaId, "media/photo.png");
 
-    store.update((draft) => {
-      draft.components.find((entry) => entry.id === component.id)
-        .chain.find((item) => item.id === chainItem.id).enabled = false;
-    }, "toggle:component-element");
+    const openedComponent = store.getState().components.find((entry) => entry.id === component.id);
+    const openedLayer = componentLayerProjection(store.getState(), openedComponent)
+      .find((layer) => layer.nodeId === chainItem.id);
+    assert.equal(store.setComponentToggle(`${openedLayer.path}.enabled`, false, {
+      reason: "toggle:component-element",
+    }), true);
     assert.equal(await service.flushAutoSave(), true);
     assert.equal(JSON.parse(projectFile.value).nodes.groups
       .find((entry) => entry.id === `vj1.component.${component.id}`)
       .nodes.find((node) => node.id === chainItem.id).configuration.enabled, false);
 
     assert.equal(await service.undoProject(), true);
-    assert.equal(store.getState().components.find((entry) => entry.id === component.id)
-      .chain.find((item) => item.id === chainItem.id).enabled, true);
+    assert.equal(componentChainProjection(
+      store.getState(),
+      store.getState().components.find((entry) => entry.id === component.id),
+    ).find((item) => item.id === chainItem.id).enabled, true);
     assert.equal(await service.redoProject(), true);
-    assert.equal(store.getState().components.find((entry) => entry.id === component.id)
-      .chain.find((item) => item.id === chainItem.id).enabled, false);
+    assert.equal(componentChainProjection(
+      store.getState(),
+      store.getState().components.find((entry) => entry.id === component.id),
+    ).find((item) => item.id === chainItem.id).enabled, false);
   } finally {
     unsubscribe();
     globalThis.window = previousWindow;
@@ -1002,7 +1012,7 @@ test("graph-authoritative visibility and placement edits survive a fresh project
   const nodePackage = createVj1NodePackage();
   const initial = nodePackage.prepareProjectState(createInitialState());
   const componentId = initial.components[0].id;
-  const chainItemId = initial.components[0].chain[0].id;
+  const chainItemId = componentLayerProjection(initial, initial.components[0])[0].nodeId;
   const projectFile = await project.getFileHandle("project.json", { create: true });
   projectFile.value = JSON.stringify(buildProjectPayload(initial, "2026-07-25T00:00:00.000Z"));
 
@@ -1041,18 +1051,23 @@ test("graph-authoritative visibility and placement edits survive a fresh project
   let second = null;
   try {
     assert.equal((await first.service.openFolder()).loaded, true);
-    first.store.update((draft) => {
-      const component = draft.components.find((entry) => entry.id === componentId);
-      const item = component.chain.find((entry) => entry.id === chainItemId);
-      item.enabled = false;
-      item.boundary = { ...item.boundary, x: 0.2, y: -0.15, width: 0.55, height: 0.7 };
-    }, "update:chain-boundary");
+    const firstComponent = first.store.getState().components.find((entry) => entry.id === componentId);
+    const firstLayer = componentLayerProjection(first.store.getState(), firstComponent)
+      .find((layer) => layer.nodeId === chainItemId);
+    assert.equal(first.store.setComponentValues([
+      { path: `${firstLayer.path}.enabled`, value: false },
+      { path: `${firstLayer.path}.boundary.x`, value: 0.2 },
+      { path: `${firstLayer.path}.boundary.y`, value: -0.15 },
+      { path: `${firstLayer.path}.boundary.width`, value: 0.55 },
+      { path: `${firstLayer.path}.boundary.height`, value: 0.7 },
+    ], { reason: "update:chain-boundary" }), true);
     await first.service.flushAutoSave();
 
     second = createSession();
     assert.equal((await second.service.openFolder()).loaded, true);
     const component = second.store.getState().components.find((entry) => entry.id === componentId);
-    const item = component.chain.find((entry) => entry.id === chainItemId);
+    const item = componentChainProjection(second.store.getState(), component)
+      .find((entry) => entry.id === chainItemId);
     assert.equal(item.enabled, false);
     assert.deepEqual(item.boundary, {
       x: 0.2,

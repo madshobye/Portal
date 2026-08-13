@@ -126,7 +126,9 @@ export function resolveLiveRenderPatches(state, patches = []) {
     const component = components.get(componentId);
     const node = nodeId ? findGraphNode(groups.get(componentId)?.nodes, nodeId) : null;
     const target = nodeId ? node?.configuration : component;
-    const destination = target && parts.length ? resolvePatchPath(target, parts) : null;
+    const destination = target && parts.length
+      ? resolvePatchPath(target, parts, { nodeConfiguration: !!nodeId })
+      : null;
     if (!destination) {
       const rejectionReason = !component
         ? "component-not-found"
@@ -277,7 +279,7 @@ function patchPathParts(path) {
   return raw.map((part) => /^\d+$/.test(part) ? Number(part) : part);
 }
 
-function resolvePatchPath(target, parts) {
+function resolvePatchPath(target, parts, { nodeConfiguration = false } = {}) {
   let cursor = target;
   for (let index = 0; index < parts.length - 1; index++) {
     const part = parts[index];
@@ -286,12 +288,20 @@ function resolvePatchPath(target, parts) {
   }
   const leaf = parts.at(-1);
   if (cursor == null || typeof cursor !== "object") return null;
-  if (!(leaf in cursor) && !isOptionalParamLeaf(parts)) return null;
+  if (
+    !(leaf in cursor) &&
+    !isOptionalParamLeaf(parts) &&
+    !(nodeConfiguration && isOptionalNodePlacementLeaf(parts))
+  ) return null;
   return { target: cursor, leaf };
 }
 
 function isOptionalParamLeaf(parts) {
   return parts.length >= 2 && parts.at(-2) === "params" && typeof parts.at(-1) === "string";
+}
+
+function isOptionalNodePlacementLeaf(parts) {
+  return parts.length === 1 && ["boundary", "transform"].includes(String(parts[0] || ""));
 }
 
 function copyPatchPath(target, parts, value) {

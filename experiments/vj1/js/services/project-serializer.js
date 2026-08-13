@@ -24,7 +24,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
         selectedSceneId: state.ui.live?.selectedSceneId || "",
         sceneMappingInLive: state.ui.live?.sceneMappingInLive !== false,
         showScenes: state.ui.live?.showScenes !== false,
-        showComponents: state.ui.live?.showComponents !== false,
+        showComponents: state.ui.live?.showComponents === true,
         transitionId: String(state.ui.live?.transitionId || "vj1.transition.dissolve"),
         transitionParameters: state.ui.live?.transitionParameters && typeof state.ui.live.transitionParameters === "object"
           ? state.ui.live.transitionParameters
@@ -71,9 +71,8 @@ export function persistedComponents(components = [], nodes = {}) {
       nodeProjectionSignature: _runtimeProjectionSignature,
       ...componentData
     } = component || {};
-    // Version 24 persists the node group as visual authority. `chain` remains
-    // an in-memory projection for the established Component/Scene UI and is
-    // retained only when importing a not-yet-compiled legacy component.
+    // Node Groups are the sole current authority. A legacy `chain` is accepted
+    // only before preparation has migrated it into a Component Group.
     const persisted = nodes?.authority === "node-graph"
       ? Object.fromEntries(Object.entries(componentData).filter(([key]) => key !== "chain"))
       : componentData;

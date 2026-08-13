@@ -16,9 +16,11 @@ import {
 import {
   ProbeRuntime,
   probeColorFeatures,
+  probeOpticalFlowFeatures,
   probeSampleGeometry,
   probeValuesChanged,
 } from "../js/output/probe-runtime.js";
+import { AsyncPixelReadback } from "../js/output/async-pixel-readback.js";
 
 test("pointer control values are normalized and pointer demand follows the authored graph", () => {
   assert.deepEqual(pointerSignalValues({
@@ -49,6 +51,37 @@ test("pointer control values are normalized and pointer demand follows the autho
   }), true);
 });
 
+test("Probe optical flow exposes translation, rotation, expansion, amount, and confidence", () => {
+  const width = 8;
+  const height = 8;
+  const grid = (offsetX = 0) => Array.from({ length: width * height }, (_, index) => {
+    const x = index % width;
+    const y = Math.floor(index / width);
+    const value = Math.max(0, 1 - Math.hypot(x - 3.1 - offsetX, y - 3.7) / 4);
+    return { brightness: value };
+  });
+  const stationary = probeOpticalFlowFeatures(grid(), grid(), width, height);
+  const translated = probeOpticalFlowFeatures(grid(), grid(0.25), width, height, {
+    gain: 2,
+    threshold: 0,
+  });
+
+  assert.deepEqual(stationary, {
+    flow: 0,
+    flowX: 0,
+    flowY: 0,
+    flowRotation: 0,
+    flowExpansion: 0,
+    flowConfidence: 0,
+  });
+  assert.equal(translated.flow > 0, true);
+  assert.equal(translated.flowX > 0, true);
+  assert.equal(Math.abs(translated.flowY) < translated.flowX, true);
+  assert.equal(translated.flowConfidence > 0, true);
+  assert.equal(Number.isFinite(translated.flowRotation), true);
+  assert.equal(Number.isFinite(translated.flowExpansion), true);
+});
+
 test("Probe color reduction publishes stable normalized RGB HSV brightness and alpha features", () => {
   const features = probeColorFeatures([255, 0, 0, 128]);
   assert.deepEqual(features, {
@@ -63,7 +96,7 @@ test("Probe color reduction publishes stable normalized RGB HSV brightness and a
   });
   assert.deepEqual(
     probeSampleGeometry(
-      { x: 0, y: 0, width: 0.5, height: 0.5, rotation: 0 },
+      { x: 0.5, y: 0.5, width: 0.5, height: 0.5, rotation: 0 },
       { width: 100, height: 50 },
       { width: 100, height: 50 },
     ),
@@ -81,7 +114,8 @@ test("Probe publishes each changed upstream sample without waiting for presentat
   const publications = [];
   const runtime = new ProbeRuntime({
     componentProgramRuntime: {
-      requiresControlSignal: () => true,
+      requiresControlSignal: (_kind, address) =>
+        !/:(flow|flowX|flowY|flowRotation|flowExpansion|flowConfidence)$/.test(address),
     },
     controlSignalRuntime: {
       publishBatch(kind, addresses, metadata) {
@@ -115,6 +149,72 @@ test("Probe publishes each changed upstream sample without waiting for presentat
   assert.equal(publications.length, 2);
   assert.equal(publications[0].metadata.timestamp, 100);
   assert.equal(publications[1].metadata.timestamp, 100);
+});
+
+test("Probe pixel readback waits for a WebGL2 fence instead of synchronizing the frame", () => {
+  const calls = [];
+  const statuses = [0x911B, 0x911A, 0x911A];
+  const gl = {
+    PIXEL_PACK_BUFFER: 0x88EB,
+    STREAM_READ: 0x88E1,
+    RGBA: 0x1908,
+    UNSIGNED_BYTE: 0x1401,
+    SYNC_GPU_COMMANDS_COMPLETE: 0x9117,
+    ALREADY_SIGNALED: 0x911A,
+    CONDITION_SATISFIED: 0x911C,
+    WAIT_FAILED: 0x911D,
+    createBuffer: () => ({ id: "pbo" }),
+    bindBuffer: (...args) => calls.push(["bindBuffer", ...args]),
+    bufferData: (...args) => calls.push(["bufferData", ...args]),
+    readPixels: (...args) => calls.push(["readPixels", ...args]),
+    fenceSync: () => ({ id: "fence" }),
+    clientWaitSync: () => statuses.shift(),
+    getBufferSubData(_target, _offset, pixels) {
+      pixels.set([12, 34, 56, 255]);
+    },
+    deleteSync: () => calls.push(["deleteSync"]),
+    deleteBuffer: () => calls.push(["deleteBuffer"]),
+    flush: () => calls.push(["flush"]),
+  };
+  let begins = 0;
+  let ends = 0;
+  const target = {
+    drawingContext: gl,
+    framebuffer: {
+      begin: () => begins++,
+      end: () => ends++,
+    },
+  };
+  const readback = new AsyncPixelReadback();
+
+  assert.deepEqual(readback.read(target, "probe-a", 1, 1, "frame-1"), {
+    supported: true,
+    pixels: null,
+    revision: "",
+    pending: true,
+  });
+  assert.deepEqual(readback.read(target, "probe-a", 1, 1, "frame-1"), {
+    supported: true,
+    pixels: null,
+    revision: "",
+    pending: true,
+  });
+  const completed = readback.read(target, "probe-a", 1, 1, "frame-2");
+  assert.equal(completed.supported, true);
+  assert.deepEqual([...completed.pixels], [12, 34, 56, 255]);
+  assert.equal(completed.revision, "frame-1");
+  assert.equal(completed.pending, true);
+  assert.equal(calls.filter(([name]) => name === "readPixels").length, 2);
+  assert.equal(begins, 2);
+  assert.equal(ends, 2);
+
+  const stable = readback.read(target, "probe-a", 1, 1, "frame-2");
+  assert.deepEqual([...stable.pixels], [12, 34, 56, 255]);
+  assert.equal(stable.pending, false);
+  assert.equal(calls.filter(([name]) => name === "readPixels").length, 2);
+
+  readback.dispose();
+  assert.equal(calls.some(([name]) => name === "deleteBuffer"), true);
 });
 
 test("Probe compiles as a passthrough observer and activates only through a local animation signal dependency", () => {

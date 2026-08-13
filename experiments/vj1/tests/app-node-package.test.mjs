@@ -44,7 +44,7 @@ import {
   createLiveRenderState,
 } from "../js/domain/models.js";
 import { migrateProjectData } from "../js/domain/project-migrations.js";
-import { componentLayerProjection } from "../js/domain/component-layer-projection.js";
+import { componentChainProjection, componentLayerProjection } from "../js/domain/component-layer-projection.js";
 import {
   prepareProjectNodeDefinitionEdit,
   selectedNodeEditorModel,
@@ -1103,7 +1103,7 @@ test("compiled compound instances own isolated private render configuration", ()
     secondRender.configuration.source.params,
   );
 
-  const firstConfiguration = state.components[0].chain[0];
+  const firstConfiguration = componentChainProjection(state, state.components[0])[0];
   program.replaceNodeConfiguration(firstNodeId, {
     ...firstConfiguration,
     source: {
@@ -1502,8 +1502,9 @@ test("persisted compact specialized generators hydrate before graph-authoritativ
   assert.equal(compact.connections.length, 0);
   const restored = packageRoot.prepareProjectState(payload);
   const restoredGroup = restored.nodes.groups.find((group) => group.componentId === component.id);
-  assert.equal(restored.components[0].chain[0].source.generatorId, "terrainFlyover");
-  assert.equal(restored.components[0].chain[0].source.params.flightSpeed, 0.7);
+  const restoredSource = componentChainProjection(restored, restored.components[0])[0];
+  assert.equal(restoredSource.source.generatorId, "terrainFlyover");
+  assert.equal(restoredSource.source.params.flightSpeed, 0.7);
   assert.equal(restoredGroup.connections.some((edge) => edge.type === "texture"), true);
   assert.equal(
     restoredGroup.nodes.find((node) => node.id === "terrain-source")?.compilerHook?.id,
@@ -2034,7 +2035,7 @@ test("compiled visual compounds stay atomic in the chain projection across repea
     prepareChange: packageRoot.prepareProjectChange,
   });
 
-  const projected = store.getState().components[0].chain[0];
+  const projected = componentChainProjection(store.getState(), store.getState().components[0])[0];
   assert.equal(
     Object.hasOwn(projected, "chain"),
     false,
@@ -2042,9 +2043,10 @@ test("compiled visual compounds stay atomic in the chain projection across repea
   );
 
   for (const enabled of [false, true, false, true]) {
-    store.update((draft) => {
-      draft.components[0].chain[0].enabled = enabled;
-    }, "toggle:components.0.chain.0.enabled");
+    const layer = componentLayerProjection(store.getState(), store.getState().components[0])[0];
+    store.setComponentToggle(`${layer.path}.enabled`, enabled, {
+      reason: "toggle:component-graph-node-enabled",
+    });
     const state = store.getState();
     const component = state.components[0];
     const group = state.nodes.groups.find((item) =>
@@ -2054,10 +2056,10 @@ test("compiled visual compounds stay atomic in the chain projection across repea
       item.id === "project-media-source"
     );
 
-    assert.equal(component.chain[0].enabled, enabled);
+    assert.equal(componentChainProjection(state, component)[0].enabled, enabled);
     assert.equal(source.configuration.enabled, enabled);
     assert.equal(component.nodeProjectionSignature, group.projectionSignature);
-    assert.equal(Object.hasOwn(component.chain[0], "chain"), false);
+    assert.equal(Object.hasOwn(componentChainProjection(state, component)[0], "chain"), false);
   }
 });
 
@@ -2091,19 +2093,18 @@ test("incremental Component preparation updates only the changed graph program",
   const mappingGroup = prepared.nodes.groups.find((group) =>
     group.generatedBy === "vj1-mapping-compiler"
   );
+  const groupAIndex = prepared.nodes.groups.findIndex((group) => group.componentId === "incremental-component-a");
+  const editedGroupA = structuredClone(prepared.nodes.groups[groupAIndex]);
   const next = {
     ...prepared,
-    components: prepared.components.map((component) =>
-      component.id !== "incremental-component-a" ? component : {
-        ...component,
-        chain: component.chain.map((item, index) => index ? item : {
-          ...item,
-          enabled: false,
-          boundary: { ...item.boundary, x: 0.2 },
-        }),
-      }
-    ),
+    nodes: {
+      ...prepared.nodes,
+      groups: prepared.nodes.groups.map((group, index) => index === groupAIndex ? editedGroupA : group),
+    },
   };
+  const edited = editedGroupA.nodes.find((node) => ["source", "effect", "group"].includes(node.role));
+  edited.configuration.enabled = false;
+  edited.configuration.boundary.x = 0.2;
   const changed = packageRoot.prepareProjectChange(prepared, next);
   const changedGroupA = changed.nodes.groups.find((group) =>
     group.componentId === "incremental-component-a"
@@ -2133,8 +2134,8 @@ test("incremental Component preparation updates only the changed graph program",
   );
   const payload = buildProjectPayload(changed, "2026-07-26T00:00:00.000Z");
   const reloaded = packageRoot.prepareProjectState(payload);
-  assert.equal(reloaded.components[0].chain[0].enabled, false);
-  assert.equal(reloaded.components[0].chain[0].boundary.x, 0.2);
+  assert.equal(componentChainProjection(reloaded, reloaded.components[0])[0].enabled, false);
+  assert.equal(componentChainProjection(reloaded, reloaded.components[0])[0].boundary.x, 0.2);
   assert.doesNotThrow(() => structuredClone(changed));
 });
 
@@ -2369,7 +2370,7 @@ test("persisted Component groups own configuration while chain remains an in-mem
   assert.equal(persistedGroup.nodes.some((item) => item.role === "control"), false);
 
   const reloaded = packageRoot.prepareProjectState(payload);
-  assert.equal(reloaded.components[0].chain[0].source.generatorId, "waves");
+  assert.equal(componentChainProjection(reloaded, reloaded.components[0])[0].source.generatorId, "waves");
   assert.equal(reloaded.components[0].nodeProjectionSignature, group.projectionSignature);
   const reloadedGroup = reloaded.nodes.groups.find((item) => item.id === group.id);
   assert.equal(reloadedGroup.nodes.some((item) => item.role === "control"), true);
@@ -2564,10 +2565,11 @@ test("v26 migration preserves graph-authoritative Component elements when the pe
   const migrated = migrateProjectData(payload);
   const reloaded = packageRoot.prepareProjectState(migrated);
 
-  assert.equal(reloaded.components[0].chain.length, 1);
-  assert.equal(reloaded.components[0].chain[0].source.generatorId, "plasma");
-  assert.equal(reloaded.components[0].chain[0].boundary.rotation, 0.35);
-  assert.equal(reloaded.components[0].chain[0].transform.rotation, 0);
+  const migratedChain = componentChainProjection(reloaded, reloaded.components[0]);
+  assert.equal(migratedChain.length, 1);
+  assert.equal(migratedChain[0].source.generatorId, "plasma");
+  assert.equal(migratedChain[0].boundary.rotation, 0.35);
+  assert.equal(migratedChain[0].transform.rotation, 0);
 });
 
 test("Scenes and main output persist route composition and mapping groups", () => {

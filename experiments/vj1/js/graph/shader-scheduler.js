@@ -78,8 +78,10 @@ export function isFusibleShaderJob(job) {
     return false;
   }
   const transform = job.pass?.transform || {};
-  return Math.abs(Number(transform.x) || 0) < 1e-9 &&
-    Math.abs(Number(transform.y) || 0) < 1e-9 &&
+  const x = Number(transform.x);
+  const y = Number(transform.y);
+  return Math.abs((Number.isFinite(x) ? x : 0.5) - 0.5) < 1e-9 &&
+    Math.abs((Number.isFinite(y) ? y : 0.5) - 0.5) < 1e-9 &&
     Math.abs((Number(transform.scale) || 1) - 1) < 1e-9 &&
     Math.abs(Number(transform.rotation) || 0) < 1e-9;
 }

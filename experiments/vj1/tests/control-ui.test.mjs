@@ -14,18 +14,51 @@ import {
   visualPickerDisplayName,
 } from "../js/control/picker-view.js";
 import { normalizeSettingsTab, settingsUiModel } from "../js/control/settings-view.js";
-import { createInitialState, createSceneComponent } from "../js/domain/models.js";
+import {
+  createInitialState,
+  createLiveRenderState,
+  createSceneComponent,
+  reconcileDirectOutputSurfaces,
+} from "../js/domain/models.js";
 import { componentCatalogListItems, liveProjectionListModel } from "../js/control/project-rail-view.js";
 import { hasActiveRendererTransition, previewFitSignature, previewModeChangeActivation, previewRasterDensity, retimeEmbeddedLiveTransition, shouldPrepareEmbeddedLiveState } from "../js/output/embedded-preview-app.js";
 import { boundaryFromScaleInput, createInputController, isBoundaryScaleInput, isfEventTarget } from "../js/control/input-controller.js";
-import { activeRenderCost, activeWorkMetric, artifactInspectorScope, createLiveTransitionExpiryScheduler, mergeControlRenderRequests, performanceHealthStep } from "../js/control/control-shell-controller.js";
-import { sourceForCatalogMedia } from "../js/control/modal-controller.js";
+import { activeRenderCost, activeWorkMetric, artifactInspectorScope, createLiveTransitionExpiryScheduler, mergeControlRenderRequests, performanceHealthStep, selectLiveSourceFilter } from "../js/control/control-shell-controller.js";
+import { createModalController, sourceForCatalogMedia } from "../js/control/modal-controller.js";
+import { createAppState } from "../js/app-state.js";
 import { nextCatalogFilter } from "../js/libraries/ui-engine/nodes/catalog-picker-node.js";
 import { mediaDisplayName } from "../js/control/media-view.js";
 import { componentElementsUiModel, componentSelectedChainSettingsModel, selectedChainParameterTabsModel } from "../js/control/component-view.js";
-import { catalogSortIcon } from "../js/control/control-ui-program.js";
+import { catalogSortIcon, parameterTabsUiGraph } from "../js/control/control-ui-program.js";
+import {
+  selectedLiveComponentViewModel,
+  selectedLiveParameterTabsModel,
+} from "../js/control/mapping-live-view.js";
+import { componentLayerProjection, liveComponentLayerProjection } from "../js/domain/component-layer-projection.js";
 import { sameOrderedIds } from "../js/libraries/ui-engine/nodes/workspace-shell-node.js";
 import { createControlCommandController, liveTimingPreferencePath } from "../js/control/control-command-controller.js";
+
+test("Live source filters toggle independently", () => {
+  const scenes = selectLiveSourceFilter({ showScenes: false, showComponents: true }, "scenes", true);
+  assert.deepEqual(scenes, { showScenes: true, showComponents: true });
+
+  const parts = selectLiveSourceFilter(scenes, "components", false);
+  assert.deepEqual(parts, { showScenes: true, showComponents: false });
+
+  assert.deepEqual(
+    selectLiveSourceFilter(selectLiveSourceFilter(parts, "scenes", false), "components", true),
+    { showScenes: false, showComponents: true },
+  );
+  assert.deepEqual(
+    selectLiveSourceFilter({ showScenes: true, showComponents: false }, "scenes", false),
+    { showScenes: false, showComponents: true },
+    "turning off the final active filter enables its counterpart",
+  );
+  assert.deepEqual(
+    selectLiveSourceFilter({ showScenes: false, showComponents: true }, "components", false),
+    { showScenes: true, showComponents: false },
+  );
+});
 
 function settingsPanelsSource(state, midiStatus = {}, dmxStatus = {}, sharedInputs = []) {
   return JSON.stringify(settingsUiModel(state, { midiStatus, dmxStatus, sharedInputs }));
@@ -35,10 +68,10 @@ import { componentCatalogSearchText } from "../js/control/catalog-view.js";
 import {
   chainBoundaryPositionParams,
   chainTransformParams,
-  placementAxisRange,
 } from "../js/control/parameter-view.js";
 import { createChangeEvent } from "../js/libraries/state-engine/state-command/index.js";
 import { createVj1NodePackage } from "../js/app-node-package.js";
+import { persistLiveSession, preferredLiveSession } from "../js/view-routing.js";
 
 const appNodePackage = createVj1NodePackage();
 
@@ -803,31 +836,27 @@ test("retained movie trim preserves implicit-end semantics while committing one 
   assert.equal(committed.metadata.reason, "update:video-trim");
 });
 
-test("placement controls scale their editor range without changing authored coordinates", () => {
-  assert.equal(placementAxisRange(1, 0), 2, "a unit object retains the familiar ±2 range");
-  assert.equal(placementAxisRange(4, 0), 5, "a four-frame object can travel fully beyond either parent edge");
-  assert.equal(placementAxisRange(0.5, -3), 3, "an existing authored position remains reachable");
-
-  const content = chainTransformParams({ x: 0.25, y: -0.5, scale: 3 });
+test("placement controls expose their authored coordinate ranges directly", () => {
+  const content = chainTransformParams({ x: 0.25, y: 0.75, scale: 3 });
   assert.deepEqual(
     content.filter((param) => param.id === "x" || param.id === "y")
-      .map((param) => [param.min, param.max]),
-    [[-4, 4], [-4, 4]],
+      .map((param) => [param.min, param.max, param.defaultValue]),
+    [[0, 1, 0.5], [0, 1, 0.5]],
   );
   assert.equal(content.find((param) => param.id === "scale")?.max, 8);
 
   const boundary = chainBoundaryPositionParams({
     x: 0.2,
-    y: -0.3,
+    y: 0.7,
     width: 3,
     height: 0.5,
   });
   assert.deepEqual(
-    boundary.map((param) => [param.id, param.min, param.max]),
+    boundary.map((param) => [param.id, param.min, param.max, param.defaultValue]),
     [
-      ["x", -4, 4],
-      ["y", -2, 2],
-      ["rotation", -3.1416, 3.1416],
+      ["x", 0, 1, 0.5],
+      ["y", 0, 1, 0.5],
+      ["rotation", -3.1416, 3.1416, 0],
     ],
   );
 });
@@ -1296,6 +1325,7 @@ test("semantic Live UI commands write the one sparse diff bank and render-patch 
   const state = createInitialState();
   const component = state.components[0];
   const nodeId = component.chain[0].id;
+  const authoredScale = component.chain[0].transform.scale;
   state.ui.live.selectedComponentId = component.id;
   let updateMetadata = null;
   const store = {
@@ -1319,11 +1349,272 @@ test("semantic Live UI commands write the one sparse diff bank and render-patch 
     nodeId,
     path: "transform.scale",
   }, 1.5, { phase: "change" }), true);
-  assert.equal(state.ui.live.parameterDiffs[component.id][component.id].nodes[nodeId].transform.scale, 1.5);
+  assert.equal(component.chain[0].transform.scale, authoredScale);
+  assert.deepEqual(state.ui.live.parameterDiffs[component.id][component.id], {
+    nodes: { [nodeId]: { transform: { scale: 1.5 } } },
+  });
   assert.equal(updateMetadata.reason, "scrub:live");
   assert.equal(updateMetadata.livePatches[0].nodeId, nodeId);
   assert.equal(updateMetadata.livePatches[0].path, "transform.scale");
   assert.equal(updateMetadata.livePatches[0].interpolation, "immediate");
+});
+
+test("compiled Live element sliders cannot mutate the graph-authoritative Component", () => {
+  const prepared = appNodePackage.prepareProjectState(createInitialState());
+  const component = prepared.components[0];
+  const layer = componentLayerProjection(prepared, component)[0];
+  prepared.ui.workspace = "live";
+  prepared.ui.live.selectedComponentId = component.id;
+  prepared.ui.live.selectedSceneId = "";
+  prepared.ui.live.selectedChainItemId = layer.nodeId;
+  prepared.ui.live.selectedChainItemIds = { [component.id]: layer.nodeId };
+  const store = createAppState(prepared, {
+    prepareState: (state) => appNodePackage.prepareProjectState(state),
+    prepareChange: (_previous, state) => appNodePackage.prepareProjectState(state),
+  });
+  const model = selectedLiveParameterTabsModel(store.getState());
+  const graph = parameterTabsUiGraph(model, { live: true });
+  const slider = graph.nodes.find((node) =>
+    node.commands?.change?.target?.path === "transform.scale"
+  );
+  assert.equal(slider?.commands.change.action, "live.set-value");
+  assert.deepEqual(slider.commands.change.target, {
+    componentId: component.id,
+    nodeId: layer.nodeId,
+    path: "transform.scale",
+  });
+
+  const authoredBefore = structuredClone(store.getState().nodes);
+  const componentsBefore = structuredClone(store.getState().components);
+  const events = [];
+  store.subscribe((_state, _reason, event) => events.push(event), { emitCurrent: false });
+  const controller = createControlCommandController({
+    store,
+    getState: () => store.getState(),
+    currentWorkspace: () => "live",
+    refreshSelectedMappingProjection() {},
+  });
+  assert.equal(controller.updateLiveValue(
+    slider.commands.change.target,
+    2.5,
+    { phase: "commit" },
+  ), true);
+
+  const current = store.getState();
+  assert.deepEqual(current.nodes, authoredBefore);
+  assert.deepEqual(current.components, componentsBefore);
+  assert.equal(componentLayerProjection(current, current.components[0])[0].item.transform.scale, 1);
+  assert.equal(
+    current.ui.live.parameterDiffs[component.id][component.id]
+      .nodes[layer.nodeId].transform.scale,
+    2.5,
+  );
+  assert.equal(events.at(-1).command.domain, "live");
+  assert.equal(events.at(-1).effects.persistence.mode, "none");
+});
+
+test("direct-output Live element diffs survive inspector rebuild, visibility round-trip, and reload", () => {
+  const prepared = appNodePackage.prepareProjectState(createInitialState());
+  const component = prepared.components[0];
+  const layer = componentLayerProjection(prepared, component)[0];
+  const authoredScale = layer.item.transform.scale;
+  prepared.mappings[0].surfaces = reconcileDirectOutputSurfaces(
+    prepared.mappings[0].surfaces,
+    prepared.render,
+  );
+  const directSurface = prepared.mappings[0].surfaces.find(
+    (surface) => surface.destination?.type === "direct",
+  );
+  assert.ok(directSurface);
+  prepared.ui.workspace = "live";
+  prepared.ui.live.selectedComponentId = "";
+  prepared.ui.live.selectedSceneId = "";
+  prepared.ui.live.overallSourceCleared = true;
+  prepared.ui.live.previewSurfaceId = directSurface.id;
+  prepared.ui.live.inspectedComponentId = component.id;
+  prepared.ui.live.surfacePatches[directSurface.id] = component.id;
+  const reloadBase = structuredClone(prepared);
+
+  const store = createAppState(prepared, {
+    prepareState: (state) => appNodePackage.prepareProjectState(state),
+    prepareChange: (_previous, state) => appNodePackage.prepareProjectState(state),
+  });
+  const authoredBefore = structuredClone(store.getState().nodes);
+  const controller = createControlCommandController({
+    store,
+    getState: () => store.getState(),
+    currentWorkspace: () => "live",
+    refreshSelectedMappingProjection() {},
+  });
+
+  assert.equal(controller.updateLiveValue({
+    componentId: component.id,
+    nodeId: layer.nodeId,
+    path: "transform.scale",
+  }, 3, { phase: "commit" }), true);
+  assert.equal(controller.updateLiveValue({
+    componentId: component.id,
+    path: "transform.scale",
+  }, 0.05, { phase: "commit" }), true);
+
+  const changed = store.getState();
+  assert.deepEqual(changed.nodes, authoredBefore, "Live never edits the authored Component Group");
+  assert.equal(
+    changed.ui.live.parameterDiffs[component.id][component.id]
+      .nodes[layer.nodeId].transform.scale,
+    3,
+    "the routed Component owns the fallback Live diff bank",
+  );
+  assert.equal(
+    liveComponentLayerProjection(changed, changed.components[0])[0].item.transform.scale,
+    3,
+    "a rebuilt inspector resolves the retained Live value",
+  );
+
+  let visibilityAction = selectedLiveComponentViewModel(changed)
+    .elements[0].actions.find((action) => action.id === "toggle-enabled");
+  assert.equal(visibilityAction.payload.value, false);
+  controller.updateLiveValue({
+    componentId: visibilityAction.payload.componentId,
+    nodeId: visibilityAction.payload.nodeId,
+    path: visibilityAction.payload.path,
+  }, visibilityAction.payload.value, { phase: "commit", controlRegions: ["inspector"] });
+  let rebuilt = store.getState();
+  assert.equal(liveComponentLayerProjection(rebuilt, rebuilt.components[0])[0].item.enabled, false);
+  visibilityAction = selectedLiveComponentViewModel(rebuilt)
+    .elements[0].actions.find((action) => action.id === "toggle-enabled");
+  assert.equal(visibilityAction.payload.value, true, "the rebuilt toggle can enable the element again");
+  controller.updateLiveValue({
+    componentId: visibilityAction.payload.componentId,
+    nodeId: visibilityAction.payload.nodeId,
+    path: visibilityAction.payload.path,
+  }, visibilityAction.payload.value, { phase: "commit", controlRegions: ["inspector"] });
+  rebuilt = store.getState();
+  assert.equal(liveComponentLayerProjection(rebuilt, rebuilt.components[0])[0].item.enabled, true);
+  assert.deepEqual(rebuilt.nodes, authoredBefore, "visibility round-trip remains a Live-only diff");
+
+  visibilityAction = selectedLiveComponentViewModel(rebuilt)
+    .elements[0].actions.find((action) => action.id === "toggle-enabled");
+  assert.equal(visibilityAction.payload.value, false);
+  controller.updateLiveValue({
+    componentId: visibilityAction.payload.componentId,
+    nodeId: visibilityAction.payload.nodeId,
+    path: visibilityAction.payload.path,
+  }, visibilityAction.payload.value, { phase: "commit", controlRegions: ["inspector"] });
+
+  store.setWorkspace("component");
+  store.selectComponent(component.id);
+  const componentState = store.getState();
+  const authoredTabs = selectedChainParameterTabsModel(
+    componentState.components.find((candidate) => candidate.id === component.id),
+    componentState,
+  );
+  assert.equal(
+    authoredTabs.item.transform.scale,
+    authoredScale,
+    "switching to Component view reads the authored graph, not the Live projection",
+  );
+  assert.equal(
+    componentLayerProjection(componentState, componentState.components[0])[0].item.enabled,
+    true,
+    "Component view keeps authored visibility while Live visibility is off",
+  );
+
+  store.setWorkspace("live");
+  const returnedLiveState = store.getState();
+  const returnedLiveLayer = liveComponentLayerProjection(
+    returnedLiveState,
+    returnedLiveState.components[0],
+  )[0].item;
+  assert.equal(returnedLiveLayer.transform.scale, 3);
+  assert.equal(returnedLiveLayer.enabled, false);
+  const executableLiveState = createLiveRenderState(returnedLiveState);
+  const executableLiveLayer = componentLayerProjection(
+    executableLiveState,
+    executableLiveState.components[0],
+  )[0].item;
+  assert.equal(
+    executableLiveLayer.transform.scale,
+    3,
+    "returning to Live materializes the retained parameter diff into the executable graph",
+  );
+  assert.equal(
+    executableLiveLayer.enabled,
+    false,
+    "returning to Live materializes the retained visibility diff into the executable graph",
+  );
+  assert.equal(
+    executableLiveState.components.find((candidate) => candidate.id === component.id).transform.scale,
+    0.05,
+    "returning to Live materializes the retained Component-root Content scale",
+  );
+
+  const saved = new Map();
+  const storage = {
+    getItem: (key) => saved.get(key) || null,
+    setItem: (key, value) => saved.set(key, value),
+  };
+  assert.equal(persistLiveSession(store.getState(), storage), true);
+  const session = preferredLiveSession(reloadBase, storage);
+  assert.ok(session);
+  const reloadedStore = createAppState(reloadBase, {
+    prepareState: (state) => appNodePackage.prepareProjectState(state),
+    prepareChange: (_previous, state) => appNodePackage.prepareProjectState(state),
+  });
+  assert.equal(reloadedStore.restoreLiveSession(session), true);
+  const restored = reloadedStore.getState();
+  assert.equal(
+    liveComponentLayerProjection(restored, restored.components[0])[0].item.transform.scale,
+    3,
+    "browser-session restoration reapplies the sparse Live diff",
+  );
+  assert.equal(
+    createLiveRenderState(restored).components.find(
+      (candidate) => candidate.id === component.id,
+    ).transform.scale,
+    0.05,
+    "a cold Live render materializes the restored Component-root Content scale",
+  );
+  assert.deepEqual(restored.nodes, authoredBefore, "reload does not write the diff into the Component Group");
+});
+
+test("Live element visibility writes an enabled diff and refreshes only the inspector", () => {
+  const state = createInitialState();
+  const component = state.components[0];
+  const nodeId = component.chain[0].id;
+  const authoredEnabled = component.chain[0].enabled;
+  state.ui.live.selectedComponentId = component.id;
+  let updateMetadata = null;
+  const controller = createInputController({
+    store: {
+      updateLive(recipe, metadata) {
+        recipe(state);
+        updateMetadata = metadata;
+      },
+    },
+    getState: () => state,
+    modals: {},
+    bindComponentFilters() {},
+    bindCatalogSortControls() {},
+    resetProjectMapping() {},
+    currentWorkspace: () => "live",
+    refreshSelectedMappingProjection() {},
+  });
+
+  assert.equal(controller.updateLiveValue({
+    componentId: component.id,
+    nodeId,
+    path: "enabled",
+  }, false, {
+    controlRegions: ["inspector"],
+  }), true);
+  assert.equal(component.chain[0].enabled, authoredEnabled);
+  assert.deepEqual(state.ui.live.parameterDiffs[component.id][component.id], {
+    nodes: { [nodeId]: { enabled: false } },
+  });
+  assert.deepEqual(updateMetadata.effects.control.regions, ["inspector"]);
+  assert.equal(updateMetadata.livePatches[0].path, "enabled");
+  assert.equal(updateMetadata.livePatches[0].value, false);
 });
 
 test("retained Live Boundary scale writes one sparse diff with canonical width and height", () => {
@@ -1479,11 +1770,24 @@ test("embedded preview retargets resize observation after workspace DOM replacem
   assert.ok(controllerSource.includes("scheduleRenderNow(state, { force: true, reason, change });"));
 });
 
-test("workspace preview mode changes retain compiled programs and target only destination topology", () => {
-  assert.equal(previewModeChangeActivation("live", "component", "ui"), "ui");
-  assert.equal(previewModeChangeActivation("component", "live", "ui"), "projection");
+test("workspace preview mode changes enforce the authored-to-Live authority boundary", () => {
+  assert.equal(
+    previewModeChangeActivation("live", "component", "ui"),
+    "full",
+    "Component and Scene previews must discard retained Live patches",
+  );
+  assert.equal(
+    previewModeChangeActivation("component", "live", "ui"),
+    "full",
+    "Live must compile its effective graph including retained sparse diffs",
+  );
+  assert.equal(previewModeChangeActivation("preview", "live", "ui"), "full");
   assert.equal(previewModeChangeActivation("component", "preview", "ui"), "projection");
-  assert.equal(previewModeChangeActivation("live", "preview", "ui"), "projection");
+  assert.equal(
+    previewModeChangeActivation("live", "preview", "ui"),
+    "full",
+    "Mapping preview must also reactivate from authored state",
+  );
   assert.equal(previewModeChangeActivation("live", "component", "full"), "full");
   assert.equal(previewModeChangeActivation("component", "component", "ui"), "ui");
 
@@ -2612,10 +2916,79 @@ test("component selection modal exposes the shared persisted catalog sorting", (
   assert.deepEqual(componentItems.map((item) => item.label), ["Alpha", "Beta"]);
   assert.ok(controller.includes("sortComponentCatalog(state.components || [], sortMode)"));
   assert.equal(model.sections.find((section) => section.id === "components").actions[0].id, "sort:component:created");
+  assert.equal(model.sections.find((section) => section.id === "components").actions[0].icon, "sort_by_alpha");
   assert.match(controller, /action\.startsWith\("sort:"\)/);
   assert.match(style, /\.ui-node-catalog-section-actions \{[\s\S]*?display: inline-flex;[\s\S]*?gap: 4px;/);
   assert.match(style, /\.ui-node-catalog-section-actions > button \{[\s\S]*?width: 30px;[\s\S]*?padding: 0;/);
   assert.doesNotMatch(style, /\.component-(?:sort-toggle|catalog-tools)/);
+});
+
+test("media picker sort action follows the active catalog mode icon", () => {
+  const icons = ["recent", "marker", "name", "created"].map((mode) => {
+    const model = elementPickerUiModel({
+      ui: { catalogSortModes: { media: mode } },
+      media: [{ id: "image", name: "image.png", type: "image" }],
+      components: [{ id: "owner", name: "Owner", type: "component" }],
+    }, { componentId: "owner" }, { getFile: () => null });
+    return model.sections.find((section) => section.id === "media").actions[0].icon;
+  });
+
+  assert.deepEqual(icons, ["history", "keep", "sort_by_alpha", "add_circle"]);
+});
+
+test("media picker marker actions expose distinct retained visual states", () => {
+  const model = elementPickerUiModel({
+    media: [
+      { id: "plain", name: "plain.png", type: "image", catalogMarker: 0 },
+      { id: "starred", name: "starred.png", type: "image", catalogMarker: 1 },
+    ],
+    components: [{ id: "owner", name: "Owner", type: "component" }],
+  }, { componentId: "owner" }, { getFile: () => null });
+  const items = model.sections.find((section) => section.id === "media").items;
+  const controller = readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8");
+  const pickerNode = readFileSync(new URL("../js/libraries/ui-engine/nodes/catalog-picker-node.js", import.meta.url), "utf8");
+
+  assert.deepEqual(items.map((item) => item.actions[0].presentation), ["marker-0", "marker-1"]);
+  assert.deepEqual(items.map((item) => item.actions[0].icon), ["star_outline", "star"]);
+  assert.match(controller, /const changed = store\.cycleCatalogMarker\?[\s\S]*?if \(changed\) render\(getState\(\)\)/);
+  assert.match(pickerNode, /actionButton\.dataset\.uiActionVariant = action\.presentation/);
+});
+
+test("media marker changes rerender the open picker immediately", () => {
+  const initial = createInitialState();
+  initial.media = [{ id: "media/plain.png", name: "plain.png", type: "image", catalogMarker: 0 }];
+  const store = createAppState(initial);
+  const activations = [];
+  const controller = createModalController({
+    store,
+    getState: store.getState,
+    getHost: () => ({}),
+    mediaLibrary: { getFile: () => null },
+    refreshMedia: async () => {},
+    getCatalogSortMode: () => "recent",
+    retainedUi: {
+      activate: (graph) => activations.push(graph),
+      deactivate: () => {},
+    },
+    screenCapture: {
+      subscribe: () => () => {},
+      snapshot: () => ({ inputs: [] }),
+    },
+  });
+  controller.openElementPicker(initial.components[0].id);
+  const activationCount = activations.length;
+
+  controller.handleUiCommand({
+    action: "picker.action",
+    payload: { id: "marker:media", itemId: "media:media/plain.png" },
+  });
+
+  assert.equal(store.getState().media[0].catalogMarker, 1);
+  assert.equal(activations.length, activationCount + 1);
+  const mediaItems = activations.at(-1).nodes[0].inputs.sections
+    .find((section) => section.id === "media").items;
+  assert.equal(mediaItems[0].actions[0].presentation, "marker-1");
+  assert.equal(mediaItems[0].actions[0].icon, "star");
 });
 
 test("workspace view buttons are compact icons with accessible names", () => {
@@ -2726,6 +3099,12 @@ test("performance overviews show the owning Component thumbnail without renderer
   assert.match(style, /\.ui-node-metrics-categories \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
   assert.ok(controller.includes('categoryTitle: "Signal flow per second"'));
   assert.ok(controller.includes('iconOnly: true'));
+});
+
+test("performance overview scrolls its component list above a non-overlapping analyze footer", () => {
+  const css = vjStyleSource();
+  assert.match(css, /\.performance-summary\s*>\s*:first-child\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*auto;/s);
+  assert.match(css, /\.performance-summary\s*>\s*\.performance-analyze-button\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;/s);
 });
 
 test("topbar diagnostics expose an event-driven bounded console with copy and clear actions", () => {

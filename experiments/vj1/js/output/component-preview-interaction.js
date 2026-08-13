@@ -167,19 +167,20 @@ export class ComponentPreviewInteraction {
   }
 
   chainItemBoundaryPreviewRect(frame, boundary = {}) {
-    const x = Number(boundary?.x) || 0;
-    const y = Number(boundary?.y) || 0;
+    const normalized = normalizeNodeBoundary(boundary);
+    const x = normalized.x;
+    const y = normalized.y;
     const widthScale = Math.max(0.005, Number(boundary?.width) || 1);
     const heightScale = Math.max(0.005, Number(boundary?.height) || 1);
     const boxWidth = frame.width * widthScale;
     const boxHeight = frame.height * heightScale;
     return {
-      x: frame.x + frame.width * (0.5 + x * 0.5) - boxWidth * 0.5,
-      y: frame.y + frame.height * (0.5 + y * 0.5) - boxHeight * 0.5,
+      x: frame.x + frame.width * x - boxWidth * 0.5,
+      y: frame.y + frame.height * y - boxHeight * 0.5,
       width: boxWidth,
       height: boxHeight,
-      centerX: frame.x + frame.width * (0.5 + x * 0.5),
-      centerY: frame.y + frame.height * (0.5 + y * 0.5),
+      centerX: frame.x + frame.width * x,
+      centerY: frame.y + frame.height * y,
       rotation: Number(boundary?.rotation) || 0,
     };
   }
@@ -197,8 +198,8 @@ export class ComponentPreviewInteraction {
       const value = normalizeNodeBoundary(entry?.boundary);
       const boundaryWidth = context.width * value.width;
       const boundaryHeight = context.height * value.height;
-      const localCenterX = context.width * (0.5 + value.x * 0.5);
-      const localCenterY = context.height * (0.5 + value.y * 0.5);
+      const localCenterX = context.width * value.x;
+      const localCenterY = context.height * value.y;
       const center = rotatedContextPoint(context, localCenterX, localCenterY);
       const rotation = context.rotation + value.rotation;
       if (entry === item) return {
@@ -615,8 +616,8 @@ export class ComponentPreviewInteraction {
     const nextBoundary = { ...drag.boundary };
     if (drag.mode === "boundary-move") {
       const delta = screenToLayerLocal(x - drag.startX, y - drag.startY, 0, 0, drag.boundaryParentRotation);
-      nextBoundary.x = drag.boundary.x + delta.x * 2 / Math.max(1, drag.boundaryParentWidth);
-      nextBoundary.y = drag.boundary.y + delta.y * 2 / Math.max(1, drag.boundaryParentHeight);
+      nextBoundary.x = clamp01(drag.boundary.x + delta.x / Math.max(1, drag.boundaryParentWidth));
+      nextBoundary.y = clamp01(drag.boundary.y + delta.y / Math.max(1, drag.boundaryParentHeight));
     } else if (drag.mode === "boundary-rotate") {
       const angle = Math.atan2(y - drag.boundaryCenterY, x - drag.boundaryCenterX);
       nextBoundary.rotation = drag.boundary.rotation + angle - drag.startAngle;
@@ -820,6 +821,10 @@ function rotatedContextPoint(context, x, y) {
     x: context.originX + x * cosine - y * sine,
     y: context.originY + x * sine + y * cosine,
   };
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, Number(value) || 0));
 }
 
 function recordIncludes(actual, expected) {

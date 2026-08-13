@@ -783,7 +783,7 @@ test("live source param overrides compile through node params", () => {
     parameterDiffs: {
       [component.id]: {
         [component.id]: {
-        transform: { x: 0.25, y: -0.4, scale: 1.75, rotation: 0.3 },
+        transform: { x: 0.625, y: 0.3, scale: 1.75, rotation: 0.3 },
         nodes: {
           [nodeId]: {
             source: {
@@ -802,7 +802,7 @@ test("live source param overrides compile through node params", () => {
   const liveState = createLiveRenderState(prepared);
   const liveView = liveState.components[0];
   const liveLayer = liveComponentLayerProjection(prepared, prepared.components[0])[0].item;
-  assert.deepEqual(liveView.transform, { x: 0.25, y: -0.4, scale: 1.75, rotation: 0.3 });
+  assert.deepEqual(liveView.transform, { x: 0.625, y: 0.3, scale: 1.75, rotation: 0.3 });
   assert.equal(liveLayer.source.params.colorA, "#ff000080");
   assert.equal(liveLayer.source.params.mode, "single");
   const program = compileComponentRenderPrograms(liveState.components, liveState.nodes.groups, {
@@ -1849,10 +1849,14 @@ test("a Live Canvas element scale patch updates compiled placement demand and re
   renderer.state = prepared;
   renderer.componentProgramRuntime.rebuild();
 
-  let compiledPlacement = null;
-  renderer.componentProgramRuntime.programs.get(canvas.id).forEachOperation((operation) => {
-    if (operation.configuration?.id === canvasLayer.item.id) compiledPlacement = operation.configuration;
-  });
+  const currentCompiledPlacement = () => {
+    let placement = null;
+    renderer.componentProgramRuntime.programs.get(canvas.id).forEachOperation((operation) => {
+      if (operation.configuration?.id === canvasLayer.item.id) placement = operation.configuration;
+    });
+    return placement;
+  };
+  const compiledPlacement = currentCompiledPlacement();
   assert.equal(compiledPlacement, canvasLayer.item, "the compiled Canvas operation owns the graph configuration by identity");
 
   const outputRequest = { role: "component", width: 1000, height: 500 };
@@ -1862,17 +1866,20 @@ test("a Live Canvas element scale patch updates compiled placement demand and re
     childRequest = request;
     return { width: request.width, height: request.height };
   };
-  const resolvePlacement = () => renderer.sourceRuntime.resolvePlacedSourceResult(
-    { width: outputRequest.width, height: outputRequest.height },
-    {
-      ...compiledPlacement.source,
-      contentTransform: compiledPlacement.transform,
-      instanceId: compiledPlacement.id,
-    },
-    preparedCanvas,
-    0,
-    outputRequest,
-  );
+  const resolvePlacement = () => {
+    const placement = currentCompiledPlacement();
+    return renderer.sourceRuntime.resolvePlacedSourceResult(
+      { width: outputRequest.width, height: outputRequest.height },
+      {
+        ...placement.source,
+        contentTransform: placement.transform,
+        instanceId: placement.id,
+      },
+      preparedCanvas,
+      0,
+      outputRequest,
+    );
+  };
   resolvePlacement();
   const widthBefore = childRequest.width;
 
@@ -1884,7 +1891,8 @@ test("a Live Canvas element scale patch updates compiled placement demand and re
     value: 2,
   }], 0, 0);
   assert.equal(result.applied, true);
-  assert.equal(compiledPlacement.transform.scale, 2);
+  assert.equal(compiledPlacement.transform.scale, 1, "the renderer patch leaves the store-owned graph configuration unchanged");
+  assert.equal(currentCompiledPlacement().transform.scale, 2, "the retained render program receives the patched configuration");
   assert.notEqual(renderer.componentRenderRuntime.stableSignature(preparedCanvas, outputRequest), signatureBefore);
 
   resolvePlacement();

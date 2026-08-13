@@ -110,6 +110,12 @@ export function parameterAnimationSignalSources(
     ["s", "Saturation"],
     ["v", "Value"],
     ["alpha", "Alpha"],
+    ["flow", "Optical flow amount"],
+    ["flowX", "Optical flow X difference"],
+    ["flowY", "Optical flow Y difference"],
+    ["flowRotation", "Optical flow rotation"],
+    ["flowExpansion", "Optical flow expansion"],
+    ["flowConfidence", "Optical flow confidence"],
   ];
   const probes = scope.nodes
     .filter((node) => String(node.nodeId || "") === PROBE_VISUAL_NODE_ID)

@@ -25,16 +25,17 @@ export { markRenderTargetOrientation, renderTargetNeedsPresentationFlip };
 
 export function normalizedContentTransform(transform = {}) {
   return {
-    x: Number(transform.x) || 0,
-    y: Number(transform.y) || 0,
+    x: normalizedPosition(transform.x),
+    y: normalizedPosition(transform.y),
     scale: Math.max(0.0001, Number(transform.scale) || 1),
     rotation: Number(transform.rotation) || 0,
   };
 }
 
 export function isIdentityTransform(transform = {}) {
-  return !Number(transform.x)
-    && !Number(transform.y)
+  const value = normalizedContentTransform(transform);
+  return Math.abs(value.x - 0.5) < 0.000001
+    && Math.abs(value.y - 0.5) < 0.000001
     && !Number(transform.rotation)
     && (transform.scale === undefined || Number(transform.scale) === 1);
 }
@@ -44,11 +45,13 @@ export function combineContentTransforms(parent = {}, child = {}) {
   const inner = normalizedContentTransform(child);
   const cosine = Math.cos(outer.rotation);
   const sine = Math.sin(outer.rotation);
-  const childX = inner.x * outer.scale;
-  const childY = inner.y * outer.scale;
+  const outerX = outer.x - 0.5;
+  const outerY = outer.y - 0.5;
+  const childX = (inner.x - 0.5) * outer.scale;
+  const childY = (inner.y - 0.5) * outer.scale;
   return {
-    x: outer.x + childX * cosine - childY * sine,
-    y: outer.y + childX * sine + childY * cosine,
+    x: 0.5 + outerX + childX * cosine - childY * sine,
+    y: 0.5 + outerY + childX * sine + childY * cosine,
     scale: outer.scale * inner.scale,
     rotation: outer.rotation + inner.rotation,
   };
@@ -60,8 +63,8 @@ export function contentTransformCanvasPlacement(transform = {}, width = 1, heigh
   const safeHeight = Math.max(1, Number(height) || 1);
   return {
     ...value,
-    centerX: safeWidth * (0.5 + value.x * 0.5),
-    centerY: safeHeight * (0.5 + value.y * 0.5),
+    centerX: safeWidth * value.x,
+    centerY: safeHeight * value.y,
   };
 }
 
@@ -76,12 +79,12 @@ export function contentTransformUvMatrices(transform = {}, output = null) {
     placement: new Array(9),
   };
   const value = result.value;
-  value.x = Number(transform.x) || 0;
-  value.y = Number(transform.y) || 0;
+  value.x = normalizedPosition(transform.x);
+  value.y = normalizedPosition(transform.y);
   value.scale = Math.max(0.0001, Number(transform.scale) || 1);
   value.rotation = Number(transform.rotation) || 0;
-  const centerX = 0.5 + value.x * 0.5;
-  const centerY = 0.5 + value.y * 0.5;
+  const centerX = value.x;
+  const centerY = value.y;
   const cosine = Math.cos(-value.rotation);
   const sine = Math.sin(-value.rotation);
   const a = cosine / value.scale;
@@ -129,8 +132,8 @@ export function localContentDragDelta(dx = 0, dy = 0, parentTransform = {}, fram
   const scaledX = Number(dx) / Math.max(0.01, parent.scale);
   const scaledY = Number(dy) / Math.max(0.01, parent.scale);
   return {
-    x: (scaledX * cosine - scaledY * sine) / Math.max(1, Number(frameWidth) * 0.5),
-    y: (scaledX * sine + scaledY * cosine) / Math.max(1, Number(frameHeight) * 0.5),
+    x: (scaledX * cosine - scaledY * sine) / Math.max(1, Number(frameWidth)),
+    y: (scaledX * sine + scaledY * cosine) / Math.max(1, Number(frameHeight)),
   };
 }
 
@@ -139,9 +142,14 @@ export function localContentDragDelta(dx = 0, dy = 0, parentTransform = {}, fram
 export function contentTransformRawWebglPlacement(transform = {}, width = 1, height = 1) {
   const value = normalizedContentTransform(transform);
   return {
-    x: value.x * Math.max(1, Number(width) || 1) * 0.5,
-    y: -value.y * Math.max(1, Number(height) || 1) * 0.5,
+    x: (value.x - 0.5) * Math.max(1, Number(width) || 1),
+    y: -(value.y - 0.5) * Math.max(1, Number(height) || 1),
     scale: value.scale,
     rotation: -value.rotation,
   };
+}
+
+function normalizedPosition(value) {
+  const number = Number(value);
+  return Math.max(0, Math.min(1, Number.isFinite(number) ? number : 0.5));
 }

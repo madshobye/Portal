@@ -111,6 +111,7 @@ test("state initialization compiles once before creating presentation resources"
 
   assert.strictEqual(runtime.initialize(state, { normalized: true }), state);
   assert.deepEqual(calls, [
+    ["viewport", state.render],
     ["visual", state],
     "transition",
     ["components", state],

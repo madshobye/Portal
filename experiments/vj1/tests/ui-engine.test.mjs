@@ -62,6 +62,7 @@ import {
   UI_COMMAND_PHASES,
 } from "../js/libraries/ui-engine/index.js";
 import { createListNodeInstance } from "../js/libraries/ui-engine/nodes/list-node.js";
+import { sliderPosition } from "../js/libraries/ui-engine/nodes/control-nodes.js";
 import { artifactInspectorUiGraph, chainContentParameterUiGraph, chainGeneralParameterUiGraph, chainVideoControlsUiGraph, componentCatalogUiGraph, contextMenuUiGraph, liveChainContentParameterUiGraph, liveRailUiGraph, liveTimingUiGraph, mappingRailUiGraph, mappingSurfaceControlDescriptors, mappingSurfaceInspectorUiGraph, parameterTabsUiGraph, previewToolsUiGraph, sceneRailUiGraph, sceneSurfaceInspectorUiGraph, settingsModalUiGraph, VJ1_CONTROL_UI_GRAPH } from "../js/control/control-ui-program.js";
 import { UI_ICONS } from "../js/control/ui-icons.js";
 import { createInitialState } from "../js/domain/models.js";
@@ -73,6 +74,73 @@ test("UI definitions use the shared node engine while declaring a retained DOM c
   assert.equal(ListNode.metadata.uiNode.format, "ui-node@1");
   assert.equal(typeof ListNode.moduleExports.createUiInstance, "function");
   assert.ok(ListNode.capabilities.includes("retained-dom"));
+});
+
+test("a zero-valued slider mounts at zero instead of falling back to its minimum", () => {
+  const inputs = { min: -2, max: 2, scale: "linear" };
+  assert.equal(sliderPosition(0, inputs), 0);
+  assert.equal(sliderPosition("0", inputs), 0);
+  assert.equal(sliderPosition(undefined, inputs), -2);
+});
+
+test("a retained Toggle updates its own pressed state before an authoritative graph refresh", () => {
+  class FakeElement {
+    constructor(tagName) {
+      this.tagName = tagName;
+      this.children = [];
+      this.dataset = {};
+      this.attributes = new Map();
+      this.listeners = new Map();
+      this.hidden = false;
+      const classes = new Set();
+      this.classList = {
+        add: (...values) => values.forEach((value) => classes.add(value)),
+        remove: (...values) => values.forEach((value) => classes.delete(value)),
+        toggle: (value, force) => force ? classes.add(value) : classes.delete(value),
+        contains: (value) => classes.has(value),
+      };
+    }
+    append(...children) { this.children.push(...children); }
+    replaceChildren(...children) { this.children = [...children]; }
+    querySelector(selector) {
+      if (selector === "[data-ui-control-label]") {
+        return this.children.find((child) => Object.hasOwn(child.dataset, "uiControlLabel")) || null;
+      }
+      return null;
+    }
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    getAttribute(name) { return this.attributes.get(name); }
+    addEventListener(type, listener) { this.listeners.set(type, listener); }
+    removeEventListener(type) { this.listeners.delete(type); }
+    click() { this.listeners.get("click")?.({ currentTarget: this }); }
+    remove() {}
+  }
+  const document = { createElement: (tagName) => new FakeElement(tagName) };
+  const host = new FakeElement("host");
+  const emitted = [];
+  const instance = ToggleNode.moduleExports.createUiInstance({
+    id: "opening",
+    host,
+    inputs: { label: "Opening", value: true, presentation: "parameter" },
+    document,
+    emit: (type, payload) => emitted.push({ type, payload }),
+  });
+
+  instance.mount();
+  const button = instance.element().children[1];
+  assert.equal(button.getAttribute("aria-pressed"), "true");
+  assert.equal(button.classList.contains("is-enabled"), true);
+
+  button.click();
+  assert.equal(button.getAttribute("aria-pressed"), "false");
+  assert.equal(button.classList.contains("is-enabled"), false);
+  assert.deepEqual(emitted.at(-1), { type: "change", payload: { value: false } });
+
+  button.click();
+  assert.equal(button.getAttribute("aria-pressed"), "true");
+  assert.equal(button.classList.contains("is-enabled"), true);
+  assert.deepEqual(emitted.at(-1), { type: "change", payload: { value: true } });
+  instance.dispose();
 });
 
 test("Thumbnail Catalog is one reusable Collection List and Thumbnail Button composition", () => {
@@ -209,6 +277,12 @@ test("the base UI library owns its icon font and bounds unresolved ligature name
 test("modal backdrop interaction states cannot inherit ordinary button presentation", () => {
   const css = readFileSync(new URL("../js/libraries/ui-engine/base.css", import.meta.url), "utf8");
   assert.match(css, /\.ui-node-modal-backdrop,\s*\.ui-node-modal-backdrop:hover:not\(:disabled\),\s*\.ui-node-modal-backdrop:focus,\s*\.ui-node-modal-backdrop:active \{[\s\S]*?background: rgba\(0, 0, 0, 0\.64\);[\s\S]*?box-shadow: none;/);
+});
+
+test("modals stay top-aligned with equal viewport clearance at maximum height", () => {
+  const css = readFileSync(new URL("../js/libraries/ui-engine/base.css", import.meta.url), "utf8");
+  assert.match(css, /\.ui-node-modal \{[\s\S]*?place-items:\s*start center;[\s\S]*?padding-block:\s*16px;/);
+  assert.match(css, /\.ui-node-overlay-surface \{[\s\S]*?max-height:\s*calc\(100vh - 32px\);[\s\S]*?overflow:\s*auto;/);
 });
 
 test("Startup presentation is an explicit registered UI node", () => {
@@ -429,6 +503,89 @@ test("List owns generic leading actions and reorderable item markup", () => {
   assert.ok(html.indexOf('data-ui-list-action="visibility"') < html.indexOf('data-ui-list-select="output-a"'));
   assert.ok(html.indexOf('data-ui-list-action="remove"') > html.indexOf('data-ui-list-select="output-a"'));
   assert.ok(ListNode.capabilities.includes("item-reordering"));
+});
+
+test("retained List toggle actions update their own DOM before graph reconciliation", () => {
+  const listeners = new Map();
+  const classes = new Set(["ui-node-list-action", "enable-toggle", "is-enabled"]);
+  const attributes = new Map();
+  const icon = { textContent: "gradient" };
+  const action = {
+    dataset: {
+      uiListAction: "toggle-enabled",
+      uiListItem: "gradient",
+      uiPresentation: "enabled-toggle",
+    },
+    classList: {
+      add: (...values) => values.forEach((value) => classes.add(value)),
+      remove: (...values) => values.forEach((value) => classes.delete(value)),
+    },
+    setAttribute: (name, value) => attributes.set(name, String(value)),
+    querySelector: (selector) => selector === ".ui-node-list-action-icon" ? icon : null,
+  };
+  const target = {
+    closest(selector) {
+      return selector === "[data-ui-list-action]" ? action : null;
+    },
+  };
+  const root = {
+    dataset: {},
+    classList: { add() {}, remove() {} },
+    scrollTop: 0,
+    scrollLeft: 0,
+    innerHTML: "",
+    matches: () => true,
+    contains: () => true,
+    addEventListener: (type, listener) => listeners.set(type, listener),
+    removeEventListener: () => {},
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    querySelectorAll: () => [],
+  };
+  const emitted = [];
+  const list = createListNodeInstance({
+    id: "live-elements",
+    host: root,
+    inputs: {
+      items: [{
+        id: "gradient",
+        label: "Gradient",
+        actions: [{
+          id: "toggle-enabled",
+          label: "Disable Gradient",
+          icon: "gradient",
+          presentation: "enabled-toggle",
+          position: "leading",
+          payload: { path: "enabled" },
+          toggle: {
+            value: true,
+            on: { label: "Disable Gradient", icon: "gradient", presentation: "enabled-toggle" },
+            off: { label: "Enable Gradient", icon: "visibility_off", presentation: "disabled-toggle" },
+          },
+        }],
+      }],
+    },
+    stateAddress: "live/elements",
+    state: createUiStateController(),
+    emit: (event, payload) => emitted.push({ event, payload }),
+  });
+
+  list.mount();
+  listeners.get("click")({ target });
+  assert.equal(attributes.get("aria-pressed"), "false");
+  assert.equal(icon.textContent, "visibility_off");
+  assert.equal(classes.has("is-enabled"), false);
+  assert.deepEqual(emitted.at(-1), {
+    event: "action",
+    payload: { id: "gradient", action: "toggle-enabled", path: "enabled", value: false },
+  });
+
+  listeners.get("click")({ target });
+  assert.equal(attributes.get("aria-pressed"), "true");
+  assert.equal(icon.textContent, "gradient");
+  assert.equal(classes.has("is-enabled"), true);
+  assert.equal(emitted.at(-1).payload.value, true);
+  list.dispose();
 });
 
 test("List reserves one row for leading edit and remove actions", () => {
@@ -815,10 +972,13 @@ test("Catalog picker uses the same bounded active-item keyboard contract without
 
 test("Catalog picker renders semantic item icons through the shared Material Symbols font", () => {
   const source = readFileSync(new URL("../js/libraries/ui-engine/nodes/catalog-picker-node.js", import.meta.url), "utf8");
+  const theme = readFileSync(new URL("../js/libraries/ui-engine/themes/vj.css", import.meta.url), "utf8");
 
   assert.ok(source.includes('icon.className = "ui-node-catalog-icon material-symbols-rounded"'));
   assert.ok(source.includes('icon.setAttribute("aria-hidden", "true")'));
   assert.ok(source.includes('setActionButtonContent(close, { icon: "close", label: "Close" }, document)'));
+  assert.match(theme, /data-ui-action-variant="marker-0"[\s\S]*?opacity:\s*0\.38/);
+  assert.match(theme, /data-ui-action-variant\]:not\(\[data-ui-action-variant="marker-0"\]\)[\s\S]*?font-variation-settings:\s*"FILL" 1/);
   assert.doesNotMatch(source, /close\.textContent\s*=\s*["']×["']/);
 });
 

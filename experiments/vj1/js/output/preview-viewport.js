@@ -115,7 +115,7 @@ export function previewViewportKey(workspace = "component") {
 
 export function previewViewportForUi(ui = {}) {
   const key = previewViewportKey(ui.workspace);
-  return ui.previewViewports?.[key] || resetViewport();
+  return ui.previewViewports?.[key] || frameViewport();
 }
 
 export function updatePreviewViewportForUi(ui = {}, update) {
@@ -153,6 +153,10 @@ export function zoomViewport(viewport = {}, multiplier = 1, anchor = null) {
 
 export function resetViewport() {
   return { zoom: 1, x: 0, y: 0, fit: "world" };
+}
+
+export function frameViewport() {
+  return { zoom: 1, x: 0, y: 0, fit: "frame" };
 }
 
 export function fitPreviewViewport({ workspace = "component", stageSize, render }) {

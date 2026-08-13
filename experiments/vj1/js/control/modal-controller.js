@@ -1,4 +1,5 @@
 import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js";
+import { reconcileProjectOutputSurfaces } from "../domain/models.js";
 import { sortComponentCatalog } from "./catalog-view.js";
 import { getByPath, setByPath, setByPathCreate } from "./path-input-utils.js";
 import { elementMediaCategory, elementPickerUiModel, sourceChoicePickerUiModel } from "./picker-view.js";
@@ -267,6 +268,9 @@ export function createModalController({
     store.update((draft) => {
       setByPath(draft, address, value);
       draft.render = normalizeRenderSettings(draft.render);
+      if (/^render\.(?:outputs|sceneAspectRatio)(?:\.|$)/.test(address)) {
+        reconcileProjectOutputSurfaces(draft);
+      }
       draft.devices = normalizeDeviceSettings(draft.devices);
     }, reason);
     render(getState());
@@ -286,6 +290,7 @@ export function createModalController({
         ...draft.render,
         outputs: (draft.render.outputs || []).map((output, index) => index === 0 ? { ...output, aspectRatio } : output),
       });
+      reconcileProjectOutputSurfaces(draft);
     }, "render-preset");
   }
 
@@ -295,6 +300,7 @@ export function createModalController({
       const output = createOutputDefinition(previousRender.outputs.length, previousRender.outputs[0]?.aspectRatio);
       if (previousRender.outputs.some((item) => item.id === output.id)) output.id = `output-${Date.now().toString(36)}`;
       draft.render = normalizeRenderSettings({ ...previousRender, outputs: [...previousRender.outputs, output] });
+      reconcileProjectOutputSurfaces(draft);
     }, "add-output");
   }
 
@@ -352,6 +358,7 @@ export function createModalController({
         ...previousRender,
         outputs: previousRender.outputs.filter((output) => output.id !== outputId),
       });
+      reconcileProjectOutputSurfaces(draft);
     }, "remove-output");
   }
 
@@ -422,7 +429,11 @@ export function createModalController({
       const action = String(command.payload?.id || "");
       if (action === "refresh") refreshMediaPicker();
       else if (action.startsWith("marker:")) {
-        store.cycleCatalogMarker?.(action.slice("marker:".length), String(command.payload?.itemId || "").replace(/^[^:]+:/, ""));
+        const changed = store.cycleCatalogMarker?.(
+          action.slice("marker:".length),
+          String(command.payload?.itemId || "").replace(/^[^:]+:/, ""),
+        );
+        if (changed) render(getState());
       } else if (action.startsWith("sort:")) {
         const [, scope, mode] = action.split(":");
         if (["component", "media"].includes(scope) && ["recent", "marker", "name", "created"].includes(mode)) {

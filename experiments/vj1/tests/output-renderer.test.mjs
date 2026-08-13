@@ -1796,7 +1796,7 @@ test("local transform overlays path-copy store-owned component and Surface state
   assert.equal(transformedChild.boundary.width, 0.5);
   assert.equal(surfaced.mappings[0].surfaces[0].y, 24);
   assert.equal(surfaced.surfaces[0].y, 24);
-  assert.equal(surfaced.components[0].chain[0].id, group.id);
+  assert.equal(componentLayerProjection(surfaced, surfaced.components[0])[0].nodeId, group.id);
 });
 
 test("a hidden selected element cannot expose transform handles or begin a drag", () => {
@@ -1900,7 +1900,7 @@ test("preview transform ownership survives stale state until an exact acknowledg
   interaction.pendingSurface = { surfaceId: "surface", rect };
 
   const reconciled = interaction.reconcileIncomingState(stale);
-  assert.deepEqual(stale.components[0].chain[0].transform, { x: 0, y: 0, scale: 1, rotation: 0 });
+  assert.deepEqual(componentLayerProjection(stale, stale.components[0])[0].item.transform, { x: 0, y: 0, scale: 1, rotation: 0 });
   assert.equal(stale.mappings[0].surfaces[0].x, 0);
   assert.deepEqual(componentLayerProjection(reconciled, reconciled.components[0])[0].item.transform, transform);
   assert.deepEqual(reconciled.mappings[0].surfaces[0], { id: "surface", ...rect });
@@ -2131,8 +2131,8 @@ test("transformed physical bounds support translated scaled and rotated picking"
   const rect = { x: 50, y: 25, width: 100, height: 50 };
   assert.equal(pointInTransformedRect(100, 50, frame, rect, {}), true);
   assert.equal(pointInTransformedRect(25, 50, frame, rect, {}), false);
-  assert.equal(pointInTransformedRect(150, 50, frame, rect, { x: 0.5, scale: 0.5, rotation: Math.PI / 2 }), true);
-  assert.equal(pointInTransformedRect(100, 50, frame, rect, { x: 0.5, scale: 0.5, rotation: Math.PI / 2 }), false);
+  assert.equal(pointInTransformedRect(150, 50, frame, rect, { x: 0.75, scale: 0.5, rotation: Math.PI / 2 }), true);
+  assert.equal(pointInTransformedRect(100, 50, frame, rect, { x: 0.75, scale: 0.5, rotation: Math.PI / 2 }), false);
 });
 
 test("preview picking selects physical sources, spatial effects, and containing groups", () => {
@@ -2162,7 +2162,7 @@ test("preview body picking follows compositor z-order even when a covered item w
     kind: "source",
     enabled: true,
     opacity: 1,
-    boundary: { x: -0.5, y: 0, width: 0.5, height: 1, rotation: 0 },
+    boundary: { x: 0.25, y: 0.5, width: 0.5, height: 1, rotation: 0 },
     source: { type: "generator", generatorId: "noise" },
   };
   const right = {
@@ -2170,7 +2170,7 @@ test("preview body picking follows compositor z-order even when a covered item w
     kind: "source",
     enabled: true,
     opacity: 1,
-    boundary: { x: 0.5, y: 0, width: 0.5, height: 1, rotation: 0 },
+    boundary: { x: 0.75, y: 0.5, width: 0.5, height: 1, rotation: 0 },
     source: { type: "generator", generatorId: "plasma" },
   };
   const component = { id: "component-a", type: "chain", chain: [left, right] };
@@ -2185,7 +2185,7 @@ test("preview body picking follows compositor z-order even when a covered item w
   assert.equal(renderer.previewInteraction.chainItemAtPoint(50, 50)?.id, left.id);
   assert.equal(renderer.previewInteraction.chainItemAtPoint(150, 50)?.id, right.id);
 
-  right.boundary = { x: 0, y: 0, width: 1, height: 1, rotation: 0 };
+  right.boundary = { x: 0.5, y: 0.5, width: 1, height: 1, rotation: 0 };
   renderer.state = appNodePackage.prepareProjectState({ components: [component], nodes: {}, render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: left.id } });
   assert.equal(
     renderer.previewInteraction.chainItemAtPoint(50, 50)?.id,
@@ -2205,7 +2205,7 @@ test("clicking empty preview space clears element selection", () => {
     kind: "source",
     enabled: true,
     opacity: 1,
-    boundary: { x: 0, y: 0, width: 0.25, height: 0.25, rotation: 0 },
+    boundary: { x: 0.5, y: 0.5, width: 0.25, height: 0.25, rotation: 0 },
     source: { type: "generator", generatorId: "noise" },
   };
   const component = { id: "component-a", type: "chain", chain: [source] };
@@ -2238,7 +2238,7 @@ test("one preview press selects a physical element and begins moving it", () => 
 
 test("an already selected child inside a group owns the next preview drag", () => {
   const renderer = new OutputRenderer({ mode: "component" });
-  const child = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, source: { type: "generator", generatorId: "noise" } };
+  const child = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, boundary: { x: 0.5, y: 0.5, width: 1, height: 1, rotation: 0 }, source: { type: "generator", generatorId: "noise" } };
   const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: {}, chain: [child] };
   const component = { id: "component-a", type: "chain", chain: [group] };
   renderer.state = appNodePackage.prepareProjectState({ components: [component], render: {}, nodes: {}, ui: { selectedComponentId: component.id, selectedChainItemId: child.id } });
@@ -2250,7 +2250,7 @@ test("an already selected child inside a group owns the next preview drag", () =
   assert.equal(renderer.state.ui.selectedChainItemId, child.id);
   assert.equal(renderer.previewInteraction.chainTransformDrag?.itemId, child.id);
   assert.equal(renderer.previewInteraction.chainTransformDrag?.mode, "boundary-move");
-  assert.equal(componentLayerProjection(renderer.state, renderer.state.components[0])[0].children[0].item.boundary.x, 0.2);
+  assert.equal(componentLayerProjection(renderer.state, renderer.state.components[0])[0].children[0].item.boundary.x, 0.6);
   assert.deepEqual(child.transform, {}, "dragging does not mutate the store-owned fixture");
   assert.deepEqual(group.transform, {});
 });
@@ -2288,7 +2288,7 @@ test("default Canvas Component references pick their placement instead of the wh
     kind: "source",
     enabled: true,
     opacity: 1,
-    transform: { x: -0.5, y: 0, scale: 1, rotation: 0 },
+    transform: { x: 0.25, y: 0.5, scale: 1, rotation: 0 },
     source: { type: "component", componentId: childComponent.id, placement: { scale: 0.25 } },
   };
   const right = {
@@ -2296,7 +2296,7 @@ test("default Canvas Component references pick their placement instead of the wh
     kind: "source",
     enabled: true,
     opacity: 1,
-    transform: { x: 0.5, y: 0, scale: 1, rotation: 0 },
+    transform: { x: 0.75, y: 0.5, scale: 1, rotation: 0 },
     source: { type: "component", componentId: childComponent.id, placement: { scale: 0.25 } },
   };
   const canvas = { id: "canvas", type: "scene", chain: [left, right] };
@@ -2315,8 +2315,8 @@ test("default Canvas Component references pick their placement instead of the wh
 
 test("child preview dragging is converted through its parent oriented boundary", () => {
   const renderer = new OutputRenderer({ mode: "component" });
-  const child = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, source: { type: "generator", generatorId: "noise" } };
-  const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: {}, boundary: { x: 0, y: 0, width: 2, height: 2, rotation: Math.PI / 2 }, chain: [child] };
+  const child = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, boundary: { x: 0.5, y: 0.5, width: 1, height: 1, rotation: 0 }, source: { type: "generator", generatorId: "noise" } };
+  const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: {}, boundary: { x: 0.5, y: 0.5, width: 2, height: 2, rotation: Math.PI / 2 }, chain: [child] };
   const component = { id: "component-a", type: "chain", chain: [group] };
   renderer.state = appNodePackage.prepareProjectState({ components: [component], render: {}, nodes: {}, ui: { selectedComponentId: component.id, selectedChainItemId: child.id } });
   renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
@@ -2325,10 +2325,10 @@ test("child preview dragging is converted through its parent oriented boundary",
   renderer.mouseDragged(120, 50);
 
   const renderedChild = componentLayerProjection(renderer.state, renderer.state.components[0])[0].children[0].item;
-  assert.ok(Math.abs(renderedChild.boundary.x) < 1e-12);
-  assert.equal(renderedChild.boundary.y, -0.2);
+  assert.ok(Math.abs(renderedChild.boundary.x - 0.5) < 1e-12);
+  assert.equal(renderedChild.boundary.y, 0.4);
   assert.deepEqual(child.transform, {}, "nested dragging path-copies instead of mutating its source state");
-  assert.deepEqual(group.boundary, { x: 0, y: 0, width: 2, height: 2, rotation: Math.PI / 2 });
+  assert.deepEqual(group.boundary, { x: 0.5, y: 0.5, width: 2, height: 2, rotation: Math.PI / 2 });
 });
 
 test("releasing a direct element drag commits one undoable boundary change", () => {
@@ -3056,8 +3056,9 @@ test("stable and transition mapping shaders consume the shared fit operation", (
   assert.equal((stable.match(/vec3 vj1FitTargetUvToSourceUv\(/g) || []).length, 1);
   assert.equal((transition.match(/vec3 vj1FitTargetUvToSourceUv\(/g) || []).length, 1);
   assert.ok(stable.includes("projectionFit = vj1FitTargetUvToSourceUv"));
-  assert.ok(transition.includes("fromProjectionFit = vj1FitTargetUvToSourceUv"));
-  assert.ok(transition.includes("toProjectionFit = vj1FitTargetUvToSourceUv"));
+  assert.ok(transition.includes("vec4 vj1SampleTransitionStartPrepared"));
+  assert.ok(transition.includes("vec4 vj1SampleTransitionEndPrepared"));
+  assert.equal((transition.match(/vec3 projectionFit = vj1FitTargetUvToSourceUv/g) || []).length, 2);
 });
 
 test("standalone Output keeps relative Surface proportions across popup aspect changes", () => {
@@ -4320,7 +4321,7 @@ test("direct placement composites texture geometry without a parent-sized source
   try {
     renderer.sourceRuntime.drawPlacedSourceResult(output, createPlacedRenderResult(texture, {
       destinationRect: { x: 400, y: 300, width: 200, height: 100 },
-      transform: { x: 0.2, y: -0.1, scale: 1.5, rotation: 0.25 },
+      transform: { x: 0.6, y: 0.45, scale: 1.5, rotation: 0.25 },
     }), { opacity: 0.5, blend: "normal" });
   } finally {
     globalThis.BLEND = previousBlend;
@@ -4406,6 +4407,7 @@ test("compiled visual Groups publish their isolated public output as the outer i
     },
     componentRenderRuntime: { recordResolution() {} },
     previewHitCoverage: {
+      prepareRegionRequest() {},
       recordRaster(...args) {
         coverageRecords.push(args);
       },
@@ -4422,7 +4424,7 @@ test("compiled visual Groups publish their isolated public output as the outer i
     id: "model-group",
     kind: "source",
     enabled: true,
-    boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 },
+    boundary: { x: 0.5, y: 0.5, width: 1, height: 1, rotation: 0 },
     source: { type: "generator", generatorId: "modelMedia" },
   };
   const operation = {
@@ -4510,8 +4512,8 @@ test("bounded compound-output placement is evaluated in the full node boundary b
   };
   const runtime = new VisualPlanRuntime(host);
   const transform = {
-    x: 0.25,
-    y: -0.15,
+    x: 0.625,
+    y: 0.425,
     scale: 1.3,
     rotation: 0.1,
   };
@@ -4525,8 +4527,8 @@ test("bounded compound-output placement is evaluated in the full node boundary b
       kind: "group",
       enabled: true,
       boundary: {
-        x: 0.75,
-        y: 0,
+        x: 0.875,
+        y: 0.5,
         width: 0.8,
         height: 0.6,
         rotation: 0,
@@ -4835,8 +4837,8 @@ test("compiled Group Content scale raises value-provider detail without enlargin
       id: "scaled-group",
       kind: "group",
       enabled: true,
-      transform: { x: 0, y: 0, scale: 3, rotation: 0 },
-      boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 },
+      transform: { x: 0.5, y: 0.5, scale: 3, rotation: 0 },
+      boundary: { x: 0.5, y: 0.5, width: 1, height: 1, rotation: 0 },
     },
     operations: [{
       id: "render",
@@ -4885,7 +4887,7 @@ test("compiled Group Content scale raises value-provider detail without enlargin
   });
   assert.deepEqual(
     renderedChild.transform,
-    { x: 0, y: 0, scale: 3, rotation: 0 },
+    { x: 0.5, y: 0.5, scale: 3, rotation: 0 },
     "the shared authored placement reaches a static compiled child without relying on animation",
   );
 });
@@ -5178,7 +5180,7 @@ test("compiled framebuffer passes execute atomically and publish one retained st
 });
 
 test("Group transforms place physical content but never resample a composition-wide effect input", () => {
-  const groupTransform = { x: 0.25, y: -0.1, scale: 0.5, rotation: 0.2 };
+  const groupTransform = { x: 0.625, y: 0.45, scale: 0.5, rotation: 0.2 };
   const hsv = { id: "key", kind: "effect", componentId: "hsvAlphaKey", transform: {} };
   const field = { id: "ripple", kind: "effect", componentId: "ripple", transform: {} };
   const source = { id: "plasma", kind: "source", transform: {} };
@@ -5939,14 +5941,16 @@ test("Live transition mapper applies the stable source-view contract per endpoin
   assert.match(source, /uniform vec4 uToTextureView/);
   assert.match(source, /uniform bool uFromUseSourceFit/);
   assert.match(source, /uniform bool uToUseSourceFit/);
-  assert.match(source, /float fromProjectionSourceAspect = uFromUseSourceFit \? uFromSourceTargetAspect : uFromSourceAspect/);
-  assert.match(source, /float toProjectionSourceAspect = uToUseSourceFit \? uToSourceTargetAspect : uToSourceAspect/);
-  assert.match(source, /vec2 fromTextureUv = uFromSourceRect\.xy/);
-  assert.match(source, /vec2 toTextureUv = uToSourceRect\.xy/);
-  assert.match(source, /vec2 fromViewUv = \(fromUv - uFromTextureView\.xy\)/);
-  assert.match(source, /vec2 toViewUv = \(toUv - uToTextureView\.xy\)/);
-  assert.match(source, /fromInside \* uFromOpacity/);
-  assert.match(source, /toInside \* uToOpacity/);
+  assert.match(source, /float projectionSourceAspect = uFromUseSourceFit \? uFromSourceTargetAspect : uFromSourceAspect/);
+  assert.match(source, /float projectionSourceAspect = uToUseSourceFit \? uToSourceTargetAspect : uToSourceAspect/);
+  assert.match(source, /vec2 textureUv = uFromSourceRect\.xy/);
+  assert.match(source, /vec2 textureUv = uToSourceRect\.xy/);
+  assert.match(source, /vec2 viewUv = \(sampleUv - uFromTextureView\.xy\)/);
+  assert.match(source, /vec2 viewUv = \(sampleUv - uToTextureView\.xy\)/);
+  assert.match(source, /texture\(fromTex, textureUv\) \* inside \* uFromOpacity/);
+  assert.match(source, /texture\(toTex, textureUv\) \* inside \* uToOpacity/);
+  assert.match(source, /vec4 fromColor = vj1SampleTransitionStartPrepared/);
+  assert.match(source, /vec4 toColor = vj1SampleTransitionEndPrepared/);
 });
 
 test("media renditions are saved without lossy jpeg compression", () => {

@@ -76,6 +76,17 @@ const SURFACE_INSPECTOR_SECTION_LAYOUT = Object.freeze({
   overflow: "visible",
 });
 
+export function selectLiveSourceFilter(live = {}, kind = "scenes", value = true) {
+  const key = kind === "components" ? "showComponents" : "showScenes";
+  const otherKey = key === "showComponents" ? "showScenes" : "showComponents";
+  const nextValue = value === true;
+  return {
+    ...live,
+    [key]: nextValue,
+    ...(!nextValue && live[otherKey] !== true ? { [otherKey]: true } : {}),
+  };
+}
+
 export function artifactInspectorScope(workspace) {
   const owner = String(workspace || "");
   return ARTIFACT_INSPECTOR_WORKSPACES.includes(owner)
@@ -1562,16 +1573,9 @@ export function createControlShell({
     if (command.action === "live.catalog-search") return true;
     if (command.action === "live.source-filter") {
       const kind = command.payload?.kind === "components" ? "components" : "scenes";
-      const key = kind === "components" ? "showComponents" : "showScenes";
-      const otherKey = key === "showScenes" ? "showComponents" : "showScenes";
       const value = command.payload?.value === true;
       updateUi((ui) => {
-        ui.live ||= {};
-        const otherEnabled = otherKey === "showScenes"
-          ? ui.live.showScenes !== false
-          : ui.live.showComponents === true;
-        if (!value && !otherEnabled) return;
-        ui.live[key] = value;
+        ui.live = selectLiveSourceFilter(ui.live, kind, value);
       }, "live-source-filter");
       return true;
     }
@@ -1638,7 +1642,10 @@ export function createControlShell({
         componentId: String(command.payload?.componentId || ""),
         nodeId: String(command.payload?.nodeId || command.payload?.id || ""),
         path: String(command.payload?.path || "enabled"),
-      }, command.payload?.value === true, { phase: command.phase });
+      }, command.payload?.value === true, {
+        phase: command.phase,
+        controlRegions: ["inspector"],
+      });
     }
     if (command.action === "inspector.add-element") {
       const componentId = String(command.payload?.targetId || "");

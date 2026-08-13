@@ -30,6 +30,15 @@ export function sortComponentCatalog(items = [], mode = "recent") {
   return sortCatalogItems(items, mode);
 }
 
+export function catalogSortIcon(mode = "recent") {
+  return {
+    recent: "history",
+    marker: "keep",
+    name: "sort_by_alpha",
+    created: "add_circle",
+  }[mode] || "history";
+}
+
 export function catalogMarkerAction(item = {}, kind = "component") {
   const meta = catalogMarkerMeta(item.catalogMarker);
   return {

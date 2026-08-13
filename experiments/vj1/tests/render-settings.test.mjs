@@ -32,7 +32,7 @@ test("render settings normalize independently from the aggregate domain model", 
   assert.equal(normalizeRenderSettings({ sceneAspectRatio: 2 }).sceneAspectRatio, 2);
   assert.equal(renderMaxFrameRate({ maxFrameRate: 48 }), 48);
   assert.equal(renderMaxFrameRate({ maxFrameRate: 500 }), 120);
-  assert.deepEqual(normalizePreviewViewport({ fit: "invalid", zoom: 20 }), { fit: "world", zoom: 6, x: 0, y: 0 });
+  assert.deepEqual(normalizePreviewViewport({ fit: "invalid", zoom: 20 }), { fit: "frame", zoom: 6, x: 0, y: 0 });
 });
 
 test("screen capture settings preserve native dimensions and normalize browser hints", () => {
@@ -77,10 +77,10 @@ test("preview viewport normalization accepts only the canonical per-workspace ma
     mapping: { fit: "manual", zoom: 2, x: 30, y: -10 },
   });
   assert.equal(viewports.canvas, undefined);
-  assert.deepEqual(viewports.component, { fit: "world", zoom: 1, x: 0, y: 0 });
-  assert.deepEqual(viewports.scene, { fit: "world", zoom: 1, x: 0, y: 0 });
+  assert.deepEqual(viewports.component, { fit: "frame", zoom: 1, x: 0, y: 0 });
+  assert.deepEqual(viewports.scene, { fit: "frame", zoom: 1, x: 0, y: 0 });
   assert.deepEqual(viewports.mapping, { fit: "manual", zoom: 2, x: 30, y: -10 });
-  assert.deepEqual(viewports.live, { fit: "world", zoom: 1, x: 0, y: 0 });
+  assert.deepEqual(viewports.live, { fit: "frame", zoom: 1, x: 0, y: 0 });
 });
 
 test("the duplicate embedded preview can occupy the opposite output render phase", () => {

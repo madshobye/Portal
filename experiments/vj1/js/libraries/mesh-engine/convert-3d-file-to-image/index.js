@@ -16,6 +16,11 @@ import {
   updateVisualRenderProcessContext,
 } from "../../render-engine/render-process-context.js";
 
+// Persisted media-thumbnail cache identity. Bump this whenever model preview
+// geometry, framing, or shading changes so projects cannot retain an image
+// produced by an older renderer indefinitely.
+export const MODEL_THUMBNAIL_PIPELINE_VERSION = "topology-v2";
+
 export const Convert3dFileToImageGroup = defineNodeGroup({
   id: "core.mesh.convert-3d-file-to-image",
   name: "Convert 3D File to Image",
@@ -75,13 +80,16 @@ async function convert3dFileToImageProgram(inputs = {}, { run, renderProcess = n
     name: inputs.name,
     format: inputs.format,
   }, {
-    // Thumbnails reuse the general parser node but deliberately avoid building
-    // QEM LODs; the SVG render node applies its bounded display sampling.
+    // A sparse sample of STL faces is not a smaller surface: it is a cloud of
+    // disconnected triangles and renders as shredded geometry. Parse the
+    // source once and build one topology-preserving thumbnail LOD instead.
+    // This remains bounded before SVG generation and is persisted by the
+    // media-thumbnail service, so it is not repeated when the picker opens.
     parameters: {
-      profile: thumbnail ? "preview" : "full",
+      profile: "full",
       triangleLimit: inputs.previewTriangles || 600,
-      resolution: thumbnail ? "source" : (inputs.resolution || "automatic"),
-      targetTriangles: inputs.targetTriangles || 25000,
+      resolution: thumbnail ? "single" : (inputs.resolution || "automatic"),
+      targetTriangles: thumbnail ? (inputs.previewTriangles || 600) : (inputs.targetTriangles || 25000),
     },
   });
   const rendered = await run("render", {

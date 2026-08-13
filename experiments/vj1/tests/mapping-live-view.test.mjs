@@ -11,6 +11,7 @@ import { renderListItemsHtml } from "../js/libraries/ui-engine/index.js";
 import { createLiveComponentView, createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js";
 import { createVj1NodePackage } from "../js/app-node-package.js";
 import {
+  componentChainProjection,
   componentLayerProjection,
   migrateLegacyComponentParameterAddress,
 } from "../js/domain/component-layer-projection.js";
@@ -33,6 +34,11 @@ function markSignificant(state, component, paths) {
 }
 
 function rebuildFixtureGraphs(state) {
+  for (const component of state.components || []) {
+    if (!Array.isArray(component.chain)) {
+      component.chain = componentChainProjection(state, component);
+    }
+  }
   state.nodes = {
     ...state.nodes,
     groups: (state.nodes?.groups || []).filter((group) =>
@@ -175,7 +181,7 @@ test("Mapping Surface eye reflects authored Surface visibility, never Scene Mapp
   assert.equal(surfaceItem.actions[0].presentation, "disabled-toggle");
 });
 
-test("Live combines independently enabled Scene and Part filters while keeping one on", () => {
+test("Live Scene and Part filters normalize independently", () => {
   const { state, liveScene } = stateWithScene();
   const component = state.components.find((candidate) => candidate.type !== "scene" && !candidate.systemRole);
   let graph = liveRailUiGraph(state, { items: liveSourceListItems([...sceneComponents(state), ...ordinaryComponents(state)], state) });
@@ -185,6 +191,7 @@ test("Live combines independently enabled Scene and Part filters while keeping o
   assert.ok(graph.nodes.find((node) => node.id === "live-source-collection").inputs.items.some((item) => item.id === liveScene.id));
   assert.ok(graph.nodes.find((node) => node.id === "live-source-collection").inputs.items.some((item) => item.id === component.id));
 
+  state.ui.live.showScenes = false;
   state.ui.live.showComponents = true;
   graph = liveRailUiGraph(state, { items: liveSourceListItems([...sceneComponents(state), ...ordinaryComponents(state)], state) });
   assert.equal(graph.nodes.find((node) => node.id === "live-source-components").inputs.value, true);
@@ -197,6 +204,18 @@ test("Live combines independently enabled Scene and Part filters while keeping o
   const defaults = sanitizeState({ ...state, ui: { ...state.ui, live: {} } });
   assert.equal(defaults.ui.live.showScenes, true);
   assert.equal(defaults.ui.live.showComponents, true);
+
+  const repairedEmpty = sanitizeState({
+    ...state,
+    ui: { ...state.ui, live: { showScenes: false, showComponents: false } },
+  });
+  assert.deepEqual(
+    {
+      showScenes: repairedEmpty.ui.live.showScenes,
+      showComponents: repairedEmpty.ui.live.showComponents,
+    },
+    { showScenes: true, showComponents: false },
+  );
 });
 
 test("Live source cards distinguish Overall selection from a deliberate Surface patch", () => {
@@ -480,7 +499,9 @@ test("Live navigates components by thumbnail and exposes marked significant para
 
 test("the MIDImix bottom knob row follows ordered significant params through subcomponents", () => {
   const { state, liveScene } = stateWithScene();
-  const child = state.components.find((component) => component.id === liveScene.chain[0].source.componentId);
+  const child = state.components.find((component) =>
+    component.id === componentChainProjection(state, liveScene)[0].source.componentId
+  );
   markSignificant(state, liveScene, ["chain.0.transform.scale"]);
   markSignificant(state, child, ["chain.0.source.params.renderQuality"]);
   state.ui.live.selectedComponentId = liveScene.id;
@@ -539,13 +560,14 @@ test("Live and MIDImix resolve significant boundary controls from the shared Gen
 test("Significant controls and MIDImix share every source in the active output mapping", () => {
   const { state, mapping, liveScene } = stateWithScene();
   const child = state.components.find((component) =>
-    component.id === liveScene.chain[0].source.componentId
+    component.id === componentChainProjection(state, liveScene)[0].source.componentId
   );
   markSignificant(state, child, ["chain.0.source.params.renderQuality"]);
   const patched = {
     ...structuredClone(child),
     id: "patched-output-component",
     name: "Patched output",
+    chain: componentChainProjection(state, child),
     significantParams: ["chain.0.transform.scale"],
   };
   state.components.push(patched);
@@ -592,14 +614,15 @@ test("Live separates a Component's public controls from its element inspector", 
   const significant = liveSignificantUiGraph(state).nodes.filter((node) => node.commands.change);
   assert.ok(significant.some((node) => node.commands.change.target.path === "source.params.renderQuality"));
   assert.ok(significant.some((node) => node.commands.change.target.path === "transform.scale"));
-  assert.ok(significant.some((node) => node.commands.change.target.nodeId === component.chain[0].id));
+  const firstNodeId = componentLayerProjection(state, component)[0].nodeId;
+  assert.ok(significant.some((node) => node.commands.change.target.nodeId === firstNodeId));
 
   state.ui.live.componentView = "elements";
   const elements = liveInspectorProjection(state);
   viewModel = selectedLiveComponentViewModel(state);
   viewGraph = liveComponentViewUiGraph(viewModel);
   const elementList = viewGraph.nodes.find((node) => node.id === "live-component-elements");
-  const element = elementList.inputs.items.find((item) => item.id === component.chain[0].id);
+  const element = elementList.inputs.items.find((item) => item.id === firstNodeId);
   assert.equal(viewModel.selectedId, "elements");
   assert.equal(elementList.inputs.presentation, "element-list");
   assert.equal(element.presentation, "element-row");
@@ -608,7 +631,9 @@ test("Live separates a Component's public controls from its element inspector", 
   assert.equal(Object.hasOwn(element, "meta"), false);
   assert.equal(element.actions[0].id, "toggle-enabled");
   assert.notEqual(element.actions[0].icon, "visibility");
-  assert.equal(element.actions[0].payload.nodeId, component.chain[0].id);
+  assert.equal(element.actions[0].toggle.value, true);
+  assert.equal(element.actions[0].toggle.off.icon, "visibility_off");
+  assert.equal(element.actions[0].payload.nodeId, firstNodeId);
   assert.match(elements, /Selected live element parameters/);
 });
 
@@ -653,6 +678,7 @@ test("Live component-source rows resolve user-facing component names", () => {
   state.components.push(referenced);
   mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(owner.id)}`;
   mapping.surfaces[0].componentId = owner.id;
+  owner.chain = componentChainProjection(state, owner);
   owner.chain.unshift({
     id: "nested-component",
     kind: "source",
@@ -724,7 +750,7 @@ test("image source schema automatically exposes cut and feather in Live and publ
   const elements = liveInspectorProjection(state);
   assert.match(elements, /live-chain-parameter-tabs/);
   assert.ok(selectedLiveParameterTabsModel(state).views.some((view) =>
-    view.id === "content" && view.liveParameterModel?.params.some((param) => param.id === "alphaCut")
+    view.id === "content" && view.parameterModel?.params.some((param) => param.id === "alphaCut")
   ));
   const primaryGraph = liveChainContentParameterUiGraph(
     selectedLiveRetainedParameterModel(state, "primary"),
@@ -738,15 +764,56 @@ test("image source schema automatically exposes cut and feather in Live and publ
     node.commands.change.target.path === "source.params.alphaFeather"
     && node.inputs.label === "Feather"
   ));
+  const tabsGraph = parameterTabsUiGraph(selectedLiveParameterTabsModel(state), { live: true });
+  const tabParameterCommands = tabsGraph.nodes
+    .map((node) => node.commands.change)
+    .filter((command) => command?.target?.path);
+  assert.ok(tabParameterCommands.length > 0);
+  assert.ok(tabParameterCommands.every((command) => command.action.startsWith("live.")));
+  assert.ok(tabParameterCommands.every((command) => !command.action.startsWith("project.")));
+  assert.doesNotMatch(JSON.stringify(tabsGraph), /"project\./);
 
   markSignificant(state, component, ["chain.0.source.params.alphaFeather"]);
   assert.ok(liveSignificantUiGraph(state).nodes.some((node) => node.commands.change?.target.path === "source.params.alphaFeather"));
 });
 
+test("Live parameter normalization retains sparse node and component diffs", () => {
+  const state = prepare(createInitialState());
+  const component = state.components[0];
+  const nodeId = componentLayerProjection(state, component)[0].nodeId;
+  state.ui.live.selectedComponentId = component.id;
+  state.ui.live.parameterDiffs = {
+    [component.id]: {
+      [component.id]: {
+        transform: { x: 0.25 },
+        nodes: {
+          [nodeId]: {
+            transform: { y: 0.25 },
+            boundary: { width: 1.5 },
+            source: { params: { renderQuality: 0.75 } },
+          },
+        },
+      },
+    },
+  };
+
+  const normalized = sanitizeState(state);
+  assert.deepEqual(normalized.ui.live.parameterDiffs[component.id][component.id], {
+    transform: { x: 0.25 },
+    nodes: {
+      [nodeId]: {
+        transform: { y: 0.25 },
+        boundary: { width: 1.5 },
+        source: { params: { renderQuality: 0.75 } },
+      },
+    },
+  });
+});
+
 test("Live publishes significant source parameters nested inside Groups", () => {
   const { state, mapping } = stateWithScene();
   let component = state.components[0];
-  const source = component.chain[0];
+  const source = componentChainProjection(state, component)[0];
   component.chain = [{
     id: "group-a",
     kind: "group",
@@ -754,7 +821,7 @@ test("Live publishes significant source parameters nested inside Groups", () => 
     enabled: true,
     opacity: 1,
     blend: "normal",
-    transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+    transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
     chain: [source],
   }];
   rebuildFixtureGraphs(state);

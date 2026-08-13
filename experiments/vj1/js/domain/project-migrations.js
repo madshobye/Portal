@@ -1,6 +1,6 @@
 import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
 
-export const CURRENT_PROJECT_VERSION = 40;
+export const CURRENT_PROJECT_VERSION = 41;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -65,6 +65,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   37: migrateProjectV37ToV38,
   38: migrateProjectV38ToV39,
   39: migrateProjectV39ToV40,
+  40: migrateProjectV40ToV41,
 });
 
 export function migrateProjectData(project = {}) {
@@ -1202,6 +1203,169 @@ export function migrateProjectV39ToV40(project) {
     nodes: migrateProbeSampleRateNodeProject(project?.nodes),
     ui: migrateProbeSampleRateUi(project?.ui),
   };
+}
+
+// v41 replaces the former centered-offset placement convention with direct
+// normalized center coordinates. Content and Boundary X/Y now mean exactly
+// what their 0…1 controls display: 0 is the leading edge, 0.5 is centered,
+// and 1 is the trailing edge. Convert every persisted authority once; runtime
+// rendering and UI code never carry compatibility conversions.
+export function migrateProjectV40ToV41(project) {
+  const migrateState = (state = {}) => ({
+    ...state,
+    components: migrateDirectPlacementComponents(state.components),
+    nodes: migrateDirectPlacementNodeProject(state.nodes),
+    ui: migrateDirectPlacementUi(state.ui),
+  });
+  const migrated = migrateState(project);
+  const snapshot = migrated.ui?.live?.sceneSnapshot;
+  if (!snapshot) return migrated;
+  return {
+    ...migrated,
+    ui: {
+      ...migrated.ui,
+      live: {
+        ...migrated.ui.live,
+        sceneSnapshot: migrateState(snapshot),
+      },
+    },
+  };
+}
+
+const DIRECT_PLACEMENT_PARAMETER_IDS = new Set([
+  "$general.transform.x",
+  "$general.transform.y",
+  "$general.boundary.x",
+  "$general.boundary.y",
+]);
+
+function migratedDirectPosition(value) {
+  const number = Number(value);
+  const offset = Number.isFinite(number) ? number : 0;
+  return Math.max(0, Math.min(1, 0.5 + offset * 0.5));
+}
+
+function migrateDirectPlacementRecord(record = {}) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return record;
+  return {
+    ...record,
+    ...(record.transform && typeof record.transform === "object"
+      ? { transform: {
+          ...record.transform,
+          ...(Object.hasOwn(record.transform, "x") ? { x: migratedDirectPosition(record.transform.x) } : {}),
+          ...(Object.hasOwn(record.transform, "y") ? { y: migratedDirectPosition(record.transform.y) } : {}),
+        } }
+      : {}),
+    ...(record.boundary && typeof record.boundary === "object"
+      ? { boundary: {
+          ...record.boundary,
+          ...(Object.hasOwn(record.boundary, "x") ? { x: migratedDirectPosition(record.boundary.x) } : {}),
+          ...(Object.hasOwn(record.boundary, "y") ? { y: migratedDirectPosition(record.boundary.y) } : {}),
+        } }
+      : {}),
+  };
+}
+
+function migrateDirectPlacementChain(chain) {
+  if (!Array.isArray(chain)) return chain;
+  return chain.map((item) => {
+    const migrated = migrateDirectPlacementRecord(item);
+    return item?.kind === "group"
+      ? { ...migrated, chain: migrateDirectPlacementChain(item.chain) }
+      : migrated;
+  });
+}
+
+function migrateDirectPlacementComponents(components) {
+  if (!Array.isArray(components)) return components;
+  return components.map((component) => ({
+    ...migrateDirectPlacementRecord(component),
+    ...(Array.isArray(component?.chain)
+      ? { chain: migrateDirectPlacementChain(component.chain) }
+      : {}),
+  }));
+}
+
+function migrateDirectPlacementNodeProject(nodeProject) {
+  if (!nodeProject || typeof nodeProject !== "object") return nodeProject;
+  return {
+    ...nodeProject,
+    groups: (Array.isArray(nodeProject.groups) ? nodeProject.groups : []).map((group) => {
+      const placementTrackOwners = new Set((group.nodes || [])
+        .filter((node) => DIRECT_PLACEMENT_PARAMETER_IDS.has(String(node?.animationTrack?.parameterId || "")))
+        .map((node) => String(node.id || "")));
+      const migrateNodes = (nodes) => (Array.isArray(nodes) ? nodes : []).map((node) => {
+        const targetParameterId = String(node?.targetParameterId || "");
+        const animationParameterId = String(node?.animationTrack?.parameterId || "");
+        const ownerId = String(node?.animationTrackOwnerId || "");
+        let parameters = node?.parameters && typeof node.parameters === "object"
+          ? { ...node.parameters }
+          : node?.parameters;
+        if (parameters) {
+          for (const parameterId of DIRECT_PLACEMENT_PARAMETER_IDS) {
+            if (Object.hasOwn(parameters, parameterId)) {
+              parameters[parameterId] = migratedDirectPosition(parameters[parameterId]);
+            }
+          }
+          if (placementTrackOwners.has(ownerId) && node.animationTrackRole === "mapping") {
+            parameters.outputMin = migratedDirectPosition(parameters.outputMin);
+            parameters.outputMax = migratedDirectPosition(parameters.outputMax);
+          }
+          if (placementTrackOwners.has(ownerId) && node.animationTrackRole === "combination") {
+            parameters.minimum = 0;
+            parameters.maximum = 1;
+          }
+        }
+        return {
+          ...node,
+          ...(parameters ? { parameters } : {}),
+          ...(node.configuration ? { configuration: migrateDirectPlacementRecord(node.configuration) } : {}),
+          ...(DIRECT_PLACEMENT_PARAMETER_IDS.has(targetParameterId) ? { targetRange: [0, 1] } : {}),
+          ...(DIRECT_PLACEMENT_PARAMETER_IDS.has(animationParameterId)
+            ? { animationTrack: {
+                ...node.animationTrack,
+                range: Array.isArray(node.animationTrack.range)
+                  ? node.animationTrack.range.map(migratedDirectPosition)
+                  : node.animationTrack.range,
+              } }
+            : {}),
+          ...(Array.isArray(node.nodes) ? { nodes: migrateNodes(node.nodes) } : {}),
+        };
+      });
+      return { ...group, nodes: migrateNodes(group.nodes) };
+    }),
+  };
+}
+
+function migrateDirectPlacementOverride(override) {
+  if (!override || typeof override !== "object" || Array.isArray(override)) return override;
+  const migrated = migrateDirectPlacementRecord(override);
+  return {
+    ...migrated,
+    ...(Array.isArray(override.chain)
+      ? { chain: override.chain.map(migrateDirectPlacementOverride) }
+      : {}),
+    ...(override.nodes && typeof override.nodes === "object"
+      ? { nodes: Object.fromEntries(Object.entries(override.nodes)
+          .map(([id, node]) => [id, migrateDirectPlacementOverride(node)])) }
+      : {}),
+  };
+}
+
+function migrateDirectPlacementUi(ui) {
+  if (!ui || typeof ui !== "object") return ui;
+  const live = ui.live && typeof ui.live === "object" ? ui.live : null;
+  if (!live) return ui;
+  const parameterDiffs = live.parameterDiffs && typeof live.parameterDiffs === "object"
+    ? Object.fromEntries(Object.entries(live.parameterDiffs).map(([targetId, bank]) => [
+        targetId,
+        Object.fromEntries(Object.entries(bank || {}).map(([componentId, override]) => [
+          componentId,
+          migrateDirectPlacementOverride(override),
+        ])),
+      ]))
+    : live.parameterDiffs;
+  return { ...ui, live: { ...live, parameterDiffs } };
 }
 
 function migrateLiveAnimationAvailabilityNodeProject(nodeProject) {

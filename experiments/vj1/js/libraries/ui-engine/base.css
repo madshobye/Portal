@@ -1037,6 +1037,13 @@
   place-items: center;
 }
 
+.ui-node-modal {
+  /* Modal height may change as catalog filters change. Anchor the surface to
+     one stable viewport edge instead of recentering it after every change. */
+  place-items: start center;
+  padding-block: 16px;
+}
+
 .ui-node-modal[hidden],
 .ui-node-popup[hidden],
 .ui-node-tab-panel[hidden] {
@@ -1072,6 +1079,7 @@
   position: relative;
   z-index: 1;
   width: min(560px, calc(100vw - 32px));
+  /* Matches the modal's 16px top and bottom viewport clearance. */
   max-height: calc(100vh - 32px);
   overflow: auto;
 }

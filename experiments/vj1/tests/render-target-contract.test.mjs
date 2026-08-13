@@ -247,7 +247,7 @@ test("immediate 2D target ownership is balanced around the final draw", () => {
 
 test("screen-oriented transforms convert once at a raw WebGL model boundary", () => {
   assert.deepEqual(
-    contentTransformRawWebglPlacement({ x: 0.5, y: 0.25, scale: 2, rotation: 0.4 }, 800, 600),
+    contentTransformRawWebglPlacement({ x: 0.75, y: 0.625, scale: 2, rotation: 0.4 }, 800, 600),
     { x: 200, y: -75, scale: 2, rotation: -0.4 }
   );
 });

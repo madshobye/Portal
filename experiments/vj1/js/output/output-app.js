@@ -160,6 +160,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       sendMapping: (id, mapping, status, meta) => bridge?.mappingState(id, mapping, status, meta),
       requestMediaFiles: (ids) => bridge?.requestMediaFiles(ids),
       requestPresentationFrame: wakeOutputPresentation,
+      sendDmxFixture: (payload) => bridge?.dmxFixture(payload),
       onDownload: (request) => outputUi.download(request),
       screenCapture: screenCaptureService(),
       installedNodePackages,

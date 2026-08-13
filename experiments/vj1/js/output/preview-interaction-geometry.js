@@ -302,8 +302,8 @@ export function resolveChainTransformDrag(drag = {}, x = 0, y = 0) {
       drag.frameWidth,
       drag.frameHeight
     );
-    next.x = drag.transform.x + delta.x;
-    next.y = drag.transform.y + delta.y;
+    next.x = clamp01(drag.transform.x + delta.x);
+    next.y = clamp01(drag.transform.y + delta.y);
   } else if (drag.mode === "scale") {
     const distance = Math.max(1, Math.hypot(x - drag.centerX, y - drag.centerY));
     next.scale = chainTransformDragScale(drag.transform.scale, drag.startDistance, distance);

@@ -252,7 +252,7 @@ test("root Content scale uses transformed ROI detail without enlarging Surface a
   const component = {
     ...state.components[0],
     id: "component-scaled",
-    transform: { x: 0, y: 0, scale: 8, rotation: 0 },
+    transform: { x: 0.5, y: 0.5, scale: 8, rotation: 0 },
   };
   const surface = {
     ...state.surfaces[0],
@@ -302,7 +302,7 @@ test("output viewport ROI is inverse-composed through root Content scale", () =>
   const component = {
     ...state.components[0],
     id: "component-scaled-output",
-    transform: { x: 0, y: 0, scale: 8, rotation: 0 },
+    transform: { x: 0.5, y: 0.5, scale: 8, rotation: 0 },
   };
   const surface = {
     ...state.surfaces[0],
@@ -438,7 +438,7 @@ test("Scene root Content scale uses a physical regional request beyond the full-
     ...state.components[0],
     id: "scene-scaled",
     type: "scene",
-    transform: { x: 0, y: 0, scale: 8, rotation: 0 },
+    transform: { x: 0.5, y: 0.5, scale: 8, rotation: 0 },
     canvas: { frameThumbnails: {} },
   };
   const surface = {
@@ -747,8 +747,12 @@ test("surface routes compose component placement opacity and blend at the parent
   assert.equal(surfaceRouteOpacity({ component: {}, surface: {} }), 1);
 });
 
-test("transition route identity ignores Surface geometry but detects source changes", () => {
+test("transition route identity ignores Surface geometry but detects source and root Content transform changes", () => {
   const route = {
+    component: {
+      id: "component-a",
+      transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+    },
     surface: {
       id: "surface-1",
       x: 0.1,
@@ -762,9 +766,21 @@ test("transition route identity ignores Surface geometry but detects source chan
   };
   const moved = { surface: { ...route.surface, x: 0.5, width: 0.2 } };
   const replaced = { surface: { ...route.surface, componentId: "component-b", sourceNodeId: "source:component-b" } };
+  const liveScaled = {
+    ...route,
+    component: {
+      ...route.component,
+      transform: { ...route.component.transform, scale: 0.05 },
+    },
+  };
 
   assert.equal(transitionRouteSourceKey(route), transitionRouteSourceKey(moved));
   assert.notEqual(transitionRouteSourceKey(route), transitionRouteSourceKey(replaced));
+  assert.notEqual(
+    transitionRouteSourceKey(route),
+    transitionRouteSourceKey(liveScaled),
+    "a retained Live Content transform is transition geometry, not reusable source identity",
+  );
 });
 
 test("direct recording-frame views stay in the mapper shader instead of p5 sub-texture copies", () => {

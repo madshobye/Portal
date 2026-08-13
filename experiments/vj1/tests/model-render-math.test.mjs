@@ -154,7 +154,7 @@ test("raw mesh content Y converts screen-down authoring to WebGL world-up withou
     1,
     1,
     [0, 0, 0],
-    { x: 0, y: -0.5, scale: 1, rotation: 0 },
+    { x: 0.5, y: 0.25, scale: 1, rotation: 0 },
   );
   const repeated = rawModelMatrices(
     400,
@@ -162,7 +162,7 @@ test("raw mesh content Y converts screen-down authoring to WebGL world-up withou
     1,
     1,
     [0, 0, 0],
-    { x: 0, y: -0.5, scale: 1, rotation: 0 },
+    { x: 0.5, y: 0.25, scale: 1, rotation: 0 },
   );
 
   assert.equal(movedUp.model[13], 50);

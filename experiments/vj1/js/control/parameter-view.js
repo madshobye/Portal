@@ -29,14 +29,14 @@ export function componentParamViews(component = {}) {
 }
 
 export const CHAIN_TRANSFORM_PARAMS = Object.freeze([
-  Object.freeze(createNumberParam("x", "Content X", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
-  Object.freeze(createNumberParam("y", "Content Y", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
+  Object.freeze(createNumberParam("x", "Content X", { min: 0, max: 1, step: 0.001, defaultValue: 0.5 })),
+  Object.freeze(createNumberParam("y", "Content Y", { min: 0, max: 1, step: 0.001, defaultValue: 0.5 })),
   Object.freeze(createNumberParam("scale", "Content scale", { min: 0.05, max: 8, step: 0.001, defaultValue: 1, scale: "log" })),
 ]);
 
 export const CHAIN_BOUNDARY_PARAMS = Object.freeze([
-  Object.freeze(createNumberParam("x", "Boundary X", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
-  Object.freeze(createNumberParam("y", "Boundary Y", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
+  Object.freeze(createNumberParam("x", "Boundary X", { min: 0, max: 1, step: 0.001, defaultValue: 0.5 })),
+  Object.freeze(createNumberParam("y", "Boundary Y", { min: 0, max: 1, step: 0.001, defaultValue: 0.5 })),
   Object.freeze(createNumberParam("rotation", "Boundary rotation", { min: -3.1416, max: 3.1416, step: 0.001, defaultValue: 0 })),
 ]);
 
@@ -54,34 +54,12 @@ export const CHAIN_GENERAL_PARAMS = Object.freeze([
   ...CHAIN_TRANSFORM_PARAMS,
 ]);
 
-export function placementAxisRange(extent = 1, position = 0) {
-  const safeExtent = Math.max(0.0001, Number(extent) || 1);
-  const safePosition = Math.abs(Number(position) || 0);
-  return Math.max(2, 1 + safeExtent, safePosition);
+export function chainTransformParams(_transform = {}) {
+  return CHAIN_TRANSFORM_PARAMS;
 }
 
-export function chainTransformParams(transform = {}) {
-  const range = placementAxisRange(transform.scale, Math.max(
-    Math.abs(Number(transform.x) || 0),
-    Math.abs(Number(transform.y) || 0),
-  ));
-  return CHAIN_TRANSFORM_PARAMS.map((param) =>
-    param.id === "x" || param.id === "y" ? { ...param, min: -range, max: range } : param);
-}
-
-export function chainBoundaryPositionParams(boundary = {}) {
-  const normalized = normalizeNodeBoundary(boundary);
-  return CHAIN_BOUNDARY_PARAMS.map((param) => {
-    if (param.id === "x") {
-      const range = placementAxisRange(normalized.width, normalized.x);
-      return { ...param, min: -range, max: range };
-    }
-    if (param.id === "y") {
-      const range = placementAxisRange(normalized.height, normalized.y);
-      return { ...param, min: -range, max: range };
-    }
-    return param;
-  });
+export function chainBoundaryPositionParams(_boundary = {}) {
+  return CHAIN_BOUNDARY_PARAMS;
 }
 
 export function chainGeneralAnimationParameters(item = {}) {

@@ -1,5 +1,8 @@
 import { COMPONENT_PROGRAM_GENERATOR } from "../libraries/composition-engine/shared/component-program-compiler.js";
-import { liveParameterDiffBank } from "./live-parameter-diffs.js";
+import {
+  liveParameterDiffBank,
+  liveParameterDiffTargetId,
+} from "./live-parameter-diffs.js";
 
 // The abstract layer editor is a read-only lens over the authoritative
 // Component Group. Its controls address node configuration directly; neither
@@ -15,10 +18,21 @@ export function componentLayerProjection(state = {}, component = {}) {
 }
 
 export function liveComponentLayerProjection(state = {}, component = {}) {
-  const overrides = liveParameterDiffBank(state.ui?.live)?.[component.id]?.nodes || {};
+  const live = state.ui?.live || {};
+  const targetId = liveParameterDiffTargetId(live, component.id);
+  const overrides = liveParameterDiffBank(live, targetId)?.[component.id]?.nodes || {};
   return componentLayerProjection(state, component).map((layer) =>
     materializeLiveLayer(layer, overrides)
   );
+}
+
+// Disposable compatibility shape for import/export operations that still
+// exchange a linear visual list. Current Components never store this result.
+export function componentChainProjection(state = {}, component = {}) {
+  const project = (layer) => layer.item?.kind === "group"
+    ? { ...layer.item, chain: layer.children.map(project) }
+    : layer.item;
+  return componentLayerProjection(state, component).map(project);
 }
 
 function materializeLiveLayer(layer, overrides) {

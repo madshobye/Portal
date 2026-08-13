@@ -5,6 +5,14 @@ export function activeLiveTargetId(live = {}) {
   return String(live.selectedComponentId || live.selectedSceneId || "");
 }
 
+// Overall Live selection can legitimately be empty while a Component remains
+// mounted on a Direct Output Surface. In that state, edits to the mounted
+// Component still need a stable bank owner. The edited Component is that
+// owner; it is never a reason to fall back to authored Component state.
+export function liveParameterDiffTargetId(live = {}, componentId = "") {
+  return activeLiveTargetId(live) || String(componentId || "");
+}
+
 // Live parameter state has one authority: a sparse diff bank per mounted
 // Overall target. The selected target merely chooses a bank; it never owns a
 // copied "active" override model alongside the retained banks.
@@ -23,7 +31,10 @@ export function ensureLiveParameterDiffBank(state = {}, targetId = activeLiveTar
 
 export function setLiveParameterDiff(state, componentId, path, value, targetId) {
   if (!componentId || !path) return false;
-  const bank = ensureLiveParameterDiffBank(state, targetId);
+  const bank = ensureLiveParameterDiffBank(
+    state,
+    targetId || liveParameterDiffTargetId(state.ui?.live, componentId),
+  );
   if (!bank) return false;
   const override = bank[componentId] ||= {};
   return setPathValue(override, path, value, { createMissing: true });
@@ -41,7 +52,10 @@ export function setLiveNodeParameterDiff(
   targetId,
 ) {
   if (!componentId || !nodeId || !path) return false;
-  const bank = ensureLiveParameterDiffBank(state, targetId);
+  const bank = ensureLiveParameterDiffBank(
+    state,
+    targetId || liveParameterDiffTargetId(state.ui?.live, componentId),
+  );
   if (!bank) return false;
   const override = bank[componentId] ||= {};
   override.nodes ||= {};
