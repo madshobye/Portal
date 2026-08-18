@@ -2,8 +2,9 @@ window.showOverlay = false;
 
 let apiKeyEncryptedGpt222 ="U2FsdGVkX1/p9uf1wlE+/3dCyCS4rAqGptmHuLBLHho2qru9AlVgzkisqsfwUFT7AMAfoMzStNzJWmKuuzW2Tnh77Z7EeCl9eBPaBr0dwVlfEoOVXLmAo1tWJgx+PPR9YeScgTJbnUiUiGECMNkA75gA1VIg1qvv8MlbcqWB5brnBC5ScsXMHiHxxJcT6k7y8cT3hS2KzKAD2AJWlL43kTX3MwIx+nh+QadZNxGnKPEd3WJowq+qDdHEH6FvE7tM"
 
-const DOC_MD_URL =
+const DEFAULT_DOC_MD_URL =
   "https://docs.google.com/document/d/1STeaNBuavGIx1TkRN86tqxEmbuVepys5Y5lBRhs4KyM/export?format=md&tab=t.0";
+const DOC_MD_URL = promptDocUrlFromParams() || DEFAULT_DOC_MD_URL;
 const MODEL_OPTIONS = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"];
 const DEFAULT_MODEL = "gpt-4o-mini";
 const STORAGE_PREFIX = "grumpynurse";
@@ -1131,6 +1132,37 @@ function injectPromptPlaceholders(docText, replacements = {}) {
     out = out.replace(pattern, String(value || ""));
   }
   return out;
+}
+
+function promptDocUrlFromParams() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const explicitUrl = params.get("docUrl") || params.get("promptUrl");
+    if (explicitUrl) return googleDocMarkdownUrl(explicitUrl);
+
+    const docId = params.get("doc") || params.get("docId") || params.get("promptDoc");
+    if (docId) return googleDocMarkdownUrl(docId);
+  } catch {
+  }
+  return "";
+}
+
+function googleDocMarkdownUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const idMatch = raw.match(/^[A-Za-z0-9_-]{20,}$/) || raw.match(/\/document\/d\/([A-Za-z0-9_-]+)/);
+  const docId = idMatch ? (idMatch[1] || idMatch[0]) : "";
+  if (docId) {
+    return `https://docs.google.com/document/d/${docId}/export?format=md&tab=t.0`;
+  }
+  if (/^https:\/\/docs\.google\.com\/document\/d\//i.test(raw)) {
+    const url = new URL(raw);
+    url.pathname = url.pathname.replace(/\/edit.*$/i, "/export");
+    url.searchParams.set("format", "md");
+    if (!url.searchParams.has("tab")) url.searchParams.set("tab", "t.0");
+    return url.toString();
+  }
+  return "";
 }
 
 async function fetchPromptMarkdown() {
