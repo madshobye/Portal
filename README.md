@@ -641,6 +641,16 @@ This is the practical module overview for using Portal as a library.
 - `portal/mqtt.js`
   - class: `PortalMqtt`
 
+### Communication and screen sharing
+
+- `portal/PeerJs.js`
+  - class: `PortalPeerJs`
+- `portal/screenSharing.js`
+  - class: `PortalScreenSharing`
+  - receiver mode accepts multiple named clients
+  - sender mode captures and previews a shared screen
+  - includes low-latency WebRTC tuning and receiver statistics
+
 ### QR, maps, and location
 
 - `portal/QrReader.js`
@@ -1429,6 +1439,66 @@ const best = learner.getBestLabel();
 
 Use **KNN** for quick prototypes with small, interactive datasets.
 Use **NeuralLearner** for trainable weight-based models (classification or regression).
+
+## `PortalScreenSharing` (`portal/screenSharing.js`)
+
+Reusable PeerJS screen sharing with named clients and low-latency defaults. Load it with:
+
+```js
+await loadScript("portal/screenSharing.js");
+```
+
+Receiver:
+
+```js
+const sharing = await new PortalScreenSharing({
+  mode: "receiver",
+  peerId: "my-screen",
+}).init();
+
+function draw() {
+  const clients = sharing.getClients();
+  const active = clients.find((client) => client.sharing);
+  if (active?.video) image(active.video, 0, 0, width, height);
+}
+```
+
+Sender:
+
+```js
+const sharing = await new PortalScreenSharing({
+  mode: "sender",
+  name: "Mads",
+}).init();
+
+await sharing.connect("my-screen");
+
+// Call from a click or other user gesture.
+await sharing.startScreenShare();
+```
+
+Core API:
+
+- `await init()`
+- `await connect(receiverPeerId, { name })` (sender)
+- `await startScreenShare(options?)` (sender, user gesture required)
+- `stopScreenShare()`
+- `getClients()` / `getClient(peerId)` (receiver)
+- `buildClientUrl(baseUrl?)`
+- `getLatest()`
+- `hasNewResult()` / `consumeNew()`
+- `disconnect()` / `destroy()`
+
+Low-latency defaults:
+
+- direct live `MediaStreamTrack` transport with no application frame queue
+- `contentHint: "detail"`
+- `degradationPreference: "maintain-resolution"`
+- 10 Mbps maximum video bitrate at 30 fps
+- minimum supported receiver `jitterBufferTarget`
+- current FPS, resolution, dropped-frame, packet-loss, and jitter-buffer statistics
+
+Screen capture requires HTTPS or localhost and must be started by a user gesture.
 
 ## `PortalMqtt` (`portal/mqtt.js`)
 

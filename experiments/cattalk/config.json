@@ -1,0 +1,37 @@
+{
+  "language": "en-US",
+  "voice": "Google US English",
+  "voiceCandidates": [
+    "Google US English",
+    "Microsoft Ava Online (Natural) - English (United States)",
+    "Microsoft Jenny Online (Natural) - English (United States)",
+    "Samantha",
+    "Microsoft Zira - English (United States)"
+  ],
+  "speech": {
+    "rate": 1,
+    "pitch": 1.08,
+    "volume": 1
+  },
+  "input": {
+    "collectionWindowMs": 55,
+    "releaseCooldownMs": 0,
+    "maximumLockMs": 1500
+  },
+  "mappings": [
+    { "key": "F", "word": "FOOD", "say": "food", "priority": 100 },
+    { "key": "W", "word": "WET FOOD", "say": "wet food", "priority": 100 },
+    { "key": "T", "word": "TREAT", "say": "treat", "priority": 100 },
+    { "key": "U", "word": "TULLE", "say": "tulle", "priority": 100 },
+    { "key": "L", "word": "LASER", "say": "laser", "priority": 100 },
+    { "key": "C", "word": "CUDDLE", "say": "cuddle", "priority": 100 },
+    { "key": "M", "word": "MORE", "say": "more", "priority": 100 },
+    { "key": "O", "word": "OUTSIDE", "say": "outside", "priority": 100 },
+    { "key": "P", "word": "PETS", "say": "pets", "priority": 100 },
+    { "key": "B", "word": "BRUSH", "say": "brush", "priority": 100 },
+    { "key": "Y", "word": "YES", "say": "yes", "priority": 100 },
+    { "key": "N", "word": "NO", "say": "no", "priority": 100 },
+    { "key": "H", "word": "HUH?", "say": ", huh?", "priority": 100 },
+    { "key": "D", "word": "ALL DONE", "say": "all done", "priority": 100 }
+  ]
+}
