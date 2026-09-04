@@ -604,6 +604,8 @@ This is the practical module overview for using Portal as a library.
   - class: `BodyPose`
 - `portal/faceMesh.js`
   - class: `FaceMesh`
+- `portal/faceTracker.js`
+  - class: `FaceTracker` (lightweight BlazeFace box + 6 landmarks)
 - `portal/emotions.js`
   - classes:
     - `EmotionTracker`
@@ -1775,6 +1777,70 @@ new BodyPose({
 
 ### Draw
 - `drawPoses(x, y, w, h, options)`
+
+## `FaceTracker` (`portal/faceTracker.js`)
+
+Lightweight face position tracking using MediaPipe's short-range BlazeFace detector.
+Use this instead of `FaceMesh` when a sketch only needs face position, size, and
+basic orientation. It returns a face box plus six named points: eyes, nose, mouth,
+and ears.
+
+### Constructor
+```js
+new FaceTracker({
+  video,
+  videoIsFlipped=false,
+  maxFaces=1,
+  targetFps=24,
+  smoothing=0.35,
+  minDetectionConfidence=0.5,
+  minSuppressionThreshold=0.3,
+  delegate="CPU",
+  onResults=null
+})
+```
+
+### Lifecycle
+- `await init()`
+- `await start()`
+- `stop()`
+- `close()`
+
+### Data
+- `getLatest()` -> `{ faces, best }`
+- `consumeNew()` -> `{ wasNew, faces, best }`
+- `getFaces()` (video-space pixels, flipped when requested)
+- `getFacesRaw()`
+- `getFacesInRect(x, y, w, h)`
+- `getBest()`
+
+Each face contains:
+- `box` -> `{ x, y, width, height, xMin, yMin, xMax, yMax }`
+- `center` -> `{ x, y }`
+- `score`
+- `keypoints`
+- named points such as `noseTip`, `leftEye`, and `rightEye`
+- `rotation` -> approximate `{ yaw, pitch, roll }` angles in radians
+
+### Minimal example
+```js
+await loadScript("portal/faceTracker.js");
+const tracker = await new FaceTracker({
+  video,
+  videoIsFlipped: true,
+  targetFps: 24,
+}).init();
+await tracker.start();
+
+function draw() {
+  const face = tracker.getLatest().best;
+  if (face) circle(face.center.x, face.center.y, face.box.width);
+}
+```
+
+`targetFps` limits inference work without limiting the sketch's render frame rate.
+The CPU delegate is the compatibility-first default and avoids competing with a
+p5 WebGL renderer for the GPU.
 
 ## `FaceMesh` (`portal/faceMesh.js`)
 

@@ -1,0 +1,88 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #01040d;
+}
+
+canvas.p5Canvas {
+  display: block;
+  width: 100vw !important;
+  height: 100vh !important;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.noise-filter {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.32;
+  mix-blend-mode: screen;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(125, 226, 255, 0.18) 0 0.7px, transparent 0.8px),
+    radial-gradient(circle at 4px 3px, rgba(255, 82, 210, 0.1) 0 0.6px, transparent 0.7px),
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(0, 0, 0, 0.2) 3px 4px);
+  background-size: 7px 7px, 11px 9px, 100% 4px;
+}
+
+.tracking-status {
+  position: fixed;
+  top: 18px;
+  left: 20px;
+  z-index: 2;
+  pointer-events: none;
+  color: #ffd84c;
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 8px rgba(80, 220, 255, 0.8);
+}
+
+.tracking-status.is-locked {
+  color: #54ffbd;
+}
+
+.face-preview {
+  position: fixed;
+  top: 52px;
+  right: 20px;
+  z-index: 2;
+  display: block;
+  width: clamp(170px, 22vw, 320px);
+  height: auto;
+  aspect-ratio: 4 / 3;
+  pointer-events: none;
+  background: #01040d;
+  border: 1px solid rgba(103, 226, 255, 0.8);
+  box-shadow: 0 0 14px rgba(69, 206, 255, 0.25);
+  image-rendering: auto;
+}
+
+.face-preview.is-hidden {
+  display: none;
+}
+
+.debug-toggle {
+  position: fixed;
+  top: 18px;
+  right: 20px;
+  z-index: 3;
+  padding: 7px 10px;
+  border: 1px solid rgba(103, 226, 255, 0.8);
+  border-radius: 0;
+  background: rgba(1, 4, 13, 0.85);
+  color: #67e2ff;
+  font: 700 11px "Courier New", monospace;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.debug-toggle:hover,
+.debug-toggle[aria-expanded="true"] {
+  background: #67e2ff;
+  color: #01040d;
+}

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"
+    />
+    <title>Face Universe</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://madshobye.github.io/Portal/P1/portalBaseStyle.css"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main></main>
+    <div class="noise-filter" aria-hidden="true"></div>
+    <div id="tracking-status" class="tracking-status" aria-live="polite">NO FACE</div>
+    <button
+      id="debug-toggle"
+      class="debug-toggle"
+      type="button"
+      aria-controls="face-preview"
+      aria-expanded="false"
+    >FACE DEBUG</button>
+    <canvas
+      id="face-preview"
+      class="face-preview is-hidden"
+      width="320"
+      height="240"
+      aria-label="Webcam face tracking preview"
+    ></canvas>
+    <script src="sketch.js"></script>
+    <script src="https://madshobye.github.io/Portal/P1/portalLoader.js"></script>
+  </body>
+</html>
