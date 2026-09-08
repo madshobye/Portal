@@ -129,7 +129,7 @@ export function createConnectionTransportSession({
     return false;
   }
 
-  async function waitForUsbJsonCommandPath({ attempts = 1, timeoutMs = 1000, retryDelayMs = 700 } = {}) {
+  async function waitForUsbJsonCommandPath({ attempts = 3, timeoutMs = 1000, retryDelayMs = 700 } = {}) {
     let lastError = null;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       logLine("debug", `USB JSON ping attempt ${attempt}/${attempts}`);
