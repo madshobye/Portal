@@ -20,7 +20,9 @@ function byteCount(value = "") {
 }
 
 function revisionFrom(report = {}) {
-  const revision = report.project?.revision || report.revision || null;
+  const revisions = Array.isArray(report.project?.revisions) ? report.project.revisions : [];
+  const revision = revisions.find((item) => item.id === report.project.activeRevisionId)
+    || revisions[0] || report.project?.revision || report.revision || null;
   return revision && typeof revision === "object" ? revision : {};
 }
 

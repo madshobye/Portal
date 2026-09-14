@@ -51,7 +51,7 @@ export function createProjectDownloadService({
       revision.specification = getCurrentProjectDescription();
       revision.specificationMode = getCurrentProjectSpecificationMode();
       revision.circuit = projectCircuitForCurrentCode(code) || revision.circuit;
-      revision.chat = getChatMessages().slice(-60);
+      revision.chat = getChatMessages().slice();
       revision.bytes = new Blob([code]).size;
     }
     snapshot.chat = [];

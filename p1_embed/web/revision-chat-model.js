@@ -2,7 +2,6 @@ export function normalizeChatMessages(messages) {
   return Array.isArray(messages)
     ? messages
       .filter((item) => ["user", "assistant", "error"].includes(item?.role) && typeof item?.content === "string")
-      .slice(-60)
     : [];
 }
 

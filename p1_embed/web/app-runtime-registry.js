@@ -269,22 +269,9 @@ export function createAppRuntimeRegistry({
         keyStored: Boolean(fields.chatApiKey?.dataset?.hasKey === "true" || fields.chatApiKeyInput?.value),
       },
       logs: getConsoleController().recentFormatted(180),
-      project: currentRevisionOnly(projectSnapshot),
+      project: projectSnapshot,
     };
     return redactSensitive(report);
-  }
-
-  function currentRevisionOnly(project = null) {
-    if (!project || project.error) return project;
-    const revisions = Array.isArray(project.revisions) ? project.revisions : [];
-    const revision = revisions.find((item) => item.id === project.activeRevisionId) || revisions[0] || null;
-    return {
-      id: project.id || "",
-      name: project.name || "",
-      activeRevisionId: revision?.id || project.activeRevisionId || "",
-      updatedAt: project.updatedAt || "",
-      revision: revision ? { ...revision } : null,
-    };
   }
 
   function summarizeTransport(transport = null) {
