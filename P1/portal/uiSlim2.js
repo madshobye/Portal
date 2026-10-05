@@ -1388,39 +1388,37 @@ function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
   _uiInfo.measureEnabled = _uiInfo.gridEnabled;
   uiEndUseGraphics();
 
-  // Color swatch at right
   const hudRightEdge = barX + textW + gap + toggleW;
-  const swW = 22, swH = barH - 10;
-  const swX = uiSWidth - swW - padX;
-  const swY = (barH - swH)/2;
-  /*stroke(255, 220);
-  strokeWeight(1);
-  fill(rgbUnder[0]||0, rgbUnder[1]||0, rgbUnder[2]||0);
-  rect(swX, swY, swW, swH, 4);*/
-  /*
-  const qrSize = 100;
-  const qrPadding = 5;
+  const qrUrl = window.urlToSketch || (typeof urlToSketch !== "undefined" ? urlToSketch : "");
   const canShowQR =
-    typeof urlToSketch !== "undefined" &&
-    typeof urlToSketch === "string" &&
-    urlToSketch.trim() !== "" &&
+    typeof isShareableSketchURL === "function" &&
+    isShareableSketchURL(qrUrl) &&
     typeof sketchQRCode !== "undefined" &&
-    !!sketchQRCode &&
-    Number.isFinite(Number(sketchQRCode.size)) &&
-    Number(sketchQRCode.size) > 0 &&
-    typeof drawQRCode === "function" &&
-    (typeof sketchQRCodeValid === "undefined" || !!sketchQRCodeValid) &&
-    uiSWidth > hudRightEdge + qrSize + qrPadding * 3;
+    typeof isValidQRCodeObject === "function" &&
+    isValidQRCodeObject(sketchQRCode) &&
+    (typeof sketchQRCodeValid === "undefined" || !!sketchQRCodeValid);
 
-  if (canShowQR)
-  {
-    target.translate(uiSWidth-qrSize-qrPadding*5,10-qrPadding);
-    
-    target.fill("white");
-    target.noStroke();
-    target.rect(0,0,qrSize+qrPadding*2,qrSize+qrPadding*2,3,3,3,3);
+  if (canShowQR) {
+    // Integer modules and a four-module quiet zone keep the code scannable.
+    const modules = Number(sketchQRCode.size);
+    const cell = Math.floor(Math.min(160, uiSWidth - padX * 2) / (modules + 8));
+    const qrSize = (modules + 8) * cell;
+    const qrX = uiSWidth - qrSize - padX;
+    const qrY = qrX > hudRightEdge + gap ? barY : barY + barH + gap;
+    if (cell >= 1 && qrY + qrSize <= uiSHeight) {
+      target.noStroke();
+      target.fill("white");
+      target.rect(qrX, qrY, qrSize, qrSize);
+      target.fill("black");
+      for (let y = 0; y < modules; y++) {
+        for (let x = 0; x < modules; x++) {
+          if (sketchQRCode.getModule(x, y)) {
+            target.rect(qrX + (x + 4) * cell, qrY + (y + 4) * cell, cell, cell);
+          }
+        }
+      }
+    }
   }
-  */
   target.pop();
 }
 

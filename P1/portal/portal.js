@@ -323,21 +323,24 @@ function resolveSketchURL() {
 function isShareableSketchURL(raw) {
   if (!raw || typeof raw !== "string") return false;
   try {
-    const u = new URL(raw);
+    const value = raw.trim();
+    if (!/^https?:\/\//i.test(value) || /\s/.test(value)) return false;
+    const u = new URL(value);
     if (!/^https?:$/.test(u.protocol)) return false;
-    if (u.hostname.includes("preview.p5js.org")) return false;
-    if (u.protocol === "blob:") return false;
+    if (!u.hostname || u.username || u.password) return false;
+    if (u.hostname === "preview.p5js.org" || u.hostname.endsWith(".preview.p5js.org")) return false;
     if (
       u.hostname === "localhost" ||
       u.hostname === "127.0.0.1" ||
       u.hostname === "::1" ||
+      u.hostname === "[::1]" ||
       u.hostname.endsWith(".local") ||
       u.hostname.endsWith(".localdomain")
     ) return false;
 
     // For p5 editor, only allow canonical sketch URLs.
-    if (u.hostname.includes("editor.p5js.org")) {
-      return /\/[^/]+\/sketches\/[^/?#]+/.test(u.pathname);
+    if (u.hostname === "editor.p5js.org") {
+      return /^\/[^/]+\/(?:sketches|full|present)\/[^/]+\/?$/.test(u.pathname);
     }
     return true;
   } catch {
