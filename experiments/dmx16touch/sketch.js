@@ -1,7 +1,7 @@
 const DMX_CHANNELS = 16;
 
 let dmx;
-let dmxState = "idle";
+let dmxState = "loading";
 let dmxError = "";
 let frameIntervalMs = 25;
 
@@ -10,26 +10,31 @@ async function setup() {
   frameRate(40);
   noStroke();
 
-  await loadScript("portal/dmxSerial.js");
+  try {
+    await loadScript("portal/dmxSerial.js");
 
-  dmx = await new DmxSerial({
-    channels: DMX_CHANNELS,
-    autoReconnect: true,
-    autoReconnectOnRefresh: true,
-    autoStream: true,
-    frameIntervalMs,
-    onState: (state) => {
-      dmxState = state;
-      dmxError = "";
-    },
-    onError: (err) => {
-      dmxError = err?.message || String(err || "dmx error");
-    },
-  }).init();
+    dmx = await new DmxSerial({
+      channels: DMX_CHANNELS,
+      autoReconnect: true,
+      autoReconnectOnRefresh: true,
+      autoStream: true,
+      frameIntervalMs,
+      onState: (state) => {
+        dmxState = state;
+        if (state === "connected") dmxError = "";
+      },
+      onError: (err) => {
+        dmxError = err?.message || String(err || "dmx error");
+      },
+    }).init();
 
-  restorePersistedChannels();
-  dmx.setFrameInterval(frameIntervalMs);
-  dmx.startOutput();
+    restorePersistedChannels();
+    dmx.setFrameInterval(frameIntervalMs);
+    dmx.startOutput();
+  } catch (err) {
+    dmxState = "error";
+    dmxError = err?.message || String(err);
+  }
 }
 
 function draw() {
@@ -37,6 +42,7 @@ function draw() {
   syncOutputState();
   renderChannels();
   renderConnectButton();
+  renderDmxStatus();
 }
 
 function windowResized() {
@@ -54,8 +60,25 @@ function restorePersistedChannels() {
 
 function syncOutputState() {
   if (!dmx) return;
-  dmx.setFrameInterval(frameIntervalMs);
-  dmx.startOutput();
+  // Changing the interval restarts the timer; don't restart it every draw.
+  if (dmx.frameIntervalMs !== frameIntervalMs) dmx.setFrameInterval(frameIntervalMs);
+}
+
+function renderDmxStatus() {
+  let label = "Not connected";
+  if (dmxError) label = dmx?.connected ? "Send failed" : "Connection failed";
+  else if (dmx?.connected) label = "Connected";
+  else if (dmx?.connecting || ["loading", "requesting_port", "reconnecting"].includes(dmxState)) {
+    label = "Connecting…";
+  }
+
+  push();
+  noStroke();
+  textAlign(LEFT, CENTER);
+  textSize(14);
+  fill(dmxError ? "#ff967e" : dmx?.connected ? "#8ee6aa" : "#b6c9df");
+  text(label, 18, 28);
+  pop();
 }
 
 function renderChannels() {
@@ -114,7 +137,7 @@ function renderChannelCard(ch, x, y, w, h) {
 }
 
 function renderConnectButton() {
-  if (dmx?.connected || dmx?.connecting) return;
+  if (!dmx?.ready || dmx?.connected || dmx?.connecting || dmxState === "requesting_port") return;
 
   const label = dmxState === "requesting_port" ? "Connecting" : "Connect";
   if (
@@ -129,8 +152,10 @@ function renderConnectButton() {
       textColor: "#000814",
     }).clicked
   ) {
+    dmxError = "";
     dmx?.connect().catch((err) => {
       dmxError = err?.message || String(err || "connect failed");
+      if (dmxState === "requesting_port") dmxState = "ready";
     });
   }
 }

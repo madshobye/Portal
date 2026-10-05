@@ -17,7 +17,7 @@ function ensureZXingOnce() {
   __zxingLoaderPromise = (async () => {
     if (!window.ZXing) {
       console.log("[QrReader] Loading ZXing...");
-      await loadScriptSerial('https://unpkg.com/@zxing/library@latest');
+      await loadScriptSerial('https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js');
       console.log("[QrReader] ZXing loaded.");
     } else {
       console.log("[QrReader] ZXing already present.");
@@ -64,7 +64,7 @@ class QrReader {
       throw new Error("QrReader.init(): missing p5 capture in {video: ...}");
     }
 
-    this.reader = new ZXing.BrowserMultiFormatReader();
+    this.reader = new ZXing.BrowserQRCodeReader();
 
     // Wait for camera to actually have frames
     await this._waitForVideoReady(this.video.elt);
@@ -141,6 +141,8 @@ class QrReader {
       } else if (err) {
         if (err instanceof ZXing.NotFoundException) {
           this._sawNotFoundSinceLastNew = true;
+        } else if (err instanceof ZXing.ChecksumException || err instanceof ZXing.FormatException) {
+          // Partial or blurred QR frames are normal while the camera is scanning.
         } else {
           console.error("[QrReader] ZXing error:", err);
         }

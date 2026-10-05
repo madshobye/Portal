@@ -1,0 +1,25 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #101215;
+}
+
+canvas {
+  display: block;
+}
+
+.dmx-connect {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 6px;
+  background: #fca34b;
+  color: #160d07;
+  font: 11px monospace;
+  cursor: pointer;
+}
+
+.dmx-connect:disabled { opacity: 0.6; }
