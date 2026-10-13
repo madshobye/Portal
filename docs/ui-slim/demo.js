@@ -6,7 +6,6 @@ const theme = Object.hasOwn(uiGuideThemes, params.get('theme')) ? params.get('th
 function fullScreenToggle() { fullscreen(!fullscreen()); }
 function setup() {
   createCanvas(windowWidth, example.height);
-  pixelDensity(1);
   frameRate(30);
   uiSetBaseStyle(uiGuideThemes[theme]);
   describe(example.intro);
