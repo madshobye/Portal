@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A practical Portal uiSlim2 guide: live p5.js controls, copyable sketches, themes, layout, styling, sliders, plots and widget state.">
+  <title>uiSlim — Components &amp; styling · Portal</title>
+  <link rel="stylesheet" href="docs/ui-slim/guide.css">
+  <script defer src="docs/ui-slim/examples.js"></script>
+  <script defer src="docs/ui-slim/guide.js"></script>
+</head>
+<body>
+<a class="skip" href="#content">Skip to guide</a>
+<header class="top"><a href="index.html">← Portal guide</a><a href="https://learn.hobye.dk/portal">Learning Portal ↗</a></header>
+<div class="shell">
+  <nav aria-label="Guide sections">
+    <a class="brand" href="#">uiSlim<span>COMPONENTS &amp; STYLING</span></a>
+    <a href="#start">01 · Start here</a>
+    <a href="#components">02 · Components</a>
+    <a href="#style">03 · Style &amp; states</a>
+    <a href="#themes">04 · Shared themes</a>
+    <a href="#layout">05 · Layout</a>
+    <a href="#sliders">06 · Sliders</a>
+    <a href="#plot">07 · Plots</a>
+    <a href="#reference">08 · Style reference</a>
+    <a href="#state">09 · State &amp; recipes</a>
+  </nav>
+  <main id="content">
+    <div class="hero"><span class="eyebrow">PORTAL / UI SLIM 2</span><h1>Small controls.<br>Plenty of character.</h1>
+      <p class="lead">Build a control panel inside your p5.js sketch. Explore the components, try three visual themes, and copy working examples into Portal.</p>
+      <div class="tags"><span>6 live examples</span><span>3 themes</span><span>Real library, real controls</span></div>
+    </div>
+    <noscript><p class="note">Enable JavaScript to see the interactive examples and their copyable sketches. The reference below is available without JavaScript.</p></noscript>
+    <section id="start"><span class="eyebrow">01 / THE BASIC IDEA</span><h2>Draw your interface each frame.</h2>
+      <p>uiSlim is an immediate-mode UI for the p5 canvas: call a widget in <code>draw()</code>, then use its result. Styles are JavaScript objects, not CSS. Portal loads <code>uiSlim2.js</code> and updates its pointer input for you.</p>
+      <p>Start from the <a href="https://editor.p5js.org/hobye/sketches/P07GGrfNY">Portal cloud base sketch</a> or <a href="P1/sketches/baseSketch/">local base sketch</a>. Keep its HTML and Portal loader; replace <code>sketch.js</code> with one of the complete examples below.</p>
+<pre><code>function setup() {
+  createCanvas(windowWidth, windowHeight);
+}
+
+function draw() {
+  background(245);
+  uiListStart({ x: 20, y: 20, width: 260 });
+  if (uiButton("Run").clicked) {
+    console.log("Run once on release");
+  }
+  const speed = uiSlider("speed", "Speed", {
+    min: 0, max: 10, init: 3
+  }).value;
+  uiText(`Speed: ${speed.toFixed(1)}`);
+  uiListEnd();
+}</code></pre>
+      <p class="note">The embedded previews load p5 and the repository’s uiSlim module directly, so they update input themselves. In a normal Portal sketch, do not add a second <code>uiUpdateSimple()</code> call.</p>
+    </section>
+    <section id="components"><span class="eyebrow">02 / PICK A COMPONENT</span><h2>A small control panel</h2><div data-example="components"></div>
+      <div class="table-wrap"><table><thead><tr><th>Component</th><th>Use it for</th><th>Useful return values</th></tr></thead><tbody>
+        <tr><td><code>uiButton(label, style)</code></td><td>A one-off action</td><td><code>clicked</code>, <code>pressed</code>, <code>hover</code>, <code>pressedDown</code>, <code>pressedUp</code></td></tr>
+        <tr><td><code>uiSlider(id, label, opts, style)</code></td><td>A continuous number</td><td><code>value</code>, <code>changed</code></td></tr>
+        <tr><td><code>uiToggle(id, label, style)</code></td><td>An on/off setting</td><td><code>value</code>, <code>toggled</code></td></tr>
+        <tr><td><code>uiPromptText(id, label, style)</code></td><td>Occasional text entry via a browser prompt</td><td><code>value</code>, <code>changed</code>, button results</td></tr>
+        <tr><td><code>uiText(text, style)</code></td><td>A label or readout</td><td><code>x</code>, <code>y</code>, <code>width</code>, <code>height</code></td></tr>
+        <tr><td><code>uiRect(x, y, w, h, style)</code></td><td>A decorative panel behind controls</td><td>No return value; does not advance a list</td></tr>
+        <tr><td><code>uiPlot(id, series, style)</code></td><td>Signals, sensor readings, points</td><td><code>hover</code>, <code>clicked</code>, <code>hoverValue</code>, ranges and bounds</td></tr>
+      </tbody></table></div>
+      <p>Interactive widgets also return their bounding box. A prompt is a browser dialog, not an editable field drawn on the canvas. For keyboard-accessible forms or rich text entry, use HTML controls alongside the sketch.</p>
+    </section>
+    <section id="style"><span class="eyebrow">03 / LOCAL OVERRIDES</span><h2>Style one control</h2><div data-example="states"></div>
+      <p>Most widgets merge <code>common → component → local style</code>. A button then applies <code>hover</code> or <code>pressed</code>; pressed takes priority. The merge is deep: changing one nested property keeps its siblings.</p>
+<pre><code>uiButton("Launch", {
+  height: 48,
+  fontSize: 18,
+  bgColor: "#c62630",
+  textColor: "#ffffff",
+  rounding: 24,
+  hover: { bgColor: "#a91d28" },
+  pressed: { bgColor: "#74141c" }
+});</code></pre>
+      <p><code>disabled: true</code> suppresses interaction on buttons and prompt buttons. Supply your own disabled colors; there is no automatic disabled theme. Sliders and toggles do not implement that option.</p>
+      <p>Toggle styles additionally inherit button styles. Their on/off colors replace the normal background, and hover/pressed styling applies only while off. Sliders render <code>trackColor</code> and <code>fillColor</code>, not the common background or button state styles.</p>
+    </section>
+    <section id="themes"><span class="eyebrow">04 / A SHARED STYLESHEET</span><h2>One panel, three themes</h2><div data-example="themes"></div>
+      <p>Call <code>uiSetBaseStyle()</code> in <code>setup()</code> to style the whole sketch. Use <code>common</code> for shared properties and component keys for exceptions: <code>button</code>, <code>text</code>, <code>slider</code>, <code>toggle</code>, <code>promptText</code>, and <code>list</code>.</p>
+<pre><code>uiSetBaseStyle({
+  common: { height: 40, fontSize: 16, rounding: 10 },
+  button: { hAlign: "center" },
+  text: { bgColor: false },
+  slider: { trackColor: "#ece6dc", fillColor: "#efaf91" },
+  toggle: { onBgColor: "#bce2ca", offBgColor: "#ece6dc" },
+  list: { width: 280, dir: "vertical" }
+});</code></pre>
+      <p class="note">Base style updates merge into the current theme; they do not reset it. When switching themes at runtime, explicitly replace every property you want to change. Plot-specific defaults live inside <code>uiPlot()</code>; pass its colors directly as in the plot example.</p>
+    </section>
+    <section id="layout"><span class="eyebrow">05 / GIVE CONTROLS ROOM</span><h2>Lists and absolute placement</h2><div data-example="layout"></div>
+      <ul><li><strong>Vertical:</strong> the list controls widget width; each widget controls its height.</li><li><strong>Horizontal:</strong> give each widget a <code>width</code>. The list does not wrap automatically.</li><li><strong>Spacing:</strong> set <code>margin</code> on <code>uiListStart()</code>. Widget margins do not individually move the list cursor. The default list spacing comes from <code>common.margin</code>.</li><li><strong>Absolute:</strong> supply <code>x</code>, <code>y</code>, and <code>width</code> together. The control no longer advances the list.</li><li><strong>Nested lists:</strong> positions are relative to the parent, but ending a child does not advance the parent cursor. Reserve space explicitly or use separate lists as above.</li></ul>
+      <p>Balance every <code>uiListStart()</code> with <code>uiListEnd()</code> on every frame. For responsive panels, compute widths from the current canvas width. uiSlim does not apply CSS breakpoints or automatic text wrapping.</p>
+    </section>
+    <section id="sliders"><span class="eyebrow">06 / CONTINUOUS INPUT</span><h2>Sliders as faders and meters</h2><div data-example="sliders"></div>
+      <p>The third argument supplies <code>min</code>, <code>max</code>, <code>init</code>, and optional <code>syncValue</code>. Keep visual properties in the fourth argument for clarity. Style properties in the third argument also work, but the fourth argument wins.</p>
+<pre><code>const result = uiSlider("brightness", "Brightness", {
+  min: 0, max: 255, init: 128
+}, {
+  trackColor: "#222222", fillColor: "#ffbb66",
+  textColor: "#ffffff", hideValue: true
+});
+const brightness = Math.round(result.value);</code></pre>
+      <p>There is no step option. <code>hideValue</code> hides the numerical suffix; <code>hideText</code> hides the whole label. <code>syncValue</code> follows an external number while the slider is not being dragged. Its synchronization does not set <code>changed</code>; that flag reports a drag changing the value.</p>
+    </section>
+    <section id="plot"><span class="eyebrow">07 / SHOW YOUR DATA</span><h2>Plot live data</h2><div data-example="plot"></div>
+      <p>Each series can be an array of numbers, or an object such as <code>{ label, values, color, weight }</code>. Values may also be <code>[x, y]</code> pairs or <code>{ x, y }</code> objects. Add <code>type: "points", pointSize: 4</code> to a series for a scatter plot.</p>
+      <p>Set <code>xMin</code>, <code>xMax</code>, <code>yMin</code>, and <code>yMax</code> for stable axes, or omit them for automatic ranges. Use <code>showGrid</code>, <code>showLabels</code>, <code>showRangeLabels</code>, <code>headerItems</code>, and <code>footerText</code> to simplify the display. <code>hoverValue</code> contains the pointer’s x-value and y-range, not the nearest sample.</p>
+    </section>
+    <section id="reference"><span class="eyebrow">08 / KEEP THIS HANDY</span><h2>Style reference</h2>
+      <p>Sizes and coordinates are canvas pixels. These are supported fields, not CSS property names. Some properties apply only to particular widgets.</p>
+      <div class="table-wrap"><table><thead><tr><th>Properties</th><th>Meaning / example</th></tr></thead><tbody>
+        <tr><td><code>x, y, width, height</code></td><td>Position and dimensions. Default widget height is 32; plot height is 140.</td></tr>
+        <tr><td><code>bgColor, textColor</code></td><td>p5-compatible colors, e.g. <code>"#203040"</code>. <code>bgColor: false</code> removes a background where supported.</td></tr>
+        <tr><td><code>rounding</code></td><td>Corner radius; default 6 for most widgets. Use 0 for square corners.</td></tr>
+        <tr><td><code>stroke</code></td><td><code>{ weight: 1, color: "#222", alpha: 255 }</code> on buttons, toggles and rectangles. <code>uiText</code> and sliders do not draw this border.</td></tr>
+        <tr><td><code>font, fontSize</code></td><td>A p5.Font or font family such as <code>"monospace"</code>; default size 15. Portal supplies the default font.</td></tr>
+        <tr><td><code>padding</code></td><td>Label inset; default 8. Does not grow the widget’s outer dimensions.</td></tr>
+        <tr><td><code>hAlign, vAlign</code></td><td><code>left / center / right</code> and <code>top / middle / bottom</code>.</td></tr>
+        <tr><td><code>textOffsetX, textOffsetY</code></td><td>Fine adjustment after alignment, in pixels.</td></tr>
+        <tr><td><code>hover, pressed</code></td><td>Nested visual overrides for buttons and off-state toggles.</td></tr>
+        <tr><td><code>trackColor, fillColor</code></td><td>Slider track and filled region.</td></tr>
+        <tr><td><code>vertical, hideText, hideValue</code></td><td>Slider orientation and label visibility.</td></tr>
+        <tr><td><code>onBgColor, offBgColor, showStateText</code></td><td>Toggle appearance; <code>showStateText: true</code> adds ON/OFF.</td></tr>
+        <tr><td><code>disabled</code></td><td>Button / prompt interaction only. Colors must be supplied separately.</td></tr>
+        <tr><td><code>persist</code></td><td>Pass <code>false</code> directly to a stateful widget’s style to avoid saving its value to local storage.</td></tr>
+      </tbody></table></div>
+    </section>
+    <section id="state"><span class="eyebrow">09 / EVERYDAY RECIPES</span><h2>State that stays useful</h2>
+      <p>Stateful widgets use an ID separate from their label. Keep IDs unique and stable: <code>"synth-volume"</code> identifies the value while <code>"Volume"</code> is what people see. By default, slider, toggle and prompt values are saved in local storage under <code>uiSlim2:&lt;id&gt;</code>. Sketches on the same origin can share these keys.</p>
+      <p><code>init</code> is only the initial fallback. A saved value can override it. These live examples pass <code>persist: false</code> directly to each widget to start fresh on reload.</p>
+<pre><code>// Read or update in-memory state.
+const speed = uiGet("speed", 3);
+uiSet("speed", 5);
+
+// Update state and its saved value (e.g. a reset button).
+if (uiButton("Reset speed").clicked) {
+  uiSetState("speed", 3);
+}
+
+// A temporary toggle: pass persistence on the widget itself.
+const preview = uiToggle("preview", "Preview", {
+  persist: false, showStateText: true
+}).value;</code></pre>
+      <h3>Use a custom font</h3>
+<pre><code>async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  const font = await loadFont("assets/MyFont.ttf");
+  uiSetBaseStyle({ common: { font, fontSize: 16 } });
+}</code></pre>
+      <h3>Draw into a graphics buffer</h3>
+      <p>Create a <code>p5.Graphics</code> buffer once in setup. Use <code>uiUseGraphics(panel)</code> before drawing controls and <code>uiEndUseGraphics()</code> afterwards. Display it at <code>(0, 0)</code> at its original size so the canvas pointer coordinates match. Moving or scaling the buffer requires matching input-coordinate conversion; changing the drawing target alone does not do that.</p>
+<pre><code>// setup(): panel = createGraphics(width, height);
+// draw():
+panel.clear();
+uiUseGraphics(panel);
+uiButton("On the buffer", { x: 20, y: 20, width: 220 });
+uiEndUseGraphics();
+image(panel, 0, 0);</code></pre>
+      <h3>Keep debug information separate</h3>
+      <p><code>uiDebug("message")</code> sends information to Portal’s debug console. <code>uiDrawOnDebugOverlay(() =&gt; { /* drawing */ })</code> queues custom overlay drawing. Use normal widgets in <code>draw()</code> for controls that should always be visible.</p>
+    </section>
+    <footer><p>Built from the current <a href="P1/portal/uiSlim2.js">uiSlim2 source</a>. Explore the <a href="P1/sketches/ui-slim2/">original demo</a>, <a href="README.md">README</a>, or return to the <a href="index.html">Portal guide</a>.</p></footer>
+  </main>
+</div>
+</body></html>
