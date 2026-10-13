@@ -5,7 +5,6 @@ const isPrivateIpv4 =
   /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
 
 const local =
-  window.location.protocol === "file:" ||
   ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(hostname) ||
   hostname.endsWith(".local") ||
   isPrivateIpv4;
@@ -18,6 +17,8 @@ async function loadPortal(version, refresh = false) {
   if (local) {
     baseSrc = `/${version}/portal/portal.js`;
   } else {
+    // file: pages cannot use /P1 (it resolves at the filesystem root).
+    // Use the hosted runtime there; serve the repo over HTTP for local development.
     baseSrc = `https://madshobye.github.io/Portal/${version}/portal/portal.js`;
   }
 

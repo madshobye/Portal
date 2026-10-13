@@ -5,7 +5,8 @@ let odenseDistanceKm = null;
 
 async function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
-  await loadScript("portal/map.js");
+  // Fixed revision tag refreshes cached copies of the old map loader.
+  await loadScript("portal/map.js?v=2026-10-13-2");
   await loadScript("portal/uiSlim2.js");
   await loadScript("portal/location.js");
 
