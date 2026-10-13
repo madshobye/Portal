@@ -5,13 +5,12 @@ window.PORTAL_ACTIVATION = "auto";
 let apiKeyEncryptedGpt152 = "U2FsdGVkX1+xIpT6ovNE1CMERN4mzSgCM+eMVPI3vfgOb4GeuLIVreoQRqSHYcpFfFyXo69Ne7z4LieGwgpvGIISCn0HSCST7Q9AMjmQ0E8Rdwt2AcYHnsFYeEiiUewKPxQEkwx/cH9B035GxHFagDN2YCtarlyPP4XKhmbI7ytCs8ojQlrFdc9rAcmSa+MwGQw9zduy39M13+F/vXDZ6K8k5qLfdJAFnFXPOeCHGosN/rTou68oJ5hTssVUaesp";
 
 let cam, gpt, speech;
-let resultLabel, resultPanel;
+let resultText = "Starting camera…";
 let lastDescription = "";
 let isAnalyzing = false;
 
 async function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
-  createResultPanel();
   // One pointer handler avoids duplicate touch + mouse requests.
   canvas.elt.addEventListener("pointerup", identifyObject);
 
@@ -44,55 +43,78 @@ async function setup() {
     }
     // Rear camera, unmirrored. Portal does not request microphone access.
     cam = await setupWebcamera(false, 640, 480, false);
-    resultLabel.textContent = "Tap the camera to identify an object.";
+    resultText = "Tap the camera to identify an object.";
   } catch (error) {
-    resultLabel.textContent = error.message || "Could not start the camera.";
+    resultText = error.message || "Could not start the camera.";
   }
-}
-
-function createResultPanel() {
-  const panel = document.createElement("section");
-  resultPanel = panel;
-  panel.style.cssText = "position:fixed;top:32px;left:32px;width:calc(100% - 64px);box-sizing:border-box;padding:16px 20px;border-radius:8px;background:rgba(0,0,0,.85);color:white;font:22px/1.4 system-ui;z-index:10;max-height:45vh;overflow:auto;pointer-events:none";
-  resultLabel = document.createElement("p");
-  resultLabel.textContent = "Starting camera…";
-  resultLabel.style.margin = "0";
-  resultLabel.setAttribute("role", "status");
-  panel.appendChild(resultLabel);
-
-  document.body.appendChild(panel);
 }
 
 function draw() {
   background(0);
-  if (!cam) return;
-  // Fill the canvas without stretching; crop the preview edges as needed.
-  const video = cam.elt;
-  if (!video.videoWidth || !video.videoHeight) return;
+  const video = cam?.elt;
+  if (video?.videoWidth && video.videoHeight) {
+    // Fill the canvas without stretching; crop the preview edges as needed.
+    const scale = Math.max(width / video.videoWidth, height / video.videoHeight);
+    const w = video.videoWidth * scale;
+    const h = video.videoHeight * scale;
+    image(cam, (width - w) / 2, (height - h) / 2, w, h);
+  }
+  drawResultText();
+}
+
+function drawResultText() {
   const margin = 16;
-  const scale = Math.max(width / video.videoWidth, height / video.videoHeight);
-  const w = video.videoWidth * scale;
-  const h = video.videoHeight * scale;
-  const x = (width - w) / 2;
-  const y = (height - h) / 2;
-  image(cam, x, y, w, h);
-  // Keep the text box inside the visible canvas.
-  resultPanel.style.left = `${margin}px`;
-  resultPanel.style.top = `${margin}px`;
-  resultPanel.style.width = `${Math.max(1, width - margin * 2)}px`;
+  const padding = 20;
+  const boxWidth = Math.max(1, width - margin * 2);
+  const lineHeight = 30;
+  push();
+  textFont("sans-serif");
+  textSize(22);
+  // uiText accepts explicit line breaks; wrap to the available canvas width.
+  const lines = [];
+  for (const paragraph of resultText.split("\n")) {
+    let line = "";
+    for (const word of paragraph.split(/\s+/)) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (line && textWidth(candidate) > boxWidth - padding * 2) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    lines.push(line);
+  }
+  const boxHeight = lines.length * lineHeight + padding * 2;
+  textLeading(lineHeight);
+  uiText(lines.join("\n"), {
+    x: margin,
+    y: Math.max(margin, height - boxHeight - margin),
+    width: boxWidth,
+    height: boxHeight,
+    font: "sans-serif",
+    fontSize: 22,
+    textColor: "#ffffff",
+    bgColor: "#000000d9",
+    padding,
+    rounding: 8,
+    hAlign: "left",
+    vAlign: "top",
+  });
+  pop();
 }
 
 async function identifyObject() {
   if (isAnalyzing || !gpt || !cam) return;
   const video = cam.elt;
   if (video.readyState < 2 || !video.videoWidth) {
-    resultLabel.textContent = "Camera is not ready. Try again in a moment.";
+    resultText = "Camera is not ready. Try again in a moment.";
     return;
   }
 
   isAnalyzing = true;
   speech?.stopSpeaking();
-  resultLabel.textContent = "Analyzing…";
+  resultText = "Analyzing…";
   let snapshot;
   try {
     snapshot = createGraphics(512, Math.max(1, Math.round(512 * video.videoHeight / video.videoWidth)));
@@ -103,11 +125,11 @@ async function identifyObject() {
     const description = result.sentence || result.text;
     if (typeof description !== "string" || !description.trim()) throw new Error("No description returned. Please try again.");
     lastDescription = description.trim();
-    resultLabel.textContent = lastDescription;
+    resultText = lastDescription;
     // Display the result immediately; speech may wait for another gesture.
     say(lastDescription);
   } catch (error) {
-    resultLabel.textContent = `Could not identify the object: ${error.message || error}`;
+    resultText = `Could not identify the object: ${error.message || error}`;
   } finally {
     snapshot?.remove();
     isAnalyzing = false;
