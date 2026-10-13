@@ -68,6 +68,7 @@ class PortalSpeech {
     this.setVolume(this.volume);
 
     this.ready = true;
+    window.PortalActivation?.register(this, "speech", () => window.PortalActivation.primeSpeech());
     return this;
   }
 
@@ -475,7 +476,14 @@ class PortalSpeech {
     return true;
   }
 
-  async speak(text, language = null) {
+  speak(text, language = null) {
+    if (window.PortalActivation) {
+      return window.PortalActivation.run(this, () => this._speakNow(text, language));
+    }
+    return this._speakNow(text, language);
+  }
+
+  async _speakNow(text, language = null) {
     if (!this.ready || !this.synth) throw new Error("Call init() before speak()");
     if (language) this.setLanguage(language);
 
@@ -510,6 +518,7 @@ class PortalSpeech {
             u.pitch = this.pitch;
             u.rate = this.rate;
             u.volume = this.volume;
+            u.onstart = () => window.PortalActivation?.markReady(this);
             u.onend = finish;
             u.onerror = (e) => {
               if (done) return;
@@ -761,6 +770,7 @@ class PortalSpeech {
   }
 
   stopSpeaking() {
+    window.PortalActivation?.cancel(this);
     try {
       window.speechSynthesis?.cancel?.();
     } catch {}

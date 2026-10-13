@@ -434,6 +434,12 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
   if (typeof window !== "undefined") {
     window.__uiSlimLastUpdateFrame = typeof frameCount !== "undefined" ? frameCount : null;
   }
+  if (window.PortalActivation?.blocksInput) {
+    _mx = -1; _my = -1; _mp = false; _key = undefined; _keyPressed = false;
+    uiMPOld = uiMP = false;
+    _uiActiveHitKey = null;
+    _uiSliderDragState.id = null;
+  }
   uiKeyOld = uiKey;
   uiSWidth=_w; uiSHeight=_h; uiKey=_key;
   uiMXOld=uiMX; uiMYOld=uiMY; uiMPOld=uiMP;

@@ -53,6 +53,7 @@ async function loadSoundFile(url)
         if (done) return;
         done = true;
         cleanup();
+        this._registerVoice(this.audio);
         resolve();
       };
 
@@ -75,21 +76,45 @@ async function loadSoundFile(url)
     });
   }
 
-  play()      { return this.audio.play(); }
+  _registerVoice(voice) {
+    window.PortalActivation?.register(voice, "audio", () => this._unlockVoice(voice));
+  }
+
+  _playVoice(voice) {
+    this._registerVoice(voice);
+    const play = () => voice.play().then(value => {
+      window.PortalActivation?.markReady(voice);
+      return value;
+    });
+    return window.PortalActivation ? window.PortalActivation.run(voice, play) : play();
+  }
+
+  play() { return this._playVoice(this.audio); }
   trigger(offsetSec = this.triggerOffsetSec)   {
     const voice = this._acquireVoice();
     if (!voice) return Promise.reject(new Error("SoundFile: no available voice"));
     this._clearVoiceTimers(voice);
     voice.volume = 0;
     try { voice.currentTime = Math.max(0, Number(offsetSec) || 0); } catch {}
-    this._applyTriggerEnvelope(voice);
-    return voice.play();
+    this._registerVoice(voice);
+    const play = () => {
+      this._applyTriggerEnvelope(voice);
+      return voice.play().then(value => {
+        window.PortalActivation?.markReady(voice);
+        return value;
+      });
+    };
+    return window.PortalActivation ? window.PortalActivation.run(voice, play, { defer: false }) : play();
   }
   pause()     {
-    for (const voice of this._voices) voice.pause();
+    for (const voice of this._voices) {
+      window.PortalActivation?.cancel(voice);
+      voice.pause();
+    }
   }
   stop()      {
     for (const voice of this._voices) {
+      window.PortalActivation?.cancel(voice);
       voice.pause();
       try { voice.currentTime = 0; } catch {}
     }
@@ -110,18 +135,31 @@ async function loadSoundFile(url)
     }
   }
   async unlock() {
-    const voice = this.audio;
+    // Initiate all plays synchronously; do not await a context resume first.
+    const attempts = this._voices.map(voice => this._unlockVoice(voice));
+    const results = await Promise.all(attempts);
+    return results.every(Boolean);
+  }
+
+  async _unlockVoice(voice) {
     if (!voice) return false;
+    this._registerVoice(voice);
+    if (!voice.paused) {
+      window.PortalActivation?.markReady(voice);
+      return true;
+    }
     const prevMuted = voice.muted;
     const prevVolume = voice.volume;
+    const prevTime = voice.currentTime;
     try {
-      await SoundFile._resumeKeepAliveContext();
+      const resume = SoundFile._resumeKeepAliveContext();
       voice.muted = true;
       voice.volume = 0;
-      try { voice.currentTime = 0; } catch {}
-      await voice.play();
+      const playing = voice.play();
+      await Promise.all([resume, playing]);
       voice.pause();
-      try { voice.currentTime = 0; } catch {}
+      try { voice.currentTime = prevTime; } catch {}
+      window.PortalActivation?.markReady(voice);
       return true;
     } catch {
       return false;

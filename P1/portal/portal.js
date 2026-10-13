@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 173;
+let v_minor = 175;
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;
@@ -410,6 +410,7 @@ async function pSetup() {
   console.log("## https://learn.hobye.dk/portal v:" + pVersion);
   console.log(baseURL);
 
+  await loadScript("portal/activation.js");
   await loadLibraries();
   baseFont = await loadFont(baseURL + "assets/Rubik-Light.ttf");
   baseMonoFont = await loadFont(baseURL + "assets/RobotoMono-Regular.ttf");
@@ -441,11 +442,17 @@ async function pSetup() {
   if (isShareableSketchURL(window.urlToSketch || urlToSketch)) {
     const sourceUrl = window.urlToSketch || urlToSketch;
     window.urlToSketch = sourceUrl;
-    const fullUrl = sourceUrl
-      .replace("/sketches/", "/full/")
-      .replace("/present/", "/full/");
+    // Only the p5 editor uses /full/ for its shareable preview.
+    // Hosted sketches (including LAN servers) must keep their actual path.
+    const shareUrl = new URL(sourceUrl);
+    if (shareUrl.hostname === "editor.p5js.org") {
+      shareUrl.pathname = shareUrl.pathname.replace(
+        /^(\/[^/]+)\/(?:sketches|present)\//,
+        "$1/full/"
+      );
+    }
     try {
-      const qr = createQRCode(fullUrl);
+      const qr = createQRCode(shareUrl.href);
       sketchQRCode = isValidQRCodeObject(qr) ? qr : undefined;
       sketchQRCodeValid = !!sketchQRCode;
     } catch (e) {

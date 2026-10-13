@@ -271,6 +271,60 @@ When using `PortalSpeech`:
 - stop listening before speaking if echo is a problem
 - use `interimResults: true` only when the sketch benefits from partial transcripts
 
+### Shared media activation (1.174, opt-in)
+
+For a shared startup tap on phones and tablets, add this at the top of `sketch.js`, before setup:
+
+```js
+window.PORTAL_ACTIVATION = "auto";
+```
+
+Portal loads `portal/activation.js` before the normal modules. `PortalSpeech.init()`,
+`PortalSpeech2.init()`, and loaded `SoundFile` instances register their requirements.
+Importing a module alone does not show an overlay. Existing `speak()`, `play()`,
+`trigger()`, and manual `unlock()` calls remain available; module initialization never
+waits for a tap, including when a sketch awaits speech during setup.
+
+Modes are `"off"` (the compatibility default), `"auto"` (mobile startup prompt,
+desktop fallback after an activation error), and `"always"` (useful for testing).
+After Portal has loaded, use `PortalActivation.configure({ mode: "auto" })` to
+change modes. Keep the default off until real-device checks cover your sketches.
+
+The shared HTML button invokes activation directly in its click handler. Speech
+activation says "Ready" once, unless a real speech request is already waiting.
+Successful speech start is observed; a timeout is not treated as an unlock.
+Browser activation is not a permanent guarantee: later blocked operations can
+request another tap. Initialization does not request microphone permission.
+
+Pending `speak()` and `play()` promises wait for interaction. Skipping the overlay,
+`stopSpeaking()`, and sound `pause()`/`stop()` reject affected pending promises with
+`AbortError`; callers awaiting playback should handle cancellation. Queued speech
+is preserved in order. Timing-sensitive `trigger()` sounds are not queued for
+later playback; they reject with `NotAllowedError` until activated. Existing
+manual `SoundFile.unlock()` also informs the service. New pooled audio elements
+are registered independently.
+
+`PortalActivation.getState(owner)` returns `unregistered`, `ready`,
+`needs-interaction`, or `dismissed`; use the speech instance or a SoundFile's
+`.audio` element as the owner. `ready` means ordinary playback is allowed to be
+attempted, not that every future browser request will succeed. Advanced adapters
+can use `register(owner, capability, activate)`, `run(owner, operation)`,
+`markReady(owner)`, `cancel(owner)`, and `unregister(owner)`; activation callbacks
+must begin their browser operation synchronously and return true only on success.
+The initial supported capabilities are `audio` and `speech`.
+
+Device pickers, microphone recognition, fullscreen, screen sharing, camera and
+location permission flows are unchanged. The startup tap does not replace their
+permission dialogs or any requirement for a fresh gesture.
+
+Try [the media activation example](P1/sketches/media-activation/). It deliberately
+uses `always` and covers sound, speech, a delayed reply, and stopping. Validate on
+real iOS Safari/Chrome, Android Chrome, desktop, and the p5 editor's embedded and
+full views before enabling automatic activation across existing projects. Include
+background/resume, late-loaded sounds, repeated effects, permission denial, and
+sketches with their own unlock handlers. Run automated checks with
+`node --test P1/tests/activation.test.cjs`.
+
 ### 12. Camera / ML usage
 
 For camera-based modules:
