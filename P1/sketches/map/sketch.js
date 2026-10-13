@@ -13,6 +13,8 @@ async function setup() {
     lat: 55.6415,
     lng: 12.0803,
     zoom: 10,
+    // PortalMap supplies attribution and handles the cloud editor's blob URL.
+    style: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
   }).init({ canvas });
 
   requestLocationInBackground();

@@ -32,12 +32,57 @@ async function _portalEnsureMapDeps() {
   }
 }
 
+function _portalMapTileLayer(url, attribution) {
+  const options = { attribution };
+  const origin = window.location.origin;
+  // p5's cloud editor uses blob documents, whose image requests lack a Referer.
+  // Fetch with the document's actual HTTP origin (never a fabricated identity).
+  if (window.location.protocol !== "blob:" || !/^https?:\/\//.test(origin)) {
+    return window.L.tileLayer(url, options);
+  }
+
+  const ReferrerTileLayer = window.L.TileLayer.extend({
+    createTile(coords, done) {
+      const tile = document.createElement("img");
+      tile.alt = "";
+      const controller = new AbortController();
+      let objectUrl;
+      const release = () => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        objectUrl = null;
+      };
+      tile._portalCancel = () => { controller.abort(); release(); };
+      tile.onload = () => { release(); done(null, tile); };
+      tile.onerror = () => { release(); done(new Error("Map tile could not be decoded"), tile); };
+      fetch(this.getTileUrl(coords), {
+        referrer: `${origin}/`,
+        referrerPolicy: "strict-origin-when-cross-origin",
+        signal: controller.signal,
+      }).then((response) => {
+        if (!response.ok) throw new Error(`Map tile request failed: ${response.status}`);
+        return response.blob();
+      }).then((blob) => {
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        tile.src = objectUrl;
+      }).catch((error) => {
+        release();
+        if (!controller.signal.aborted) done(error, tile);
+      });
+      return tile;
+    },
+  });
+  const layer = new ReferrerTileLayer(url, options);
+  layer.on("tileunload", ({ tile }) => tile._portalCancel?.());
+  return layer;
+}
+
 class PortalMap {
   constructor({
     lat = 55.6761,
     lng = 12.5683,
     zoom = 10,
-    style = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    style = "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     provider = "Leaflet",
     containerId = null,
@@ -79,12 +124,25 @@ class PortalMap {
       lat: this.options.lat,
       lng: this.options.lng,
       zoom: this.options.zoom,
-      style: this.options.style,
+      // Add tiles ourselves once Leaflet is ready, with attribution and the
+      // blob-document referrer fix. Mappa does not forward tile attribution.
+      style: this.options.provider === "Leaflet" ? "" : this.options.style,
       attribution: this.options.attribution,
     });
 
-    this.tileMap.overlay(this.canvasP5 || this.canvas);
+    const canvasHost = this.canvas.parentElement;
+    const canvasNextSibling = this.canvas.nextSibling;
+    await new Promise((resolve) => {
+      this.tileMap.overlay(this.canvasP5 || this.canvas, resolve);
+    });
+    if (this.options.style && this.options.provider === "Leaflet") {
+      this.tileMap.tiles = _portalMapTileLayer(this.options.style, this.options.attribution);
+      this.tileMap.tiles.addTo(this.tileMap.map);
+    }
     this.container = this.tileMap?.map?.getContainer?.() || null;
+    // Mappa moves the canvas inside the map. Restore it before wrapping the
+    // map and canvas as siblings; otherwise the wrapper would contain itself.
+    if (canvasHost) canvasHost.insertBefore(this.canvas, canvasNextSibling);
     this._ensureStackedWrapper();
     if (overlay && this.canvas) {
       const parent = this.canvas.parentElement;
@@ -95,7 +153,10 @@ class PortalMap {
         position: "relative",
         zIndex: "1",
         background: "transparent",
+        pointerEvents: "none",
       });
+      // Mappa compensates for map-pane panning; our sibling canvas stays fixed.
+      this.tileMap?.map?.on?.("move", () => { this.canvas.style.transform = "none"; });
     }
 
     this._installPortalSync();
