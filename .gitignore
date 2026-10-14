@@ -5,3 +5,13 @@ ArduinoExamples/printhost/pwd.ino
 /arduinolibs/FastLED
 arduinolibs/MQTT/
 p1_embed/arduino_libraries/
+
+# Local camera recordings and replay output must not be committed.
+*.[mM][oO][vV]
+*.[mM][pP]4
+*.[mM]4[vV]
+*.[wW][eE][bB][mM]
+*.[aA][vV][iI]
+*.[mM][kK][vV]
+/scripts/qr-anchor/replays/
+/scripts/qr-anchor/reports/

@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "note": "Movement fix regression target. Strong glare still loses tracking from 5.567 to 6.701 s; coverage is not an independent geometry accuracy score.",
+  "video": {
+    "duration": 10.53445,
+    "fps": 29.9968204498291,
+    "height": 720,
+    "sourceHeight": 1080,
+    "sourceWidth": 1920,
+    "width": 1280,
+    "sha256": "efb2d7c2676bb92468fe80653675c155cfad22bda237d1b5b0f5ce9e3ae26d4b"
+  },
+  "codeSha256": "8e9415a20f45a0dbc626ad83a55aa514319a7a564818442fc974b2f6908fcf6d",
+  "config": {
+    "target": "qr7",
+    "maxWidth": 640,
+    "fps": 30,
+    "worker": false,
+    "centreTracking": true,
+    "kalmanFilter": true,
+    "smoothing": 0.4,
+    "renderSmoothingMs": 60
+  },
+  "summary": {
+    "frames": 316,
+    "measuredFrames": 275,
+    "measurementCoverage": 0.870253164556962,
+    "firstAcquisitionSeconds": 0,
+    "decodedFrames": 2,
+    "dropouts": 5,
+    "longestDropoutMs": 1133.4499999999998,
+    "analysisMedianMs": 14.318583000000217,
+    "analysisP95Ms": 57.98020799999995,
+    "analysisMaxMs": 151.91941700000007
+  }
+}

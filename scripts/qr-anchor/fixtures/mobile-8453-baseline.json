@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "video": {
+    "duration": 11.9,
+    "encodedHeight": 1080,
+    "encodedWidth": 1920,
+    "fps": 30,
+    "height": 1920,
+    "orientationApplied": true,
+    "sourceHeight": 1920,
+    "sourceWidth": 1080,
+    "width": 1080,
+    "path": "/Users/madshobye/Downloads/IMG_8453.MOV",
+    "sha256": "811c27b3decaa2bad5a6dcdd6bd0af8c29f5e370cd18a567f22c9f61cf263267"
+  },
+  "codeSha256": "f4ec9ca1d5a87dea8cb9fda4d05dbd212cb291e10ff0751ca2db7328e67bc6bc",
+  "config": {
+    "target": "https://192.168.3.80:8082/P1/sketches/qr-anchor/",
+    "maxWidth": 640,
+    "fps": 30,
+    "worker": false,
+    "centreTracking": true,
+    "kalmanFilter": true,
+    "smoothing": 0.4,
+    "renderSmoothingMs": 60
+  },
+  "summary": {
+    "frames": 357,
+    "measuredFrames": 267,
+    "measurementCoverage": 0.7478991596638656,
+    "firstAcquisitionSeconds": 1.3333333333333333,
+    "decodedFrames": 3,
+    "dropouts": 4,
+    "longestDropoutMs": 866.666666666667,
+    "analysisMedianMs": 28.88079099999959,
+    "analysisP95Ms": 97.50466600000073,
+    "analysisMaxMs": 338.045833
+  }
+}

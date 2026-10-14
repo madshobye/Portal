@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "note": "Known failing movement baseline, not an accuracy acceptance target. Supply the original qrtracking.mov locally.",
+  "video": {
+    "duration": 10.53445,
+    "fps": 29.9968204498291,
+    "height": 720,
+    "sourceHeight": 1080,
+    "sourceWidth": 1920,
+    "width": 1280,
+    "sha256": "efb2d7c2676bb92468fe80653675c155cfad22bda237d1b5b0f5ce9e3ae26d4b"
+  },
+  "codeSha256": "fb4e706b3b76959d493024e58e7e16766fdc628eb7947a60117e952f698e63a0",
+  "config": {
+    "target": "qr7",
+    "maxWidth": 640,
+    "fps": 30,
+    "worker": false,
+    "centreTracking": true,
+    "kalmanFilter": true,
+    "smoothing": 0.4,
+    "renderSmoothingMs": 60
+  },
+  "summary": {
+    "frames": 316,
+    "measuredFrames": 95,
+    "measurementCoverage": 0.30063291139240506,
+    "firstAcquisitionSeconds": 0,
+    "decodedFrames": 14,
+    "dropouts": 17,
+    "longestDropoutMs": 1933.5399999999997,
+    "analysisMedianMs": 48.30437499999971,
+    "analysisP95Ms": 88.04733299999498,
+    "analysisMaxMs": 239.01574999999866
+  }
+}

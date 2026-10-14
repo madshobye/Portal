@@ -1,0 +1,29 @@
+Portal QrAnchor prototype
+
+Includes QR detection, binarization, and decoding code from @zxing/library 0.21.3
+https://github.com/zxing-js/library/tree/v0.21.3
+Copyright ZXing authors and zxing-js contributors. Licensed under Apache-2.0;
+see LICENSE-ZXing. Original attribution remains in the forked source files.
+
+Portal modifications (2026):
+- Detector.js returns measured finder-square outlines instead of inventing a
+  fourth corner for QR version 1; it exposes geometry to the pose solver.
+- FinderPatternFinder.js scans all rows rather than terminating at the first
+  apparently confirmed triple; this avoids a tested false-positive triple.
+  It also accepts foreshortened finder widths and selects supported non-degenerate
+  triples without the mean-module-width filter. Detector.js checks alternative
+  corner assignments and nearby dimensions against decoded payloads.
+- geometry.js fits a projective transform to the measured outlines and estimates
+  and refines a rigid pose, with bounded focal estimation when an uncalibrated
+  guess fails. core-entry.js samples and decodes the rectified grid.
+- Detector.js also exposes a finder-centre-only acquisition pass. core-entry.js
+  provides decoded references; Portal-owned tracking.js adds sparse optical flow,
+  bounded confidence checks and sparse appearance validation without QR decoding.
+  The Portal adapter manages native video ROIs and adaptive verification timing.
+- centre-tracking.js follows inner black islands using local optical flow and
+  darkness-weighted centres, with shape and shared-motion checks. The worker
+  runs the same engine with transferred frames and bounded scheduling.
+- No browser reader, camera acquisition, or MediaStream lifecycle is bundled.
+
+Also includes ts-custom-error, MIT license; see LICENSE-ts-custom-error.
+The generated core.js contains the pinned dependencies and the Portal changes.

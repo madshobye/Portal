@@ -711,6 +711,9 @@ This is the practical module overview for using Portal as a library.
 
 - `portal/QrReader.js`
   - class: `QrReader`
+- `portal/QrAnchor.js`
+  - class: `QrAnchor` — prototype QR-based 3D pose tracking using an existing camera
+  - example: [`P1/sketches/qr-anchor/`](P1/sketches/qr-anchor/), target text `qr7`
 - `portal/qrCodeGen.js`
   - functions:
     - `createQRCode(text)`
@@ -2213,3 +2216,77 @@ function draw() {
 - Portal is designed for **fast sketching first**: simple constructor + `init/start` + polling in `draw()`.
 - Prefer polling with `getLatest()` for current state, and use `hasNewResult()` + `consumeNew()` when you need edge-triggered updates.
 - Callback style is still supported in most modules when you want event-driven behavior.
+
+## QR-based 3D anchor prototype
+
+`QrAnchor` identifies a QR once, then follows its three inner black squares using
+optical flow and local darkness-weighted centre measurements. It uses the camera
+supplied by the sketch; `QrReader` and its ZXing global remain unchanged.
+
+```js
+let anchor;
+let cubeLayer;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await loadScript('portal/QrAnchor.js');
+  const video = await setupWebcamera(false, 1280, 720, false);
+  cubeLayer = createGraphics(width, height, WEBGL);
+  anchor = await new QrAnchor({ video, target: 'qr7', markerSize: 1 }).init();
+  anchor.start();
+}
+
+function draw() {
+  background(0);
+  anchor?.drawCamera();
+  if (cubeLayer) {
+    cubeLayer.clear();
+    anchor?.drawCubeWebGL({ target: cubeLayer, size: 1, height: 0.6, wireframe: true });
+    image(cubeLayer, 0, 0, width, height);
+  }
+  anchor?.drawFinderMarkers();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  cubeLayer?.resizeCanvas(width, height);
+}
+```
+
+[Full example](P1/sketches/qr-anchor/) · [Printable qr7](P1/sketches/qr-anchor/qr7.svg)
+· [Strategy, options, diagnostics and tests](P1/portal/qr-anchor/README.md)
+
+Defaults use a worker when available, with one frame in flight and no analysis
+queue. Camera drawing and WebGL stay on the display thread. The example indicates
+`Worker` or `Main thread`; unsupported worker startup falls back to synchronous
+analysis. `worker: false` explicitly selects that fallback.
+
+Fast tracking does not decode every frame. A clear-frame pattern check runs every
+four seconds. Below 30% match, decoding retries for up to three seconds while the
+geometry continues tracking. A short dropout retains the last measured image for
+350 ms; visibility lasts at most 650 ms from the last accepted observation.
+Search is throttled. The older corner tracker remains an explicit comparison via
+`centreTracking: false`; blur/glare fallback experiments have been removed.
+
+The full example adds display smoothing, optional Kalman motion prediction,
+numbered measured centres, a bounded state-change log, and the last loss reason.
+Predictions never become image measurements or extend QR identity. SLAM and
+accelerometer anchoring are not implemented.
+
+`getLatest()` returns the latest observation with `visible`, `pose`, native-video
+`corners`, `finderCentres`, `intrinsics`, `frameWidth`, `frameHeight`, `lastSeen`,
+`holding`, `predicting`, `poseAgeMs`, `predictionUncertainty`, `statusMessage`,
+`diagnostics` and `error`. `finderCentres` is null while holding a stale pose.
+`update()` submits work asynchronously when a worker is active; draw from
+`getLatest()` rather than expecting a newly processed frame immediately.
+
+`markerSize` is the full QR grid width excluding its white border. Camera pose uses
+X right, Y down, Z forward; QR-local coordinates use X right, Y up, Z out of the
+print. `projectPoint(x,y,z,rect?)` maps a local point to the 2D canvas, or returns
+null when unavailable. All drawing helpers use the same cover crop. Explicit
+camera intrinsics improve accuracy; estimated FOV and unmodeled lens distortion
+can cause wobble. The marker must remain sufficiently visible.
+
+`stop()` clears scheduling and invalidates pending observations; `start()` resumes.
+`dispose()` also releases the worker and frame canvases, without stopping the
+sketch's camera. Browser background throttling still applies.

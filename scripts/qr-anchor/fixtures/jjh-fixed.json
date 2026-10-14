@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "video": {
+    "duration": 23.50248,
+    "fps": 29.99683380126953,
+    "height": 720,
+    "sourceHeight": 1080,
+    "sourceWidth": 1920,
+    "width": 1280,
+    "path": "/Users/madshobye/Desktop/jjh.mov",
+    "sha256": "00c6aa80073fd294c61f581a98f6ee34b0e5fd0e4e367030cf1634432c6d4ef1"
+  },
+  "codeSha256": "693bbe442f4e693c60afd9d144823d25e8656a4faf7a2e4fd6228602a80c632e",
+  "config": {
+    "target": "qr7",
+    "maxWidth": 640,
+    "fps": 30,
+    "worker": false,
+    "centreTracking": true,
+    "kalmanFilter": true,
+    "smoothing": 0.4,
+    "renderSmoothingMs": 60
+  },
+  "summary": {
+    "frames": 705,
+    "measuredFrames": 521,
+    "measurementCoverage": 0.7390070921985815,
+    "firstAcquisitionSeconds": 3.46703,
+    "decodedFrames": 5,
+    "dropouts": 12,
+    "longestDropoutMs": 866.7599999999993,
+    "analysisMedianMs": 15.267083000000639,
+    "analysisP95Ms": 87.14637500000026,
+    "analysisMaxMs": 212.80133399999988
+  }
+}
