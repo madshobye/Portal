@@ -32,7 +32,7 @@
     return pose;
   }
   class QrAnchor {
-    constructor({video,target='qr2',markerSize=1,horizontalFov=60,intrinsics=null,maxWidth=640,fps=30,smoothing=0.55,lostAfterMs=650,maxReprojectionError=3,maxReuseMs=3000,highResSearchIntervalMs=1000,renderSmoothingMs=0,recoveryMs=350,roiPadding=.5,kalmanFilter=false,predictionMs=150,patternIntervalMs=4000,patternMatchThreshold=.3,patternConfirmMs=3000,centreTracking=true,worker=true}={}) {
+    constructor({video,target='qr2',markerSize=1,horizontalFov=60,intrinsics=null,maxWidth=640,fps=30,smoothing=0.55,lostAfterMs=650,maxReprojectionError=3,maxReuseMs=3000,highResSearchIntervalMs=1000,renderSmoothingMs=0,recoveryMs=350,roiPadding=.5,kalmanFilter=false,predictionMs=150,patternIntervalMs=4000,patternMatchThreshold=.3,patternConfirmMs=3000,centreTracking=true,worker=true,cameraMotion=false,rotationStabilization=false}={}) {
       if(!Number.isFinite(markerSize)||markerSize<=0) throw new Error('markerSize must be positive');
       if(!Number.isFinite(horizontalFov)||horizontalFov<=10||horizontalFov>=150) throw new Error('horizontalFov must be between 10 and 150 degrees');
       if(!Number.isFinite(smoothing)||smoothing<=0||smoothing>1) throw new Error('smoothing must be > 0 and <= 1');
@@ -43,6 +43,8 @@
       if(!Number.isFinite(patternIntervalMs)||patternIntervalMs<0||patternIntervalMs>60000||!Number.isFinite(patternMatchThreshold)||patternMatchThreshold<0||patternMatchThreshold>1||!Number.isFinite(patternConfirmMs)||patternConfirmMs<0||patternConfirmMs>10000) throw new Error('Invalid pattern verification intervals');
       if(typeof worker!=='boolean')throw new Error('worker must be boolean');
       this.useWorker=worker;this._worker=null;
+      if(typeof cameraMotion!=='boolean')throw new Error('cameraMotion must be boolean');
+      this.cameraMotion=cameraMotion;this._motionSensor=null;this._frameMotion=null;
       if(typeof centreTracking!=='boolean') throw new Error('centreTracking must be boolean');
       if(target!==null&&typeof target!=='string') throw new Error('target must be a string or null');
       if(intrinsics&&(!['fx','fy','width','height'].every(k=>Number.isFinite(intrinsics[k])&&intrinsics[k]>0)||!['cx','cy'].every(k=>Number.isFinite(intrinsics[k])))) throw new Error('intrinsics requires fx, fy, cx, cy, width and height');
@@ -52,6 +54,8 @@
       this.maxReuseMs=maxReuseMs;this.highResSearchIntervalMs=highResSearchIntervalMs;
       this.renderSmoothingMs=renderSmoothingMs;this._renderPose=null;this._positionCorrection=null;this._lastRender=-Infinity;
       this.centreTracking=centreTracking;
+      if(typeof rotationStabilization!=='boolean')throw new Error('rotationStabilization must be boolean');
+      this.rotationStabilization=rotationStabilization;
       this.patternIntervalMs=patternIntervalMs;this.patternMatchThreshold=patternMatchThreshold;this.patternConfirmMs=patternConfirmMs;
       this.recoveryMs=recoveryMs;this.roiPadding=roiPadding;this.kalmanFilter=kalmanFilter;this.predictionMs=predictionMs;
       this._diagnostics={};this._lastRender=-Infinity;
@@ -61,18 +65,28 @@
       this._resetTracking();
     }
     _resetTracking() {
+      this._rotationFilter=null;this._stableRotation=null;
       this._result=null;this._renderPose=null;this._positionCorrection=null;this._kalman=null;this._nextWorkerFrame=0;
       this._reference=null;this._reliableResult=null;this._centreResult=null;
       this._lastSeen=-Infinity;this._lastDecoded=-Infinity;this._lastCentreRefine=-Infinity;
       this._lastRecoverySearch=-Infinity;this._lastHighSearch=-Infinity;this._misses=0;
       this._lastPatternVerified=-Infinity;this._nextPatternCheck=0;this._patternState=null;
       this._patternSuspectSince=null;this._nextPatternDecode=0;
+      this._sceneFrame=null;this._sceneClassifier?.reset();this._gyroPoints=null;
     }
     async init() {
       if(this._disposed) throw new Error('QrAnchor has been disposed');
       if(this.ready) return this;
       if(!this.videoElement||typeof this.videoElement.readyState!=='number') throw new Error('QrAnchor requires an existing video or p5 capture in { video }');
       this._core=await loadCore();
+      if(this.cameraMotion) {
+        this._sceneClassifier=new this._core.SceneMotion();
+        if(typeof document!=='undefined'&&global.DeviceMotionEvent) {
+          await loadScript('portal/qr-anchor/motion-sensor.js');
+          if(this._disposed)throw Error('QrAnchor has been disposed');
+          this._motionSensor=new global.PortalQrMotionSensor();
+        }
+      }
       if(this._disposed) throw new Error('QrAnchor has been disposed');
       this._canvas=typeof document==='undefined'?new OffscreenCanvas(1,1):document.createElement('canvas');
       this._context=this._canvas.getContext('2d',{willReadFrequently:true});
@@ -81,9 +95,9 @@
         try {
           await loadScript('portal/qr-anchor/worker-client.js');
           const options={};
-          for(const key of ['target','markerSize','horizontalFov','intrinsics','maxWidth','fps','lostAfterMs','maxReprojectionError','maxReuseMs','highResSearchIntervalMs','recoveryMs','roiPadding','patternIntervalMs','patternMatchThreshold','patternConfirmMs','centreTracking'])options[key]=this[key];
+          for(const key of ['target','markerSize','horizontalFov','intrinsics','maxWidth','fps','lostAfterMs','maxReprojectionError','maxReuseMs','highResSearchIntervalMs','recoveryMs','roiPadding','patternIntervalMs','patternMatchThreshold','patternConfirmMs','centreTracking','cameraMotion'])options[key]=this[key];
           const client=await global.PortalQrAnchorWorker.create(moduleUrl,options,data=>this._receiveWorker(data),error=>{
-            this.error=error;this._resetTracking();this._status='error';this.running=false;clearTimeout(this._timer);
+            this.error=error;this._resetTracking();this._status='error';this.running=false;this._motionSensor?.stop();clearTimeout(this._timer);
           });
           if(this._disposed){client.dispose();throw Error('QrAnchor has been disposed');}
           this._worker=client;
@@ -98,6 +112,7 @@
     start() {
       if(!this.ready||this._disposed) throw new Error('Call await QrAnchor.init() first');
       if(this.running) return this;
+      this._motionSensor?.start();
       this.running=true;this.error=null;this._lastVideoTime=-1;this._lastScan=-Infinity;
       const tick=()=>{
         if(!this.running) return;
@@ -110,13 +125,13 @@
       tick();return this;
     }
     stop() {
-      this.running=false;clearTimeout(this._timer);this._timer=null;
+      this.running=false;this._motionSensor?.stop();clearTimeout(this._timer);this._timer=null;
       this._worker?.reset();
       this._resetTracking();
       this._misses=0;this._lastHighSearch=-Infinity;this._status='stopped';this._diagnostics={};return this;
     }
     dispose() {
-      this.stop();this.ready=false;this._disposed=true;this._worker?.dispose();this._worker=null;
+      this.stop();this._motionSensor?.dispose();this.ready=false;this._disposed=true;this._worker?.dispose();this._worker=null;
       if(this._canvas){this._canvas.width=0;this._canvas.height=0;}
       this._canvas=null;this._context=null;
       // Camera belongs to the sketch. Do not pause it or stop its MediaStream tracks.
@@ -141,8 +156,10 @@
       const right=Math.min(this._sourceWidth,Math.ceil(x1+pad)),bottom=Math.min(this._sourceHeight,Math.ceil(y1+pad));
       return {x,y,width:Math.max(1,right-x),height:Math.max(1,bottom-y)};
     }
-    _trackingBounds(now) {
-      const points=this._result.corners.slice(),last=this._centreResult;
+    _trackingBounds(now,last=this._centreResult) {
+      const points=this._result.corners.slice();
+      if(last?.time>this._result.time)points.push(...last.corners);
+      if(this._gyroPoints)points.push(...this._gyroPoints);
       if(this.centreTracking&&last?.centreTracking) {
         const motion=last.centreTracking,dt=Math.min(3,(now-last.time)/Math.max(16,motion.gapMs||1000/this.fps));
         const median=axis=>motion.velocity.map(p=>p[axis]).sort((a,b)=>a-b)[1];
@@ -152,6 +169,48 @@
         points.push(...points.map(([x,y])=>[x+dx,y+dy]));
       }
       return this._bounds(points,Math.min(1,this.roiPadding+this._misses*.35));
+    }
+    // The QR supplies only a region mask. Motion evidence comes from independent
+    // image patches, never differences between noisy QR poses or finder centres.
+    _analyseScene(now,k,result) {
+      if(!this.cameraMotion)return;
+      if(result?.decoded){this._sceneFrame=null;this._sceneClassifier.reset();}
+      if(!result?.corners) {
+        this._sceneFrame=null;this._sceneClassifier.reset();
+      } else if(!this._sceneFrame||now-this._sceneFrame.time>=100) {
+        const f=this._readFrame({x:0,y:0,width:this._sourceWidth,height:this._sourceHeight},320);
+        const pixels=this._core.prepareTrackingFrame(f.data,f.width,f.height);
+        const corners=result.corners.map(([x,y])=>[x*f.scaleX,y*f.scaleY]);
+        const prev=this._sceneFrame;
+        if(prev&&prev.width===f.width&&prev.height===f.height) {
+          const q=this._core.gyroDelta(prev.motion,this._frameMotion,now);
+          const scaled={fx:k.fx*f.scaleX,fy:k.fy*f.scaleY,cx:k.cx*f.scaleX,cy:k.cy*f.scaleY};
+          this._sceneClassifier.update({
+            pairs:this._core.sceneFlow(prev.pixels,pixels,prev.background),
+            markerPairs:this._core.sceneFlow(prev.pixels,pixels,prev.marker),
+            width:f.width,height:f.height,now,
+            gyroPredict:q?p=>this._core.gyroProject(p,q,scaled):null,
+          });
+        }
+        this._sceneFrame={pixels,time:now,width:f.width,height:f.height,motion:this._frameMotion,
+          background:this._core.sceneFeatures(pixels,corners),marker:this._core.sceneFeatures(pixels,corners,true)};
+      }
+      this._diagnostics.sceneMotion={...this._sceneClassifier.state};
+    }
+    _prepareMotionHint(now,k) {
+      this._gyroPoints=null;this._diagnostics.gyroAssisted=false;
+      if(!this.cameraMotion||this._sceneClassifier.state.mode!=='camera-moving'||
+        !this._sceneClassifier.state.gyroConsistent||now-(this._sceneFrame?.time??-Infinity)>200)return;
+      const previous=this._centreResult||this._reliableResult;
+      const q=this._core.gyroDelta(previous?.motionSample,this._frameMotion,now);
+      if(!q||!previous?.corners)return;
+      const points=previous.corners.map(p=>this._core.gyroProject(p,q,k));
+      if(points.some((p,i)=>!p||Math.hypot(p[0]-previous.corners[i][0],p[1]-previous.corners[i][1])>this._sourceWidth*.2))return;
+      // Expand search only. A sensor prediction can never become an accepted pose.
+      this._gyroPoints=points;this._diagnostics.gyroAssisted=true;
+    }
+    requestMotionPermission() {
+      return this._motionSensor?.requestPermission()||Promise.resolve(false);
     }
     _intrinsics(width,height) {
       const c=this.intrinsics,f=this._focalScale*width/(2*Math.tan(this.horizontalFov*Math.PI/360));
@@ -202,8 +261,8 @@
       this._patternSuspectSince=null;this._nextPatternCheck=0;this._patternState=null;this._misses=2;
       return false;
     }
-    _detectCrop(rect,k,reference,decode,now) {
-      const previous=(this.centreTracking&&this._centreResult)||this._reliableResult;
+    _detectCrop(rect,k,reference,decode,now,previousOverride=null) {
+      const previous=previousOverride||(this.centreTracking&&this._centreResult)||this._reliableResult;
       let limit=this.maxWidth;
       if(this.recoveryMs&&this._misses>0&&reference&&!decode&&previous?.crop) {
         // Widen the field of view without abruptly shrinking the tracked patches.
@@ -225,7 +284,10 @@
         if(result&&(result.poseNeedsRefinement||now-this._lastCentreRefine>=200)) {
           this._lastCentreRefine=now;
           const refined=this._core.refineTrackedGeometry(frame.data,frame.width,frame.height,reference,result.homography,
-            {intrinsics,markerSize:this.markerSize,maxReprojectionError:this.maxReprojectionError});
+            {intrinsics,markerSize:this.markerSize,maxReprojectionError:this.maxReprojectionError,diagnostics:this._diagnostics,
+              // A frontal acquisition cannot determine focal length. Reuse the
+              // bounded calibration solver once measured square edges reveal tilt.
+              focalScaleRange:this.intrinsics?null:[.6/this._focalScale,2/this._focalScale]});
           if(refined) {
             const {velocity,gapMs}=result.centreTracking;
             Object.assign(result,refined);
@@ -235,7 +297,7 @@
             this._diagnostics.outlinesRefined=true;result.poseNeedsRefinement=false;
           }
         }
-        if(result?.poseNeedsRefinement){this._diagnostics.centreReason='pose fit';result=null;}
+        if(result?.poseNeedsRefinement)this._diagnostics.centreReason='pose fit';
       }
       if(!this.centreTracking&&!result&&!decode&&reference&&previous?.tracking) {
         const old=previous.crop;
@@ -299,9 +361,13 @@
     _acceptResult(result,tracked,now,displayNow=now) {
       // Keep the visible pose continuous across reacquisition/filter resets.
       // This is display-only: a full search still resets the velocity estimate.
-      const continuous=(this.kalmanFilter||!tracked)&&this.renderSmoothingMs>0&&this._result?.text===result.text&&now-this._lastSeen<=this.lostAfterMs;
+      const oldK=this._result?.intrinsics,newK=result.intrinsics;
+      const calibrationChanged=oldK&&newK&&(Math.abs(newK.fx/oldK.fx-1)>1e-4||Math.abs(newK.fy/oldK.fy-1)>1e-4);
+      // Poses fitted with different camera intrinsics must not be blended: the
+      // new projection with an old filtered depth would make the object jump.
+      const continuous=!calibrationChanged&&(this.kalmanFilter||!tracked)&&this.renderSmoothingMs>0&&this._result?.text===result.text&&now-this._lastSeen<=this.lostAfterMs;
       const displayedBefore=continuous?this._displayPose(displayNow):null;
-      const previous=tracked&&this._result?.text===result.text?this._result.pose:null;
+      const previous=tracked&&!calibrationChanged&&this._result?.text===result.text?this._result.pose:null;
       if(!previous) {
         if(!continuous) {this._renderPose=null;this._positionCorrection=null;}
         this._kalman=null;
@@ -309,6 +375,13 @@
       if(this.kalmanFilter) {
         if(!this._kalman) this._kalman=new this._core.PositionKalman(this.markerSize);
         this._kalman.observe(result.pose.position,now,result.confidence);
+      }
+      if(this.rotationStabilization) {
+        if(!previous||now-this._lastSeen>500)this._rotationFilter=null;
+        if(!this._rotationFilter)this._rotationFilter=new this._core.RotationFilter();
+        const noisePixels=1.25/Math.max(.01,result.analysisScale??Math.min(result.crop?.sx||1,result.crop?.sy||1));
+        this._stableRotation=this._rotationFilter.observe(result.pose,result.intrinsics,this.markerSize,now,noisePixels);
+        this._diagnostics.rotationEvidencePx=this._rotationFilter.evidencePx;
       }
       result.pose=smoothPose(previous,result.pose,this.smoothing);
       this._reference=result.reference;
@@ -341,9 +414,10 @@
       if(v.currentTime===this._lastVideoTime||now-this._lastScan<1000/this.fps-1) return this.getLatest(now);
       if(this._worker) {
         if(now<this._nextWorkerFrame)return this.getLatest(now);
-        if(this._worker.send(v,now)){this._lastVideoTime=v.currentTime;this._lastScan=now;}
+        if(this._worker.send(v,now,this._motionSensor?.sample(now)||null)){this._lastVideoTime=v.currentTime;this._lastScan=now;}
         return this.getLatest(now);
       }
+      if(this._motionSensor)this._frameMotion=this._motionSensor.sample(now);
       const processingStarted=performance.now();
       this._lastVideoTime=v.currentTime;this._lastScan=now;
       this._diagnostics={finderCandidates:0,finderCount:0,geometryFound:false,poseValid:false};
@@ -356,14 +430,32 @@
       const k=this._intrinsics(v.videoWidth,v.videoHeight);
       try {
         let result=null,tracked=false;
+        this._prepareMotionHint(now,k);
         this._diagnostics.phase=this._reference?'track':'search';
         const recoveryReference=(this.centreTracking&&this._centreResult)||this._reliableResult;
-        const recovering=this.recoveryMs>0&&recoveryReference&&now-recoveryReference.time<=this.recoveryMs;
+        const recovering=this.recoveryMs>0&&recoveryReference&&now-Math.min(recoveryReference.time,this._lastSeen)<=this.recoveryMs;
         const tracking=!!this._reference&&!!this._result&&(this._misses<2||recovering);
         if(tracking) {
           const rect=this._trackingBounds(now);
           const decode=!this.patternIntervalMs&&((!recovering&&this._misses>0)||now-this._lastDecoded>=this.maxReuseMs);
           result=this._detectCrop(rect,k,this._reference,decode,now);
+          if((!result||result.poseNeedsRefinement)&&this._centreResult?.poseNeedsRefinement&&
+            this._result?.centreTracking&&this._reference&&now-this._lastSeen<=this.recoveryMs) {
+            // A provisional 2D warp can itself drift under glare. Try the last
+            // accepted geometry once before trusting it as the next flow seed.
+            const stable=this._detectCrop(this._trackingBounds(now,this._result),k,this._reference,false,now,this._result);
+            if(stable&&!stable.poseNeedsRefinement){result=stable;this._diagnostics.stablePoseRecovery=true;}
+          }
+          if(result?.poseNeedsRefinement) {
+            // Valid square measurements can guide the next frame even when the
+            // rigid 3D fit fails. Never publish that pose or refresh lastSeen.
+            // Bound this continuation by the last accepted pose, not itself.
+            if(now-this._lastSeen<=this.recoveryMs) {
+              result.motionSample=this._frameMotion;
+              this._centreResult=result;this._diagnostics.imageTracking=true;
+            }
+            result=null;
+          }
           tracked=!!result;
           if(!result){this._misses++;this._diagnostics.phase='recover';}
         }
@@ -380,11 +472,13 @@
           }
         }
         if(result) {
+          result.motionSample=this._frameMotion;
           this._acceptResult(result,tracked,now);
         } else this._status='searching';
+        this._analyseScene(now,k,result);
       } catch(error) {
         this.error=error;this._resetTracking();this._status='error';
-        this.running=false;clearTimeout(this._timer);
+        this.running=false;this._motionSensor?.stop();clearTimeout(this._timer);
       }
       this._diagnostics.processingMs=performance.now()-processingStarted;
       return this.getLatest(now);
@@ -401,7 +495,8 @@
         return `${this._result.text}: ${label}${d.identityVerification==='confirming'?' · confirming identity':d.patternVerification==='deferred'?' · pattern check deferred (unclear frame)':''}`;
       }
       let message;
-      if(d.decodedText!==undefined) message=d.targetMatches?'QR decoded · pose rejected':`Decoded ${d.decodedText} · waiting for ${this.target}`;
+      if(d.imageTracking)message='Tracking squares · waiting for reliable 3D pose';
+      else if(d.decodedText!==undefined) message=d.targetMatches?'QR decoded · pose rejected':`Decoded ${d.decodedText} · waiting for ${this.target}`;
       else if(d.centreReason&&!d.finderCount) message='Recovering tracked squares';
       else if(d.geometryFound) message='3 finder outlines found · QR not decoded';
       else if(d.finderCount===3) message='3 finder centres found · outlines rejected';
@@ -416,6 +511,7 @@
       this.centreTracking=!!enabled;
       this._worker?.reset(this.centreTracking);
       this._centreResult=null;this._reliableResult=null;this._reference=null;
+      this._sceneFrame=null;this._sceneClassifier?.reset();this._gyroPoints=null;
       this._lastRecoverySearch=-Infinity;this._nextWorkerFrame=0;
       return this;
     }
@@ -428,6 +524,9 @@
     }
     _displayPose(now) {
       let pose=this._result.pose;
+      if(this.rotationStabilization&&this._stableRotation) {
+        pose={...pose,rotation:this._stableRotation};pose.matrix=matrix(pose);
+      }
       const prediction=this._prediction(now);
       if(prediction) {pose={...pose,position:prediction.position};pose.matrix=matrix(pose);}
       if(!this.renderSmoothingMs) return pose;
@@ -455,7 +554,7 @@
         const detail=statusMessage.replace(/^Holding last pose · /,'');
         statusMessage=`${predicting?'Predicting briefly (Kalman)':'Holding last pose'} · ${detail}`;
       }
-      return {visible,holding,predicting,poseAgeMs:ageMs,predictionUncertainty:prediction?.uncertainty??null,statusMessage,diagnostics:{...this._diagnostics,backend:this._worker?'worker':'main',workerUnavailable:this._workerUnavailable},status:visible?'tracking':this._status==='tracking'?'lost':this._status,
+      return {visible,holding,predicting,poseAgeMs:ageMs,predictionUncertainty:prediction?.uncertainty??null,statusMessage,diagnostics:{...this._diagnostics,motionSensor:this._motionSensor?.status||'unavailable',backend:this._worker?'worker':'main',workerUnavailable:this._workerUnavailable},status:visible?'tracking':this._status==='tracking'?'lost':this._status,
         text:visible?this._result.text:null,pose:visible?this._displayPose(now):null,
         corners:visible?this._result.corners:null,
         finderCentres:visible&&!holding?this._result.finderCentres:null,

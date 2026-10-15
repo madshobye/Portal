@@ -79,8 +79,8 @@ test('bundled detector cannot open the camera or change the legacy ZXing global'
 });
 
 for(const centres of [false,true]) test(`complete example boots with square centres ${centres}`,async()=>{
-  const text='https://192.168.3.80:8082/P1/sketches/qr-anchor/';
-  const f=fixture({text,version:4}),h=moduleHarness(f),loads=[],events={};
+  const text='qr7';
+  const f=fixture({text}),h=moduleHarness(f),loads=[],events={};
   let captures=0,boxes=0,markers=0,wireframes=0,removed=false,debug=true,rings=0,vertices=0,masks=0;
   const layer={width:640,height:480,clear(){},push(){},pop(){},resetMatrix(){},_renderer:{camera(){},frustum(){}},
     scale(){},applyMatrix(){},translate(){},fill(){},noFill(){wireframes++;},stroke(){},strokeWeight(){},
@@ -91,7 +91,7 @@ for(const centres of [false,true]) test(`complete example boots with square cent
   Object.assign(h.c,{windowWidth:640,windowHeight:480,WEBGL:'webgl',TRIANGLES:'triangles',LINES:'lines',POINTS:'points',
     uiIsDebugOverlayVisible:()=>debug,
     async loadScript(url){loads.push(url);},
-    async setupWebcamera(front,w,hh,flipped){captures++;assert.equal(front,false);assert.equal(w,1280);assert.equal(hh,720);assert.equal(flipped,false);return {elt:h.video};},
+    async setupWebcamera(front,w,hh,flipped){captures++;assert.equal(front,false);assert.equal(w,1920);assert.equal(hh,1080);assert.equal(flipped,false);return {elt:h.video};},
     createCanvas(w,hh){h.c.width=w;h.c.height=hh;},resizeCanvas(){},background(){},
     createGraphics(w,hh,mode){assert.equal(mode,'webgl');return layer;},
     image(g){assert.equal(g,layer);},addEventListener(name,fn){events[name]=fn;},
@@ -789,4 +789,67 @@ for(const spin of [0,.6,2.5]) test(`soft-edge tolerance still rejects a smaller 
   }
   h.setTime(40);h.video.currentTime=.04;a.update();
   assert.equal(a._lastSeen,0,'a small solid data block must not impersonate a finder');
+});
+
+test('rejected 3D fits retain measured squares briefly without publishing invalid poses',async()=>{
+  const config={text:'qr7',angles:[.25,-.3,.1]},f=fixture(config),h=moduleHarness(f);
+  const a=await new h.c.QrAnchor({video:h.video,target:'qr7',smoothing:1,intrinsics:{...f.intrinsics,width:f.width,height:f.height}}).init();
+  a.update();const accepted=a._result,reference=a._reference;
+  let rejectPose=true;
+  a._core={...core,trackCentres(...args){const r=core.trackCentres(...args);if(r&&rejectPose)r.poseNeedsRefinement=true;return r;},
+    refineTrackedGeometry(...args){return rejectPose?null:core.refineTrackedGeometry(...args);}};
+  for(let i=1;i<=4;i++) {
+    const next=fixture({...config,position:[i*.05,0,3]});f.data=next.data;
+    h.setTime(i*34);h.video.currentTime=i*.034;if(i===4)rejectPose=false;a.update();
+    assert.equal(a._centreResult.time,i*34,'next flow starts from the new measured pixels');
+    if(i<4){assert.equal(a._lastSeen,0);assert.strictEqual(a._result,accepted);assert.equal(a.getLatest().diagnostics.imageTracking,true);assert.equal(a.getLatest().holding,true);}
+    else {assert.equal(a._lastSeen,i*34);assert.equal(a._lastDecoded,0);assert.strictEqual(a._reference,reference);}
+    const dim=next.qr.size,H=core.homography([[0,0],[dim,0],[dim,dim],[0,dim]],next.corners);
+    const centres=[[3.5,3.5],[dim-3.5,3.5],[3.5,dim-3.5]].map(p=>core.transform(H,p));
+    a._centreResult.finderCentres.forEach((p,j)=>assert.ok(Math.hypot(...p.map((v,k)=>v-centres[j][k]))<3));
+  }
+});
+
+test('2D continuation expires from the last valid pose, never from its own measurements',async()=>{
+  const f=fixture({text:'qr7'}),h=moduleHarness(f);
+  const a=await new h.c.QrAnchor({video:h.video,target:'qr7',recoveryMs:150,lostAfterMs:250}).init();a.update();
+  let searches=0;
+  a._core={...core,trackCentres(...args){const r=core.trackCentres(...args);if(r)r.poseNeedsRefinement=true;return r;},refineTrackedGeometry(){return null;}};
+  a._search=()=>{searches++;return null;};
+  for(let t=40;t<=320;t+=40){h.setTime(t);h.video.currentTime=t/1000;a.update();assert.equal(a._lastSeen,0);if(t>150)assert.notEqual(a._centreResult?.time,t);}
+  assert.ok(searches>0);assert.equal(a.getLatest().visible,false);assert.equal(a._centreResult,null);
+});
+
+test('tracked inner edges can correct guessed calibration without relaxing the fit threshold',()=>{
+  const f=fixture({text:'qr7',focal:900,angles:[.8,-.25,.3],position:[.2,-.1,3]});
+  const r=core.detect(f.data,f.width,f.height,{target:'qr7',intrinsics:f.intrinsics,innerFinders:true});assert.ok(r);
+  const k={...f.intrinsics,fx:554,fy:554},options={intrinsics:k,maxReprojectionError:1.5};
+  assert.equal(core.refineTrackedGeometry(f.data,f.width,f.height,r.reference,r.homography,options),null,'explicit calibration cannot be changed');
+  const corrected=core.refineTrackedGeometry(f.data,f.width,f.height,r.reference,r.homography,{...options,focalScaleRange:[.6,2]});
+  assert.ok(corrected);assert.ok(corrected.pose.reprojectionError<=1.5);assert.ok(Math.abs(corrected.intrinsics.fx-900)<70);
+  const expected=core.project(f.pose,[0,0,.4],f.intrinsics),actual=core.project(corrected.pose,[0,0,.4],corrected.intrinsics);
+  assert.ok(Math.hypot(actual[0]-expected[0],actual[1]-expected[1])<8,'pose fits known 3D geometry, not just the QR plane');
+  assert.equal(core.refineTrackedGeometry(f.data,f.width,f.height,r.reference,r.homography,{...options,focalScaleRange:[.95,1.05]}),null,'correction obeys its bounds');
+});
+
+test('a calibration correction does not blend stale depth into the new projection',async()=>{
+  const f=fixture({text:'qr7'}),h=moduleHarness(f),a=await new h.c.QrAnchor({video:h.video,target:'qr7',smoothing:.4,kalmanFilter:true,renderSmoothingMs:60}).init();a.update();a.getLatest();
+  const previous=a._result,k=previous.intrinsics;
+  const pose={...previous.pose,position:previous.pose.position.map(v=>v*1.6)};
+  const intrinsics={...k,fx:k.fx*1.6,fy:k.fy*1.6};
+  h.setTime(40);a._acceptResult({...previous,pose,intrinsics,time:40},true,40);
+  const actual=a.projectPoint(.4,.4,0,{x:0,y:0,width:f.width,height:f.height}),expected=core.project(pose,[.4,.4,0],intrinsics);
+  assert.ok(Math.hypot(actual.x-expected[0],actual.y-expected[1])<.01,'no temporary magnification from old smoothed depth');
+});
+
+test('a drifting provisional warp retries the last accepted image without decoding',async()=>{
+  const f=fixture({text:'qr7'}),h=moduleHarness(f);
+  const a=await new h.c.QrAnchor({video:h.video,target:'qr7'}).init();a.update();let stage=1;
+  a._core={...core,trackCentres(frame,options){
+    if(stage===2&&options.previous.poseNeedsRefinement)return null;
+    const r=core.trackCentres(frame,options);if(r&&stage===1)r.poseNeedsRefinement=true;return r;
+  },refineTrackedGeometry(...args){return stage===1?null:core.refineTrackedGeometry(...args);}};
+  h.setTime(40);h.video.currentTime=.04;a.update();assert.equal(a._lastSeen,0);assert.equal(a._centreResult.time,40);
+  stage=2;h.setTime(80);h.video.currentTime=.08;a.update();
+  assert.equal(a._lastSeen,80);assert.equal(a._lastDecoded,0);assert.equal(a.getLatest().diagnostics.stablePoseRecovery,true);
 });

@@ -1,5 +1,5 @@
-// Point the camera at a QR containing this exact URL (including the final slash).
-const markerText = 'https://192.168.3.80:8082/P1/sketches/qr-anchor/';
+// Point the camera at the original QR containing the text qr7.
+const markerText = 'qr7';
 let camera;
 let anchor;
 let cubeLayer;
@@ -21,19 +21,21 @@ async function setup() {
     await loadScript('portal/QrAnchor.js');
     // Camera and WebGL rendering stay here; Portal analyzes frames in a worker.
     cubeLayer = createGraphics(width, height, WEBGL);
-    camera = await setupWebcamera(false, 1280, 720, false);
+    camera = await setupWebcamera(false, 1920, 1080, false);
     anchor = await new QrAnchor({
       video: camera,
       target: markerText,
       centreTracking,
+      cameraMotion: new URLSearchParams(location.search).get("motion") !== "0",
       kalmanFilter: kalmanEnabled,
-      // First acquisition must decode the exact URL. Afterwards, track the squares
+      // First acquisition must decode qr7. Afterwards, track the squares
       // and accept a clear-frame dot match of 30% or more every four seconds.
       patternMatchThreshold: 0.30,
       patternIntervalMs: 4000,
       patternConfirmMs: 3000, // Below 30%: confirm before releasing the anchor.
-      smoothing: 0.4,
-      renderSmoothingMs: 60, // Smooth between camera updates; adds a little lag.
+      rotationStabilization: new URLSearchParams(location.search).get('rotation') !== '0',
+      smoothing: 1, // Kalman handles position; avoid a second observation delay.
+      renderSmoothingMs: 20, // Brief interpolation between camera frames.
       markerSize: 1,
       horizontalFov: 60,
     }).init();
@@ -174,6 +176,12 @@ function createTrackingOverlay() {
     anchor?.setKalmanEnabled(kalmanEnabled);
   };
   kalmanLabel.append(kalmanToggle, ' Kalman motion prediction');
+  const motion = document.createElement('div');
+  const motionPermission = document.createElement('button');
+  motionPermission.textContent = 'Enable gyro assistance';
+  motionPermission.hidden = true;
+  motionPermission.style.pointerEvents = 'auto';
+  motionPermission.onclick = () => anchor?.requestMotionPermission();
   const confidence = document.createElement('div');
   confidence.style.marginTop = '8px';
   const meter = document.createElement('meter');
@@ -187,9 +195,9 @@ function createTrackingOverlay() {
   const lastLoss = document.createElement('div');
   lastLoss.textContent = 'Last tracking loss: none';
   lastLoss.style.cssText = 'margin:6px 0;color:#ffd881;';
-  panel.append(heading, label, kalmanLabel, confidence, meter, status, lastLoss, log);
+  panel.append(heading, label, kalmanLabel, motion, motionPermission, confidence, meter, status, lastLoss, log);
   document.body.append(panel);
-  return { panel, confidence, meter, status, lastLoss, log };
+  return { panel, confidence, meter, status, lastLoss, log, motion, motionPermission };
 }
 
 function updateTrackingOverlay(state) {
@@ -200,6 +208,9 @@ function updateTrackingOverlay(state) {
   const confidence = live ? d.confidence || 0 : 0;
   if(performance.now()>=nextStatsUpdate) {
     nextStatsUpdate=performance.now()+250;
+    const scene = d.sceneMotion;
+    overlay.motion.textContent = scene ? `Scene: ${scene.mode} · ${scene.reason} · Gyro: ${d.gyroAssisted ? 'assisting search' : d.motionSensor || 'unavailable'}` : 'Scene motion: off / waiting for QR';
+    overlay.motionPermission.hidden = d.motionSensor !== 'permission-needed';
     let info = `Pattern match: ${match ? Math.round(match.score * 100) + '%' : '—'} · Tracking: ${Math.round(confidence * 100)}%`;
     if (d.patternVerification === 'cached') info += ' · last check';
     if (d.patternVerification === 'suspect') info += ' · confirming identity';

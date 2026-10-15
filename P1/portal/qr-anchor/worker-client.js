@@ -42,7 +42,7 @@
       this.onError=onError;this.busy=false;this.generation=0;this.disposed=false;
       this.canvas=null;this.context=null;this.bitmapSupported=true;
     }
-    send(video,now) {
+    send(video,now,motion=null) {
       if(this.busy||this.disposed)return false;
       this.busy=true;
       const generation=this.generation,time=video.currentTime,width=video.videoWidth,height=video.videoHeight;
@@ -50,7 +50,7 @@
       // or queued request is allowed while either capture or analysis is pending.
       this.capture(video,width,height).then(frame=>{
         if(this.disposed||generation!==this.generation){frame.bitmap?.close();this.busy=false;return;}
-        try {this.worker.postMessage({type:'frame',generation,now,time,width,height,...frame},frame.bitmap?[frame.bitmap]:[frame.rgba.buffer]);}
+        try {this.worker.postMessage({type:'frame',generation,now,time,width,height,motion,...frame},frame.bitmap?[frame.bitmap]:[frame.rgba.buffer]);}
         catch(error){frame.bitmap?.close();throw error;}
       }).catch(error=>{this.busy=false;if(!this.disposed&&generation===this.generation)this.fail(error);});
       return true;

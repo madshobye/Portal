@@ -3,20 +3,23 @@
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {spawn,spawnSync}=require('node:child_process');
 const {createHash}=require('node:crypto');
-const {pathToFileURL}=require('node:url');
 const {performance}=require('node:perf_hooks');
 const {moduleHarness,root}=require('../../P1/tests/helpers/qr-anchor.cjs');
 const args=process.argv.slice(2),video=args.shift(),options={width:1280,target:'qr7',output:path.join(os.tmpdir(),'portal-qr-replay')};
-for(let i=0;i<args.length;i+=2){if(!['--width','--target','--output','--baseline'].includes(args[i])||!args[i+1])throw Error('Unknown or missing option: '+args[i]);options[args[i].slice(2)]=args[i+1];}
+for(let i=0;i<args.length;i+=2){if(!['--width','--target','--output','--baseline','--motion','--profile'].includes(args[i])||!args[i+1])throw Error('Unknown or missing option: '+args[i]);options[args[i].slice(2)]=args[i+1];}
+// Legacy width behaviour remains available for existing baseline comparisons.
+if(options.profile!==undefined) {
+ if(options.profile!=='app')throw Error('--profile must be app');
+ if(args.includes('--width'))throw Error('--profile app sets a 1920-pixel long edge; omit --width');
+ options.width=1920;
+ if(!args.includes('--target'))options.target='https://192.168.3.80:8082/P1/sketches/qr-anchor/';
+ if(!args.includes('--motion'))options.motion='on';
+}
 const hashFile=async file=>{const h=createHash('sha256');for await(const chunk of fs.createReadStream(file))h.update(chunk);return h.digest('hex');};
 const percentile=(values,f)=>values.slice().sort((a,b)=>a-b)[Math.min(values.length-1,Math.floor(values.length*f))]||0;
-const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function reportHtml(report) {
- const packed=JSON.stringify(report).replace(/</g,'\\u003c');
- return `<!doctype html><meta charset="utf-8"><title>QR recording replay</title><style>body{font:16px system-ui;margin:24px auto;max-width:1100px;padding:0 16px;background:#15181d;color:#eee}a{color:#83d7ff}.preview{position:relative}video{width:100%;display:block}canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}pre{white-space:pre-wrap;font-size:13px}button{padding:8px;margin:4px}#timeline{display:flex;height:22px;margin:16px 0}#timeline i{flex:1}table{border-collapse:collapse}td,th{padding:7px;text-align:left;border-bottom:1px solid #555}</style><h1>QR recording replay</h1><p>Fixed video frames and timestamps. Green: measured. Amber: held/predicted. Red: searching. This measures analysis cost, not browser FPS. Detection coverage is not an accuracy score.</p><div class="preview"><video id="video" controls src="${escape(pathToFileURL(report.video.path).href)}"></video><canvas id="canvas"></canvas></div><div id="timeline"></div><p id="status"></p><h2>Results</h2><pre>${escape(JSON.stringify(report.summary,null,2))}</pre><h2>Dropouts after initial acquisition</h2><div id="drops"></div><script>const report=${packed};const video=document.getElementById('video'),canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');canvas.width=report.video.width;canvas.height=report.video.height;const timeline=document.getElementById('timeline');for(const f of report.frames){const item=document.createElement('i');item.style.background=f.measured?'#4c8':f.visible?'#eaa52c':'#ed5363';item.title=f.time.toFixed(3)+'s '+f.reason;item.onclick=()=>video.currentTime=f.time;timeline.append(item);}for(const d of report.dropouts){const b=document.createElement('button');b.textContent=d.start.toFixed(2)+'–'+d.end.toFixed(2)+'s ('+Math.round(d.duration*1000)+' ms)';b.onclick=()=>video.currentTime=Math.max(0,d.start-.2);document.getElementById('drops').append(b);}function draw(){const t=video.currentTime;let f=report.frames[0];for(const item of report.frames){if(item.time>t+.001)break;f=item;}ctx.clearRect(0,0,canvas.width,canvas.height);if(f.measured&&f.points){for(let i=0;i<3;i++){const p=f.points[i];ctx.strokeStyle=['#ff4d64','#32de8a','#51cfff'][i];ctx.lineWidth=2;ctx.beginPath();ctx.arc(p[0],p[1],8,0,7);ctx.moveTo(p[0]-14,p[1]);ctx.lineTo(p[0]+14,p[1]);ctx.moveTo(p[0],p[1]-14);ctx.lineTo(p[0],p[1]+14);ctx.stroke();}ctx.strokeStyle='white';ctx.beginPath();f.corners.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.stroke();}document.getElementById('status').textContent=f.time.toFixed(3)+'s · '+f.phase+' · '+f.mode+' · '+f.processingMs.toFixed(1)+' ms · '+f.reason;requestAnimationFrame(draw);}draw();</script>`;
-}
+const {reportHtml}=require('./report.cjs');
 async function main() {
- if(!video)throw Error('Usage: node scripts/qr-anchor/replay.cjs recording.mov [--output directory] [--width 1280] [--target qr7] [--baseline report.json]');
+ if(!video)throw Error('Usage: node scripts/qr-anchor/replay.cjs recording.mov [--output directory] [--width 1280] [--target qr7] [--baseline report.json] [--profile app]');
  if(process.platform!=='darwin')throw Error('This local video decoder requires macOS AVFoundation and Swift.');
  const input=path.resolve(video),out=path.resolve(options.output);fs.mkdirSync(out,{recursive:true});
  const swift=path.join(__dirname,'video-frames.swift'),cache=path.join(os.tmpdir(),'portal-qr-video-decoder');fs.mkdirSync(cache,{recursive:true});
@@ -28,7 +31,8 @@ async function main() {
  const inputHash=await hashFile(input),codeHash=createHash('sha256');
  for(const name of ['portal/QrAnchor.js','portal/qr-anchor/core.js'])codeHash.update(fs.readFileSync(path.join(root,name)));
  const config={target:options.target,maxWidth:640,fps:30,worker:false,centreTracking:true,kalmanFilter:true,smoothing:.4,renderSmoothingMs:60};
- const child=spawn(binary,[input,String(Number(options.width))],{stdio:['ignore','pipe','pipe']});
+ if(options.motion!==undefined){if(!['on','off'].includes(options.motion))throw Error('--motion must be on or off');config.cameraMotion=options.motion==='on';}
+ const child=spawn(binary,[input,String(Number(options.width)),options.profile==='app'?'long-edge':'width'],{stdio:['ignore','pipe','pipe']});
  let stderr='',buffer=Buffer.alloc(0),meta,h,anchor,frame,fixedSize,firstSeen=null,activeDrop=null,previousState='',count=0;
  const completion=new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',code=>code===0?resolve():reject(Error(stderr||'Video decode failed')));});
  completion.catch(()=>{});child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(-4000);});
@@ -49,6 +53,8 @@ async function main() {
          reason:measured?'':d.centreReason||d.trackingReason||latest.statusMessage,decoded:measured&&!!anchor._result.decoded,
          points:measured?latest.finderCentres:null,corners:measured?latest.corners:null,
          search:!!d.searchAttempted,crop:[d.cropWidth||0,d.cropHeight||0],localSearches:d.centreLocalSearches||0,checks:d.centreChecks||null};
+       if(config.cameraMotion)row.sceneMotion=d.sceneMotion||null;
+       row.poseFit={focalScale:anchor._focalScale,error:d.centrePoseError??null,refine:d.refineReason??null,flowPerspective:d.flowPerspective??null,centres:d.centresFound??null};
        frames.push(row);
        const state=measured?row.mode:row.phase;
        if(state!==previousState){events.push({time,state,reason:row.reason});previousState=state;}
@@ -69,9 +75,10 @@ async function main() {
  const summary={frames:frames.length,measuredFrames:measured,measurementCoverage:measured/frames.length,firstAcquisitionSeconds:firstSeen,
    decodedFrames:frames.filter(f=>f.decoded).length,dropouts:dropouts.length,longestDropoutMs:Math.max(0,...dropouts.map(d=>d.duration*1000)),
    analysisMedianMs:percentile(times,.5),analysisP95Ms:percentile(times,.95),analysisMaxMs:Math.max(...times)};
+ if(config.cameraMotion)summary.sceneModes=frames.reduce((counts,f)=>{const mode=f.sceneMotion?.mode||'unavailable';counts[mode]=(counts[mode]||0)+1;return counts;},{});
  const report={schema:1,created:new Date().toISOString(),video:{...meta,path:input,sha256:inputHash},codeSha256:codeHash.digest('hex'),config,summary,dropouts,events,frames};
  if(options.baseline){const old=JSON.parse(fs.readFileSync(options.baseline,'utf8'));
-   if(old.video.sha256!==inputHash||old.video.width!==meta.width||JSON.stringify(old.config)!==JSON.stringify(config))throw Error('Baseline input/config differs; results are not comparable');
+   if(old.video.sha256!==inputHash||old.video.width!==meta.width||old.video.height!==meta.height||JSON.stringify(old.config)!==JSON.stringify(config))throw Error('Baseline input/config differs; results are not comparable');
    report.comparison={measuredFramesDelta:measured-old.summary.measuredFrames,dropoutsDelta:summary.dropouts-old.summary.dropouts,longestDropoutMsDelta:summary.longestDropoutMs-old.summary.longestDropoutMs,analysisP95MsDelta:summary.analysisP95Ms-old.summary.analysisP95Ms};
    report.regression=report.comparison.measuredFramesDelta< -2||report.comparison.longestDropoutMsDelta>100;
  }

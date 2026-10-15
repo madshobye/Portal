@@ -2,8 +2,8 @@
 
 QrAnchor is a single-marker prototype using a supplied Portal camera. It does not
 open or stop cameras and does not change QrReader or its ZXing global. The example
-tracks the exact URL `https://192.168.3.80:8082/P1/sketches/qr-anchor/` (including
-the trailing slash). The recorded regression fixtures still target `qr7`.
+tracks the original `qr7` marker. Recorded regression fixtures retain their
+original targets (`qr7` or the URL marker used in the mobile recordings).
 With Portal's debug overlay on, it shows the tracking console, a
 WebGL wireframe and the three measured black centres. With debug off, it renders
 a floating crystal, rings, satellites and particle trails spanning about fifteen
@@ -51,6 +51,10 @@ outer black rings:
 5. Fit the inner islands' edges every 200 ms, or immediately when the approximate
    pose fails its reprojection check. This happens before rejecting the measurement.
    No outer-ring scan or decode is required. A pose that still fails is not published.
+   The measured squares can still seed the next frame for up to `recoveryMs` from
+   the last **valid pose**. The ROI follows these measurements; the display keeps
+   its old pose and expiry time. If the provisional warp drifts, one retry uses
+   the last accepted geometry. Neither path decodes the payload.
 
 Three centres alone constrain an affine update. Validated optical flow supplies
 perspective changes between edge fits; when it is insufficient, the prior
@@ -115,17 +119,31 @@ neither setting; the default and example use tracking-first behaviour.
   coordinates are modules 2–5 of each finder, not the outer 0–7 outline.
 - `horizontalFov: 60` is an approximation. Explicit `{fx,fy,cx,cy,width,height}`
   intrinsics improve pose scale. Uncalibrated acquisition can make a bounded focal
-  correction. Lens distortion is not modeled.
+  correction. Tracked inner-square edges can make the same bounded correction
+  once tilt makes focal length observable: planar and rigid reprojection checks
+  still apply, and the fit must improve by at least 25%. Explicit calibration is
+  never changed. Display smoothing/Kalman history resets on a calibration change
+  to avoid mixing old depth with a new projection. Lens distortion is not modeled.
 - `maxWidth: 640` caps the long edge of ordinary processing crops. Native camera
-  detail is retained when the crop is smaller; the example requests 1280×720.
+  detail is retained when the crop is smaller; the example requests 1920×1080 (the camera may negotiate a lower resolution).
 - `kalmanFilter: false` in the module, true in the example. Its constant-velocity
   position filter predicts for at most `predictionMs: 150`, shortened by uncertainty
   and displacement bounds. Rotation is smoothed, not predicted.
 - `lostAfterMs: 650` is total display grace from the last actual observation;
   prediction is included in it. Display reads cannot extend it.
 - `smoothing: 0.55` blends accepted observations. `renderSmoothingMs: 0` optionally
-  eases display corrections; the example uses 0.4 and 60 ms. Neither modifies pixels,
+  eases display corrections; the example uses 1 and 20 ms to reduce trailing. Neither modifies pixels,
   measured points or optical-flow history.
+- `rotationStabilization: false` is opt-in, enabled in the example (append
+  `?rotation=0` to compare). It filters orientation on the display thread using
+  quaternion interpolation. Rotation changes with little projected evidence on
+  the QR plane receive stronger damping (250 ms); clear changes respond faster
+  (down to 20 ms). The pixel noise allowance follows the analysis crop scale.
+  Translation remains independent, handled by Kalman when enabled. History resets
+  on reacquisition, calibration changes and long gaps. This reduces ambiguous
+  near-frontal tilt jitter; it does not recover missing depth information or turn
+  guessed camera intrinsics into a calibrated camera. Very tall models amplify
+  residual angular error. Raw finder measurements and tracking thresholds are unchanged.
 
 `drawCamera()` and `drawCubeWebGL({target: layer, size: 1, wireframe: true})` use
 matching camera intrinsics and cover cropping. Use a transparent p5 WEBGL graphics
@@ -147,7 +165,8 @@ entries, retains the last loss reason, and updates statistics four times per sec
 Diagnostics include `backend`, `processingMs`, `phase` (search/track/recover),
 `searchAttempted`, `cropWidth`, `cropHeight`, `centreLocalSearches`,
 `centreFlowPoints`, `flowPerspective`, `centresFound`, `centreReason`, `centreChecks`, `patternVerification`,
-`identityVerification`, `patternMatch` and `confidence`. Cached pattern scores
+`identityVerification`, `patternMatch`, `confidence`, `centrePoseError`,
+`refineReason`, `imageTracking` and `stablePoseRecovery`. Cached pattern scores
 are labelled as the last check. Finder counts during acquisition are candidates,
 not verified IDs. Confidence is a heuristic, not a probability. `centreChecks` describes the first
 predicted patch for each finder (contrast, dark core/area, white sides); a later
@@ -182,3 +201,38 @@ validation. This remains a marker-following prototype, not an occlusion-tolerant
 SLAM system.
 
 For a consistent real-camera regression test, use the [recording replay](../../../scripts/qr-anchor/README.md). It generates per-frame results and a video overlay without controlling a browser.
+
+## Experimental scene motion and gyro assistance
+
+`cameraMotion: true` enables a separate scene-flow check; the default is `false`.
+The example enables it; append `?motion=0` to compare without it. It samples up to
+35 background patches distributed over the image and 25 patches inside the QR
+region, at most ten times per second on a 320-pixel image. QR corners only supply
+the region mask: their movement and the estimated pose are not motion evidence.
+Forward/backward optical flow and robust affine fits reject inconsistent patches.
+At least eight inliers in each group, 70% support, and background coverage across
+three image quadrants are required. Camera motion requires 600 ms of agreement.
+Insufficient texture, disagreement, tracking loss, or long frame gaps disable it.
+
+`diagnostics.sceneMotion` reports `uncertain`, `still`, `marker-moving`, or
+`camera-moving`, with a reason and heuristic confidence. These are inferences:
+parallax, a moving background, and a QR occupying most of the view can make the
+motion ambiguous. This is not a proof that a marker is stationary in the world.
+The extra processing runs in the existing worker when available, with the same
+one-frame-in-flight limit. Only the previous small image is retained.
+
+On a rear phone camera, fresh gyroscope samples must also agree with observed
+background flow before they expand the next search ROI. They never supply an
+accepted pose, override image checks, or extend anchor lifetime. Screen rotation,
+sensor gaps and stop/reset invalidate old evidence. `QrReader` is unaffected.
+For browsers requiring permission, call `anchor.requestMotionPermission()` directly
+from a tap. The example provides **Enable gyro assistance** in its debug panel.
+Denial or missing sensors leaves visual tracking working. Sensor/frame timing is
+approximate; this experimental path still needs real-phone validation. Front
+camera gyro alignment is not supported. This is not SLAM and does not integrate
+accelerometer readings into position.
+
+`node --test P1/tests/qr-motion.test.cjs` tests scene consensus, independent pixel
+flow, gyro projection, permission and lifecycle. Recording replay accepts
+`--motion on` and reports scene classifications. Ordinary movies contain no
+browser gyro stream, so replay cannot validate sensor fusion or permission UX.

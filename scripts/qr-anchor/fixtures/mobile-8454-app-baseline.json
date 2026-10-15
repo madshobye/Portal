@@ -1,0 +1,112 @@
+{
+  "schema": 1,
+  "video": {
+    "addedCompression": "none (raw RGBA)",
+    "duration": 12.798333333333334,
+    "encodedHeight": 1080,
+    "encodedWidth": 1920,
+    "fps": 30,
+    "height": 1920,
+    "orientationApplied": true,
+    "resizeMode": "long-edge",
+    "sourceBitrate": 15478618,
+    "sourceCodec": "avc1",
+    "sourceHeight": 1920,
+    "sourceWidth": 1080,
+    "width": 1080,
+    "path": "/Users/madshobye/Downloads/IMG_8454.MOV",
+    "sha256": "81c17b573ce6d38ed71e7e6f9c9185e6494f882f54401fc21cb742383f4ef301"
+  },
+  "codeSha256": "fefe11c04d8c04fd552e74a4be62d8aa85586fcf85a6e77568950de2b388c8cf",
+  "config": {
+    "target": "https://192.168.3.80:8082/P1/sketches/qr-anchor/",
+    "maxWidth": 640,
+    "fps": 30,
+    "worker": false,
+    "centreTracking": true,
+    "kalmanFilter": true,
+    "smoothing": 0.4,
+    "renderSmoothingMs": 60,
+    "cameraMotion": true
+  },
+  "summary": {
+    "frames": 384,
+    "measuredFrames": 269,
+    "measurementCoverage": 0.7005208333333334,
+    "firstAcquisitionSeconds": 1.0666666666666667,
+    "decodedFrames": 3,
+    "dropouts": 10,
+    "longestDropoutMs": 1799.9999999999998,
+    "analysisMedianMs": 35.66729099999975,
+    "analysisP95Ms": 103.58995800000048,
+    "analysisMaxMs": 353.56399999999985,
+    "sceneModes": {
+      "uncertain": 316,
+      "camera-moving": 68
+    }
+  },
+  "dropouts": [
+    {
+      "start": 1.7,
+      "reason": "three black squares unclear",
+      "end": 1.7333333333333334,
+      "duration": 0.03333333333333344
+    },
+    {
+      "start": 1.7666666666666666,
+      "reason": "pose fit",
+      "end": 1.8,
+      "duration": 0.03333333333333344
+    },
+    {
+      "start": 4.666666666666667,
+      "reason": "pose fit",
+      "end": 6.466666666666667,
+      "duration": 1.7999999999999998
+    },
+    {
+      "start": 8.533333333333333,
+      "reason": "pose fit",
+      "end": 8.566666666666666,
+      "duration": 0.033333333333333215
+    },
+    {
+      "start": 8.633333333333333,
+      "reason": "pose fit",
+      "end": 9.233333333333333,
+      "duration": 0.5999999999999996
+    },
+    {
+      "start": 10.833333333333334,
+      "reason": "three black squares unclear",
+      "end": 10.9,
+      "duration": 0.06666666666666643
+    },
+    {
+      "start": 10.966666666666667,
+      "reason": "pose fit",
+      "end": 11.033333333333333,
+      "duration": 0.06666666666666643
+    },
+    {
+      "start": 11.366666666666667,
+      "reason": "pose fit",
+      "end": 11.4,
+      "duration": 0.033333333333333215
+    },
+    {
+      "start": 12.233333333333333,
+      "reason": "pose fit",
+      "end": 12.266666666666667,
+      "duration": 0.03333333333333499
+    },
+    {
+      "start": 12.333333333333334,
+      "reason": "pose fit",
+      "end": 12.4,
+      "duration": 0.06666666666666643
+    }
+  ],
+  "repeatVerified": true,
+  "note": "Two app-profile replays matched every frame observation and scene classification; processing times excluded. Source video remains outside Git. Recording compression remains present; no additional compression is applied."
+}

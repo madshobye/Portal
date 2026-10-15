@@ -12,6 +12,8 @@ export { homography, transform, estimatePose, project } from './geometry.js';
 export { prepareTrackingFrame, seedTracking, track, patternMatch, verifyPattern } from './tracking.js';
 export { seedCentres, trackCentres } from './centre-tracking.js';
 export { PositionKalman } from './kalman.js';
+export { RotationFilter } from './rotation-filter.js';
+export { SceneMotion, sceneFeatures, sceneFlow, gyroDelta, gyroProject } from './camera-motion.js';
 const decoder = new Decoder();
 const hints = new Map([[DecodeHintType.TRY_HARDER, true]]);
 function sample(image,h,dimension) {
@@ -42,7 +44,7 @@ export function decodeTracked(rgba,width,height,h,reference) {
 }
 // Optional local outline refinement restores perspective while centre tracking
 // continues. The known QR dimension/orientation are retained; no payload decode.
-export function refineTrackedGeometry(rgba,width,height,reference,priorH,{intrinsics,markerSize=1,maxReprojectionError=3}={}) {
+export function refineTrackedGeometry(rgba,width,height,reference,priorH,{intrinsics,markerSize=1,maxReprojectionError=3,diagnostics=null,focalScaleRange=null}={}) {
   try {
     const dim=reference.dimension,centres=[[3.5,3.5],[dim-3.5,3.5],[3.5,dim-3.5]],expected=centres.map(p=>transform(priorH,p));
     // The tracked centres already tell us which islands to inspect. Flood only
@@ -56,10 +58,11 @@ export function refineTrackedGeometry(rgba,width,height,reference,priorH,{intrin
     const {src,dst}=correspondences(quads,dim,true),h=homography(src,dst);
     const error=Math.max(...centres.map((p,i)=>Math.hypot(...transform(h,p).map((v,j)=>v-expected[i][j]))));
     const span=Math.hypot(...expected[0].map((v,j)=>v-expected[1][j]));
-    if(error>Math.max(2,span*.08))return null;
-    const solution=resolvePose(src,dst,intrinsics,markerSize,dim,{maxReprojectionError});
+    if(error>Math.max(2,span*.08)){if(diagnostics)diagnostics.refineReason='centre disagreement';return null;}
+    const solution=resolvePose(src,dst,intrinsics,markerSize,dim,{maxReprojectionError,focalScaleRange});
+    if(diagnostics)diagnostics.refineReason=solution?'accepted':'rigid fit';
     if(solution)return {...solution,homography:h,measurements:{src,dst},corners:[[0,0],[dim,0],[dim,dim],[0,dim]].map(p=>transform(h,p))};
-  } catch(error) {if(!expectedFailure(error))throw error;}
+  } catch(error) {if(!expectedFailure(error))throw error;if(diagnostics)diagnostics.refineReason=error.message;}
   return null;
 }
 // Cheap acquisition pass: find pattern centres only, without outlines, decoding or pose.

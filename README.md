@@ -2270,7 +2270,11 @@ Search is throttled. The older corner tracker remains an explicit comparison via
 
 The full example adds display smoothing, optional Kalman motion prediction,
 numbered measured centres, a bounded state-change log, and the last loss reason.
-Predictions never become image measurements or extend QR identity. SLAM and
+Predictions never become image measurements or extend QR identity. The example
+also enables experimental `cameraMotion: true`: distributed background and QR-area
+optical flow estimate whether movement agrees. On a rear phone camera, agreeing
+gyro samples can expand the search ROI; enable permission from the debug panel.
+Use `?motion=0` for comparison. This option defaults off in the module. SLAM and
 accelerometer anchoring are not implemented.
 
 `getLatest()` returns the latest observation with `visible`, `pose`, native-video

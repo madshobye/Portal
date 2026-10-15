@@ -24,13 +24,15 @@ self.onmessage=async ({data})=>{
         source.source=rgbaCanvas;
       }
       source.videoWidth=data.width;source.videoHeight=data.height;source.currentTime=data.time;
+      anchor._frameMotion=data.motion||null;
       anchor.update(data.now);
       if(anchor.error)throw anchor.error;
       const observed=anchor._lastSeen===data.now,r=observed?anchor._result:null;
       // Never clone image pyramids, previous frames or mutable tracking state.
       const result=r?{text:r.text,dimension:r.dimension,pose:r.pose,corners:r.corners,finderCentres:r.finderCentres,
         intrinsics:r.intrinsics,frameWidth:r.frameWidth,frameHeight:r.frameHeight,confidence:r.confidence,
-        decoded:r.decoded,identityVerified:r.identityVerified,time:r.time}:null;
+        decoded:r.decoded,identityVerified:r.identityVerified,time:r.time,
+        analysisScale:Math.min(r.crop.sx,r.crop.sy)}:null;
       const nextScanAt=Math.max(data.now+1000/anchor.fps-1,anchor.centreTracking&&!anchor._reference?anchor._lastRecoverySearch+120:0);
       self.postMessage({type:'frame',generation:data.generation,now:data.now,nextScanAt,observed,result,
         released:!anchor._result,status:anchor._status,diagnostics:{...anchor._diagnostics,processingMs:performance.now()-started}});

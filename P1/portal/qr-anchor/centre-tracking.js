@@ -234,6 +234,7 @@ export function trackCentres(frame,{previous,mapping,reference,intrinsics,marker
     // Request immediate island-edge refinement if its pose is not accurate enough.
     const pose=estimatePose(src,corners,intrinsics,markerSize,dim);
     if(!Number.isFinite(pose.position[2])||pose.position[2]<=0)return reject('pose fit');
+    if(diagnostics)diagnostics.centrePoseError=pose.reprojectionError;
     const poseNeedsRefinement=pose.reprojectionError>maxReprojectionError;
     if(diagnostics){diagnostics.centreFlowPoints=flowCount;diagnostics.centreReason=null;}
     return {text:reference.text,dimension:dim,reference,decoded:false,centreTracked:true,pose,corners,homography:current,

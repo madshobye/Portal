@@ -5,15 +5,19 @@ import AVFoundation
 import Accelerate
 
 func run() throws {
-    guard CommandLine.arguments.count == 3, let limit = Int(CommandLine.arguments[2]), limit >= 64 else {
-        throw NSError(domain: "QRReplay", code: 1, userInfo: [NSLocalizedDescriptionKey: "Usage: video-frames recording.mov maxWidth"])
+    guard (3...4).contains(CommandLine.arguments.count), let limit = Int(CommandLine.arguments[2]), limit >= 64 else {
+        throw NSError(domain: "QRReplay", code: 1, userInfo: [NSLocalizedDescriptionKey: "Usage: video-frames recording.mov limit [width|long-edge]"])
     }
+    let resizeMode = CommandLine.arguments.count == 4 ? CommandLine.arguments[3] : "width"
+    guard ["width", "long-edge"].contains(resizeMode) else { throw NSError(domain: "QRReplay", code: 3) }
     let asset = AVURLAsset(url: URL(fileURLWithPath: CommandLine.arguments[1]))
     guard let track = asset.tracks(withMediaType: .video).first else { throw NSError(domain: "QRReplay", code: 2) }
     let transform = track.preferredTransform
     let bounds = CGRect(origin: .zero, size: track.naturalSize).applying(transform).standardized
     let source = bounds.size
-    let width = min(limit, Int(source.width)), height = Int((Double(width) * source.height / source.width).rounded())
+    let scale = min(1, Double(limit) / Double(resizeMode == "long-edge" ? max(source.width, source.height) : source.width))
+    let width = max(1, Int((Double(source.width) * scale).rounded()))
+    let height = max(1, Int((Double(width) * source.height / source.width).rounded()))
     let reader = try AVAssetReader(asset: asset)
     let settings: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
     let output: AVAssetReaderOutput
@@ -40,6 +44,13 @@ func run() throws {
     reader.add(output)
     guard reader.startReading() else { throw reader.error! }
     var metadata: [String: Any] = ["width":width,"height":height,"sourceWidth":Int(source.width),"sourceHeight":Int(source.height),"duration":asset.duration.seconds,"fps":Double(track.nominalFrameRate)]
+    metadata["resizeMode"] = resizeMode
+    metadata["addedCompression"] = "none (raw RGBA)"
+    metadata["sourceBitrate"] = Double(track.estimatedDataRate)
+    if let format = track.formatDescriptions.first {
+        let code = CMFormatDescriptionGetMediaSubType(format as! CMFormatDescription)
+        metadata["sourceCodec"] = String(bytes: [24,16,8,0].map { UInt8((code >> $0) & 255) }, encoding: .ascii) ?? String(code)
+    }
     if !transform.isIdentity {
         metadata["orientationApplied"] = true
         metadata["encodedWidth"] = Int(track.naturalSize.width)

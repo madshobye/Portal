@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "video": {
+    "addedCompression": "none (raw RGBA)",
+    "duration": 12.798333333333334,
+    "encodedHeight": 1080,
+    "encodedWidth": 1920,
+    "fps": 30,
+    "height": 1920,
+    "orientationApplied": true,
+    "resizeMode": "long-edge",
+    "sourceBitrate": 15478618,
+    "sourceCodec": "avc1",
+    "sourceHeight": 1920,
+    "sourceWidth": 1080,
+    "width": 1080,
+    "path": "/Users/madshobye/Downloads/IMG_8454.MOV",
+    "sha256": "81c17b573ce6d38ed71e7e6f9c9185e6494f882f54401fc21cb742383f4ef301"
+  },
+  "codeSha256": "052e291182052be260c7bc6c243a6b848a346efdc81c3f73f9e12a291e1f80df",
+  "config": {
+    "target": "https://192.168.3.80:8082/P1/sketches/qr-anchor/",
+    "maxWidth": 640,
+    "fps": 30,
+    "worker": false,
+    "centreTracking": true,
+    "kalmanFilter": true,
+    "smoothing": 0.4,
+    "renderSmoothingMs": 60,
+    "cameraMotion": true
+  },
+  "summary": {
+    "frames": 384,
+    "measuredFrames": 307,
+    "measurementCoverage": 0.7994791666666666,
+    "firstAcquisitionSeconds": 1.0666666666666667,
+    "decodedFrames": 2,
+    "dropouts": 7,
+    "longestDropoutMs": 1133.3333333333337,
+    "analysisMedianMs": 36.451584000002185,
+    "analysisP95Ms": 141.76541599999996,
+    "analysisMaxMs": 398.4209159999999,
+    "sceneModes": {
+      "uncertain": 282,
+      "camera-moving": 102
+    }
+  },
+  "dropouts": [
+    {
+      "start": 1.7,
+      "reason": "three black squares unclear",
+      "end": 1.7333333333333334,
+      "duration": 0.03333333333333344
+    },
+    {
+      "start": 1.7666666666666666,
+      "reason": "pose fit",
+      "end": 1.8,
+      "duration": 0.03333333333333344
+    },
+    {
+      "start": 4.666666666666667,
+      "reason": "pose fit",
+      "end": 4.866666666666666,
+      "duration": 0.1999999999999993
+    },
+    {
+      "start": 5.166666666666667,
+      "reason": "pose fit",
+      "end": 5.2,
+      "duration": 0.033333333333333215
+    },
+    {
+      "start": 5.266666666666667,
+      "reason": "pose fit",
+      "end": 6.4,
+      "duration": 1.1333333333333337
+    },
+    {
+      "start": 10.833333333333334,
+      "reason": "three black squares unclear",
+      "end": 10.866666666666667,
+      "duration": 0.033333333333333215
+    },
+    {
+      "start": 12.233333333333333,
+      "reason": "pose fit",
+      "end": 12.266666666666667,
+      "duration": 0.03333333333333499
+    }
+  ],
+  "note": "Pose continuity and bounded calibration refinement. The 8.6–9.2s visible-marker gap is resolved; the longest remaining gap includes the QR leaving view. Full recording and report stay outside Git. CPU timing is from concurrent regression runs, not a performance baseline."
+}

@@ -14,13 +14,19 @@ node scripts/qr-anchor/benchmark.cjs
 
 The replay uses the actual QrAnchor analysis engine with recorded presentation
 timestamps. It does not open a browser, acquire a camera, upload the video, or
-change the input. The default input size is 1280×720 for a 16:9 recording, matching
-the camera request in the live example. Every decoded frame is presented to the
+change the input. The legacy default input size remains 1280×720 for a 16:9 recording. Use
+`--profile app` to match the example’s current 1920×1080 request (1080×1920
+for portrait video), URL marker, and enabled scene-motion check. Every decoded frame is presented to the
 normal 30 Hz analysis scheduler. The default target is `qr7`.
 
 On macOS with the Swift command-line tools installed:
 
 ```sh
+# Current app settings, portrait or landscape; no extra video compression:
+node scripts/qr-anchor/replay.cjs ~/Downloads/IMG_8454.MOV \
+  --profile app --output /tmp/portal-qr-replay/mobile-8454-app
+
+# Original fixtures retain their original settings:
 node scripts/qr-anchor/replay.cjs ~/Desktop/qrtracking.mov \
   --output /tmp/portal-qr-replay/baseline
 
@@ -39,7 +45,16 @@ and `orientationApplied` recorded in the report. The source movie is never
 rewritten. Rotated movies use an AVFoundation video composition at the track's
 frame duration; identity-transform movies retain the original decoder path.
 The width limit applies after orientation, so portrait footage can be taller
-than 1280 pixels. Keep these dimensions identical between comparisons.
+than 1280 pixels. The app profile instead caps the **long edge** at 1920, keeping
+the recording’s aspect ratio and never upscaling smaller footage. It cannot
+reproduce a camera’s negotiated crop, exposure or sensor processing exactly.
+Keep these dimensions identical between comparisons.
+
+The app transfers ImageBitmap/raw camera pixels, without JPEG or video encoding.
+Replay likewise adds no compression: it decodes the recording directly to RGBA.
+Existing recording compression cannot be undone. Reports include `sourceCodec`,
+`sourceBitrate`, `resizeMode` and `addedCompression` so this distinction is visible.
+No transcoded movie is generated; the original recording stays outside Git.
 
 The output directory contains:
 
@@ -48,6 +63,17 @@ The output directory contains:
 - `report.html`: original video with measured points and QR outline, a seekable
   timeline, and buttons for every dropout. Open the local HTML file to review it.
   The video stays at its original path; moving it breaks that report's playback.
+
+The viewer uses `requestVideoFrameCallback` media timestamps and paints the video
+and measured geometry into one canvas. It selects the nearest recorded timestamp,
+not the previous observation relative to the advancing playback clock. Previous/
+next-frame buttons allow paused inspection. Unsupported browsers use an explicitly
+labelled approximate clock fallback. The outline is raw measured geometry, not the
+live 3D rotation filter. Update an existing preview without rerunning analysis:
+
+```sh
+node scripts/qr-anchor/report.cjs /tmp/portal-qr-replay/mobile-8454-fixed/report.json
+```
 
 Green timeline segments are actual measurements. Amber segments only hold/predict
 the previous pose, and red segments are searching. Initial acquisition time is
@@ -183,3 +209,20 @@ Videos stay in their original Downloads/Desktop locations and reports in `/tmp`.
 Git ignores common video extensions (case-insensitively) and local replay/report
 folders. The pre-existing tracked demo asset `P1/assets/videoOne.mp4` is retained;
 ignore rules do not untrack existing files.
+
+### Scene-motion experiment
+
+Add `--motion on` to replay the independent background/QR-area optical-flow
+classifier. Results include per-frame `sceneMotion` and summary `sceneModes`.
+Without this option, existing baseline configurations are unchanged. Movies do
+not supply browser gyroscope samples, so this checks visual inference only.
+
+### Visible-marker pose dropout regression (IMG_8454)
+
+The app-profile baseline measured 269/384 frames with 10 dropouts. The pose fix
+measures 307/384 with 7 dropouts; the fully visible 8.6–9.2-second gap is gone.
+The longest remaining gap is 1.133 seconds and includes the QR leaving the frame.
+The replay now records `poseFit` diagnostics (error, outline-refinement reason,
+flow perspective, centre count and focal scale). These distinguish valid 2D
+measurements rejected by the 3D fit from failed square detection. Coverage still
+is not ground-truth accuracy. Source recordings and full reports remain outside Git.

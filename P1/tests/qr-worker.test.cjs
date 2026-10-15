@@ -18,17 +18,18 @@ test('real worker uses the pixel tracker, transfers observations only, and recov
   try {
     const f=fixture({text:'qr7'});
     assert.equal((await exchange(worker,{type:'init',coreUrl:pathToFileURL(path.join(root,'portal/qr-anchor/core.js')).href,
-      moduleUrl:pathToFileURL(path.join(root,'portal/QrAnchor.js')).href,options:{target:'qr7',intrinsics:{...f.intrinsics,width:f.width,height:f.height}}})).type,'ready');
+      moduleUrl:pathToFileURL(path.join(root,'portal/QrAnchor.js')).href,options:{target:'qr7',cameraMotion:true,intrinsics:{...f.intrinsics,width:f.width,height:f.height}}})).type,'ready');
     const frame=async (now,pixels)=>{
       const rgba=new Uint8ClampedArray(pixels);
       const promise=exchange(worker,{type:'frame',generation:1,now,time:now/1000,width:f.width,height:f.height,rgba},[rgba.buffer]);
       assert.equal(rgba.byteLength,0,'frame buffer ownership transfers to the worker');
       return promise;
     };
-    const first=await frame(0,f.data);assert.equal(first.result.text,'qr7');assert.equal(first.result.decoded,true);
+    const first=await frame(0,f.data);assert.equal(first.result.text,'qr7');assert.equal(first.result.decoded,true);assert.equal(first.diagnostics.sceneMotion.mode,'uncertain');
     const next=await frame(40,fixture({text:'qr7',position:[.12,0,3]}).data);
     assert.equal(next.observed,true);assert.equal(next.diagnostics.mode,'centres');
     assert.equal(next.result.tracking,undefined);assert.equal(next.result.centreTracking,undefined);
+    assert.ok(next.result.analysisScale>0&&next.result.analysisScale<=1,'display receives pixel scale without image history');
     assert.ok(JSON.stringify(next).length<5000,'no image pyramid is cloned back');
     const blank=new Uint8ClampedArray(f.data.length);blank.fill(255);
     const lost=await frame(80,blank);assert.equal(lost.observed,false);assert.equal(lost.diagnostics.searchAttempted,undefined);
@@ -57,9 +58,9 @@ test('worker client has no frame queue and closes a capture invalidated by reset
   assert.equal(h.captures.length,1,'busy means no additional capture, not just no postMessage');
   let closed=0;client.reset();h.captures[0].resolve({close(){closed++;}});await new Promise(resolve=>setImmediate(resolve));
   assert.equal(closed,1);assert.equal(client.busy,false);
-  client.send(video,400);h.captures[1].resolve({close(){closed++;}});await new Promise(resolve=>setImmediate(resolve));
+  const motion={q:[0,0,0,1],time:400,epoch:2};client.send(video,400,motion);h.captures[1].resolve({close(){closed++;}});await new Promise(resolve=>setImmediate(resolve));
   const worker=h.workers[0],frame=worker.messages.find(m=>m.type==='frame');
-  assert.ok(frame);client.reset();worker.onmessage({data:{type:'frame',generation:frame.generation}});
+  assert.ok(frame);assert.deepEqual(frame.motion,motion);client.reset();worker.onmessage({data:{type:'frame',generation:frame.generation}});
   assert.equal(results.length,0,'stale worker response cannot revive stopped/switched tracking');
   assert.equal(client.busy,false);client.dispose();assert.equal(worker.terminated,true);assert.equal(errors.length,0);
 });
