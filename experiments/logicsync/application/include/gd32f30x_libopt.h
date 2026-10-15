@@ -1,0 +1,7 @@
+#include "gd32f30x_rcu.h"
+#include "gd32f30x_gpio.h"
+#include "gd32f30x_enet.h"
+#include "gd32f30x_usart.h"
+#include "gd32f30x_dma.h"
+#include "gd32f30x_pmu.h"
+#include "gd32f30x_fmc.h"

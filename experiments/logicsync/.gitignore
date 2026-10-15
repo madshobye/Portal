@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+artifacts/
+
+# Local-only reverse-engineering notes, tools and pre-cleanup history.
+.private/

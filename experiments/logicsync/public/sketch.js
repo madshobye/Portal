@@ -1,0 +1,29 @@
+/* Portal/p5 public facade sketch. Controls use QoS 0, never retained or queued. */
+'use strict';
+const PREFIX='illutron-facade-dmx112-gd32f307-4universe-7c92e6b4a8134f60a9d2';
+const EFFECTS=['Fire','Water Waves','Chase','Rainbow','Pulse','Sparkle','Color Wash','Lightning','Moving Gradient','Solid Color'];
+const $=id=>document.getElementById(id);
+let client,lastState=0,mode='unknown',rgb=[255,100,20],selectedHue=22,selectedSaturation=.92;
+const lastSent=new Map(),pendingSend=new Map();
+function ready(){return !!client?.connected&&Date.now()-lastState<35000;}
+function artist(){return mode==='artist'||mode==='raw'||mode===2||mode===3;}
+function connection(){const live=ready();$('controls').disabled=!live||artist();document.querySelector('.connection').classList.toggle('online',live);$('connection').textContent=live?'Connected to the facade':client?.connected?'Broker connected · waiting for the facade':'Reconnecting to the shared controls…';$('mode').textContent=artist()?'An artist is performing. Public controls will return when the performance ends.':!live?'Waiting for the controller. Your changes are sent only while it is online.':mode==='mqtt'||mode===1?'A custom animation is running. Colour and effect choices apply when it releases control.':'You are sharing the lights with everyone here. The latest touch sets the scene.';}
+function send(suffix,data){
+ const pending=pendingSend.get(suffix);if(pending)clearTimeout(pending.timer);
+ pendingSend.delete(suffix);if(!ready()||artist())return;
+ const wait=Math.max(0,60-(Date.now()-(lastSent.get(suffix)||0)));
+ if(wait){const entry={timer:setTimeout(()=>{pendingSend.delete(suffix);send(suffix,data);},wait)};pendingSend.set(suffix,entry);return;}
+ lastSent.set(suffix,Date.now());
+ client.publish(PREFIX+suffix,JSON.stringify(data),{qos:0,retain:false}).catch(()=>{$('connection').textContent='Could not send. Please try again.';});
+}
+function colourUI(){const hex='#'+rgb.map(v=>v.toString(16).padStart(2,'0')).join('');$('colour').value=hex;$('swatch').querySelector('i').style.background=hex;$('swatch').querySelector('output').textContent=hex.toUpperCase();const max=Math.max(...rgb),min=Math.min(...rgb),d=max-min;selectedSaturation=max?d/max:0;if(d){let h=max===rgb[0]?(rgb[1]-rgb[2])/d:max===rgb[1]?2+(rgb[2]-rgb[0])/d:4+(rgb[0]-rgb[1])/d;selectedHue=(h*60+360)%360;}}
+function updateColour(values){rgb=values;colourUI();send('/set/color',{r:rgb[0],g:rgb[1],b:rgb[2]});}
+EFFECTS.forEach((name,i)=>{const b=document.createElement('button');b.textContent=name;b.type='button';b.setAttribute('aria-pressed','false');b.onclick=()=>send('/set/effect',i);$('effects').append(b);});
+$('colour').oninput=e=>updateColour([1,3,5].map(i=>parseInt(e.target.value.slice(i,i+2),16)));
+for(const field of ['brightness','speed']){$(field).oninput=e=>{const v=+e.target.value;$(field+'-value').textContent=field==='brightness'?Math.round(v*100/255)+'%':(v/100).toFixed(2)+'×';send('/set/'+field,v);};$(field).onchange=e=>{lastSent.delete('/set/'+field);send('/set/'+field,+e.target.value);};}
+function message({topic,message}){let state;try{state=JSON.parse(message);}catch{return;}if(topic===PREFIX+'/status'&&state.online===false){lastState=0;connection();return;}if(topic!==PREFIX+'/state'||!state||typeof state!=='object')return;if(!Number.isInteger(state.effect)||state.effect<0||state.effect>=10||!Array.isArray(state.color)||state.color.length!==3||!state.color.every(v=>Number.isInteger(v)&&v>=0&&v<=255))return;
+lastState=Date.now();mode=state.mode;rgb=state.color;colourUI();[...$('effects').children].forEach((b,i)=>b.setAttribute('aria-pressed',String(i===state.effect)));
+for(const field of ['brightness','speed']){const v=state[field];if(!Number.isInteger(v)||v<0||v>(field==='brightness'?255:400))continue;if(document.activeElement!==$(field))$(field).value=v;$(field+'-value').textContent=field==='brightness'?Math.round(v*100/255)+'%':(v/100).toFixed(2)+'×';}connection();}
+async function start(){client=new PortalMqtt({broker:'wss://public.cloud.shiftr.io',clientId:'facade-visitor-'+crypto.randomUUID(),options:{username:'public',password:'public',clean:true,reconnectPeriod:1500,connectTimeout:10000,queueQoSZero:false},onConnect:()=>{client.client.subscribe([PREFIX+'/state',PREFIX+'/status'],{qos:0});connection();},onDisconnect:()=>{lastState=0;connection();},onError:()=>{$('connection').textContent='Connection interrupted. Retrying…';},onMessage:message});try{await client.init();}catch{$('connection').textContent='Unable to connect yet. Retrying…';}}
+new p5(p=>{let wheel;const size=330,radius=145; p.setup=()=>{p.createCanvas(size,size).parent('wheel');p.pixelDensity(1);p.frameRate(15);wheel=p.createGraphics(size,size);wheel.colorMode(p.HSB,360,100,100);wheel.noStroke();for(let angle=0;angle<360;angle+=2)for(let r=0;r<radius;r+=2){wheel.fill(angle,r/radius*100,100);wheel.circle(size/2+Math.cos(angle*Math.PI/180)*r,size/2+Math.sin(angle*Math.PI/180)*r,5);} };p.draw=()=>{p.clear();p.image(wheel,0,0);const angle=selectedHue*Math.PI/180,rad=selectedSaturation*radius;p.stroke(255);p.strokeWeight(3);p.fill(...rgb);p.circle(size/2+Math.cos(angle)*rad,size/2+Math.sin(angle)*rad,17);};function touch(){if($('controls').disabled)return;const dx=p.mouseX-size/2,dy=p.mouseY-size/2,dist=Math.hypot(dx,dy);if(dist>radius+8)return;const h=(Math.atan2(dy,dx)*180/Math.PI+360)%360,s=Math.min(1,dist/radius),c=255*s,x=c*(1-Math.abs(h/60%2-1)),m=255-c;const parts=h<60?[c,x,0]:h<120?[x,c,0]:h<180?[0,c,x]:h<240?[0,x,c]:h<300?[x,0,c]:[c,0,x];updateColour(parts.map(v=>Math.round(v+m)));return false;}p.mousePressed=touch;p.mouseDragged=touch;p.touchStarted=touch;p.touchMoved=touch;});
+colourUI();start();setInterval(connection,2000);
