@@ -1,8 +1,8 @@
-import { createProjectRegistries } from "./app-project-registries.js?v=0.1.87-ui755";
-import { createConnectionRegistries } from "./app-connection-registries.js?v=0.1.87-ui755";
-import { createWorkspaceRegistries } from "./app-workspace-registries.js?v=0.1.87-ui755";
-import { createRuntimeRegistries } from "./app-runtime-registries.js?v=0.1.87-ui755";
-import { createRegistryContext } from "./app-registry-context.js?v=0.1.87-ui755";
+import { createProjectRegistries } from "./app-project-registries.js?v=0.1.87-ui762";
+import { createConnectionRegistries } from "./app-connection-registries.js?v=0.1.87-ui762";
+import { createWorkspaceRegistries } from "./app-workspace-registries.js?v=0.1.87-ui762";
+import { createRuntimeRegistries } from "./app-runtime-registries.js?v=0.1.87-ui762";
+import { createRegistryContext } from "./app-registry-context.js?v=0.1.87-ui762";
 
 export function createAppRegistries({
   chatState,

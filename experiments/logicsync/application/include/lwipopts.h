@@ -37,3 +37,13 @@
 #define LWIP_DHCP_GET_NTP_SRV 0
 #define DNS_TABLE_SIZE 2
 #define DNS_MAX_SERVERS 2
+
+/* Read-only network time, validated by lwIP source/port/origin checks. */
+#define SNTP_SERVER_DNS 1
+#define SNTP_MAX_SERVERS 2
+#define SNTP_CHECK_RESPONSE 2
+#define SNTP_UPDATE_DELAY 3600000
+#define SNTP_STARTUP_DELAY 0
+#include <stdint.h>
+void clock_set_utc(uint32_t utc);
+#define SNTP_SET_SYSTEM_TIME(sec) clock_set_utc(sec)

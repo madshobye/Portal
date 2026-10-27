@@ -1,10 +1,10 @@
-import { createConnectionHistoryStore } from "./connection-history-store.js?v=0.1.87-ui755";
-import { createConnectionUrlManager } from "./connection-url-manager.js?v=0.1.87-ui755";
-import { createConnectionAddressService } from "./connection-address-service.js?v=0.1.87-ui755";
-import { createConnectionDialogController } from "./connection-dialog-controller.js?v=0.1.87-ui755";
-import { createConnectionDialogStateController } from "./connection-dialog-state-controller.js?v=0.1.87-ui755";
-import { createConnectionEntryController } from "./connection-entry-controller.js?v=0.1.87-ui755";
-import { createConnectionShellController } from "./connection-shell-controller.js?v=0.1.87-ui755";
+import { createConnectionHistoryStore } from "./connection-history-store.js?v=0.1.87-ui762";
+import { createConnectionUrlManager } from "./connection-url-manager.js?v=0.1.87-ui762";
+import { createConnectionAddressService } from "./connection-address-service.js?v=0.1.87-ui762";
+import { createConnectionDialogController } from "./connection-dialog-controller.js?v=0.1.87-ui762";
+import { createConnectionDialogStateController } from "./connection-dialog-state-controller.js?v=0.1.87-ui762";
+import { createConnectionEntryController } from "./connection-entry-controller.js?v=0.1.87-ui762";
+import { createConnectionShellController } from "./connection-shell-controller.js?v=0.1.87-ui762";
 
 export function createConnectionShellRegistry({
   WebSerialTransport,

@@ -1,11 +1,12 @@
-import { createProjectToolbarController } from "./project-toolbar-controller.js?v=0.1.87-ui755";
-import { createViewShellController } from "./view-shell-controller.js?v=0.1.87-ui755";
-import { createSettingsShellController } from "./settings-shell-controller.js?v=0.1.87-ui755";
-import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui755";
-import { createConsoleController } from "./console-controller.js?v=0.1.87-ui755";
-import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui755";
-import { createBugReportViewController } from "./bug-report-view-controller.js?v=0.1.87-ui755";
-import { product, storage } from "./app-config.js?v=0.1.87-ui755";
+import { createProjectToolbarController } from "./project-toolbar-controller.js?v=0.1.87-ui762";
+import { createViewShellController } from "./view-shell-controller.js?v=0.1.87-ui762";
+import { createSettingsShellController } from "./settings-shell-controller.js?v=0.1.87-ui762";
+import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui762";
+import { createConsoleController } from "./console-controller.js?v=0.1.87-ui762";
+import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui762";
+import { createBugReportViewController } from "./bug-report-view-controller.js?v=0.1.87-ui762";
+import { createCodeMapController } from "./code-map-controller.js?v=0.1.87-ui762";
+import { product, storage } from "./app-config.js?v=0.1.87-ui762";
 
 export function createUiServicesRegistry({
   copyText,
@@ -51,6 +52,24 @@ export function createUiServicesRegistry({
   let consoleController = null;
   let commandConsoleService = null;
   let bugReportViewController = null;
+  let codeMapController = null;
+
+  function updateCodeMap() {
+    if (!codeMapController) {
+      codeMapController = createCodeMapController({
+        host: fields.codeMapHost,
+        getCode: () => getCodeEditorShellController().getValue(),
+        openCode: (line, endLine) => {
+          getViewShellController().switchTab("coding");
+          getCodeEditorShellController().view().selectLines(line, endLine);
+        },
+      });
+      getCodeEditorShellController().view().onValueChange(() => {
+        if (fields.views.codeMap.classList.contains("is-active")) codeMapController.render();
+      });
+    }
+    codeMapController.render();
+  }
 
   function getProjectToolbarController() {
     if (projectToolbarController) return projectToolbarController;
@@ -79,6 +98,7 @@ export function createUiServicesRegistry({
       getGuinoController,
       renderChatTranscript: () => getChatShellController().renderChatTranscript(),
       updateCircuitView: (status = "") => getCircuitShellController().update(status),
+      updateCodeMap,
       requestGuinoRefresh,
       isDeviceConnected: () => getConnectionUiStateController().isDeviceConnected(),
       requestFrame: requestAnimationFrameRef,

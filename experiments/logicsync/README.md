@@ -1,7 +1,7 @@
 # LogicSync standalone facade controller
 
 Standalone C application, public visitor interface and artist SDK for the
-LS-POE-DMX4 controller. Firmware 0.10 is the latest hardware-tested version.
+LS-POE-DMX4 controller. Firmware 0.11 is the latest hardware-tested version.
 It supports four DMX universes, 448 virtual RGB pixels, ten effects, MQTT,
 authenticated artist takeover, persistent settings and local diagnostics.
 
@@ -98,3 +98,33 @@ The firmware and services are a trusted-LAN prototype, not a production release.
 `artifacts/` and `.venv/` are ignored by Git. Artifacts contain downloaded official
 images, bootloader/flash readback, configuration backups, dependency snapshots,
 disassembly, emulator inputs and generated packages.
+
+## Copenhagen sunset default (firmware 0.11)
+
+The automatic default runs from calculated Copenhagen sunset until 02:00 local
+time. All configured RGB pixels share one color, moving through a two-hour hue
+cycle with gentle easing. Automatic brightness is 255; the saved Maximum
+brightness cap still applies. Daytime default is black. On the autumn clock change,
+the first 02:00 ends the evening; on the spring change, cutoff occurs at the jump
+to 03:00 because 02:00 does not exist.
+
+Public/manual interactions temporarily override the default. After ten minutes
+without interaction, the schedule resumes instead of always fading to black.
+Sunset and the nightly cutoff reset a manual override; an active authenticated
+artist retains priority and release returns to the scheduled default.
+
+Time is obtained automatically by SNTP from time.cloudflare.com or time.google.com
+(UDP 123), refreshed hourly. After synchronization the local clock keeps running
+through network outages. After a power cycle it needs network time again; the
+automatic default stays dark until the first valid synchronization. Manual controls
+remain available. There is no claimed battery-backed clock or authenticated NTP.
+
+Location is Copenhagen, 55.6761 N / 12.5683 E. Sunset uses NOAA's approximate
+fractional-year equations with a 90.833-degree zenith, suitable for minute-scale
+lighting schedules rather than precision astronomical measurement. Summer/winter
+time follows Europe/Copenhagen's current EU last-Sunday rules. The built-in page
+shows clock readiness, local time, sunset and whether the default is active.
+
+Firmware settings layout is unchanged, preserving fixture counts, limits, saved
+manual presets, network settings and access keys. Factory upload tools remain
+private/ignored; the public build still outputs only raw application artifacts.

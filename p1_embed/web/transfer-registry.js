@@ -1,6 +1,6 @@
-import { createBoardDownloadService } from "./board-download-service.js?v=0.1.87-ui755";
-import { createScriptDownloadService } from "./script-download-service.js?v=0.1.87-ui755";
-import { createScriptUploadService } from "./script-upload-service.js?v=0.1.87-ui755";
+import { createBoardDownloadService } from "./board-download-service.js?v=0.1.87-ui762";
+import { createScriptDownloadService } from "./script-download-service.js?v=0.1.87-ui762";
+import { createScriptUploadService } from "./script-upload-service.js?v=0.1.87-ui762";
 
 export function createTransferRegistry({
   buildRevision,

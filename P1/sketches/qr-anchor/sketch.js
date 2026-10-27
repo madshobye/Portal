@@ -1,5 +1,5 @@
-// Point the camera at the original QR containing the text qr7.
-const markerText = 'qr7';
+// Point the camera at a QR containing the text qr2.
+const markerText = 'qr2';
 let camera;
 let anchor;
 let cubeLayer;
@@ -28,7 +28,7 @@ async function setup() {
       centreTracking,
       cameraMotion: new URLSearchParams(location.search).get("motion") !== "0",
       kalmanFilter: kalmanEnabled,
-      // First acquisition must decode qr7. Afterwards, track the squares
+      // First acquisition must decode qr2. Afterwards, track the squares
       // and accept a clear-frame dot match of 30% or more every four seconds.
       patternMatchThreshold: 0.30,
       patternIntervalMs: 4000,

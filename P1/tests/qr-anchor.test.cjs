@@ -79,7 +79,7 @@ test('bundled detector cannot open the camera or change the legacy ZXing global'
 });
 
 for(const centres of [false,true]) test(`complete example boots with square centres ${centres}`,async()=>{
-  const text='qr7';
+  const text='qr2';
   const f=fixture({text}),h=moduleHarness(f),loads=[],events={};
   let captures=0,boxes=0,markers=0,wireframes=0,removed=false,debug=true,rings=0,vertices=0,masks=0;
   const layer={width:640,height:480,clear(){},push(){},pop(){},resetMatrix(){},_renderer:{camera(){},frustum(){}},

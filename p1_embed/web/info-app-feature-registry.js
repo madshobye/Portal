@@ -1,4 +1,4 @@
-import { createInfoFeatureRegistry } from "./info-feature-registry.js?v=0.1.87-ui755";
+import { createInfoFeatureRegistry } from "./info-feature-registry.js?v=0.1.87-ui762";
 
 export function createInfoAppFeatureRegistry({
   brandVersion,

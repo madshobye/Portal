@@ -8,6 +8,7 @@ export function createViewShellController({
   getGuinoController,
   renderChatTranscript,
   updateCircuitView,
+  updateCodeMap,
   requestGuinoRefresh,
   isDeviceConnected,
   requestFrame,
@@ -44,6 +45,7 @@ export function createViewShellController({
   }
 
   function fallbackView(name) {
+    if (name === "codeMap" && !labFeaturesEnabled) return "coding";
     if (hasView(name)) return name;
     return hasView("coding") ? "coding" : Object.keys(fields.views).find(hasView) || "coding";
   }
@@ -53,6 +55,7 @@ export function createViewShellController({
       chat: shouldHideChatTab(),
       ui: shouldHideUiTab(),
       bugReport: !labFeaturesEnabled,
+      codeMap: !labFeaturesEnabled,
     };
   }
 
@@ -68,6 +71,7 @@ export function createViewShellController({
       chat: !hiddenTabs.chat,
       ui: !hiddenTabs.ui,
       bugReport: !hiddenTabs.bugReport,
+      codeMap: !hiddenTabs.codeMap,
     };
   }
 
@@ -94,6 +98,7 @@ export function createViewShellController({
     refreshLabFeatureVisibility();
     onLabFeaturesChanged?.(labFeaturesEnabled);
     refreshViewAvailability();
+    if (!labFeaturesEnabled && fields.views.codeMap?.classList.contains("is-active")) switchTab("coding");
   }
 
   function isLabFeaturesEnabled() {
@@ -122,6 +127,7 @@ export function createViewShellController({
   }
 
   function runViewEnteredHook(name) {
+    if (name === "codeMap") updateCodeMap?.();
     if (name === "coding") getCodeView().resize();
     if (name === "chat") {
       syncGenerativePanelState();

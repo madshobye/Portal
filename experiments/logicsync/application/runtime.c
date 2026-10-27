@@ -1,6 +1,7 @@
 #include "gd32f30x.h"
 #include "app.h"
 #include "runtime.h"
+#include "astro.h"
 #include "access_keys.h"
 #include "string.h"
 Settings runtime_settings;
@@ -33,7 +34,7 @@ void runtime_init(void){
   strcpy(runtime_settings.broker,"public.cloud.shiftr.io");strcpy(runtime_settings.username,"public");strcpy(runtime_settings.password,"public");runtime_settings.port=1883;
   strcpy(runtime_settings.artist_key,ARTIST_KEY);strcpy(runtime_settings.admin_key,ADMIN_KEY);runtime_event("Defaults loaded");
  }else{facade_configure(&runtime_settings.facade,sys_now());runtime_event("Saved configuration loaded");}
- network_snapshot(&runtime_network);
+ network_snapshot(&runtime_network);astro_init(sys_now());facade_schedule(0,(RGB){0,0,0},sys_now());
 }
 void runtime_changed(void){dirty=1;save_at=sys_now()+5000;}
 int runtime_save(void){
@@ -44,4 +45,4 @@ int runtime_save(void){
 static int key_equal(const char*a,unsigned n,const char*b){if(n!=32)return 0;unsigned difference=0;for(unsigned i=0;i<32;i++)difference|=(unsigned char)a[i]^(unsigned char)b[i];return !difference;}
 int runtime_admin(const char*key,unsigned n){return key&&key_equal(key,n,runtime_settings.admin_key);}
 int runtime_artist(const char*key,unsigned n){return key&&key_equal(key,n,runtime_settings.artist_key);}
-void runtime_poll(void){uint32_t now=sys_now();if((uint32_t)(now-last_frame)>=30){last_frame=now;facade_render(now,frame);dmx_frame(frame);}if(dirty&&(int32_t)(now-save_at)>=0)runtime_save();}
+void runtime_poll(void){clock_poll();uint32_t now=sys_now();if((uint32_t)(now-last_frame)>=30){last_frame=now;facade_render(now,frame);dmx_frame(frame);}if(dirty&&(int32_t)(now-save_at)>=0)runtime_save();}

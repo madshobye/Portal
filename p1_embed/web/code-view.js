@@ -19,6 +19,7 @@ export function createCodeView({
   let suppressPersist = false;
   let errorMarker = null;
   let errorGutterRow = null;
+  const valueListeners = new Set();
 
   function getStoredTheme() {
     return normalizeEditorTheme(localStorage.getItem(themeStorageKey));
@@ -55,6 +56,7 @@ export function createCodeView({
     if (suppressPersist) return;
     localStorage.setItem(codeStorageKey, getValue());
     onInput();
+    valueListeners.forEach(listener => listener());
   }
 
   function init() {
@@ -105,6 +107,7 @@ export function createCodeView({
     }
     if (persist) localStorage.setItem(codeStorageKey, nextValue);
     onValueSet();
+    valueListeners.forEach(listener => listener());
     resize();
   }
 
@@ -185,7 +188,23 @@ export function createCodeView({
     delete codeInput.dataset.errorLine;
   }
 
+  function selectLines(line, endLine = line) {
+    if (editor) {
+      editor.selection.setRange(new window.ace.Range(line - 1, 0, endLine - 1, editor.session.getLine(endLine - 1).length));
+      editor.scrollToLine(line - 1, true, false, () => {});
+      editor.focus();
+    } else {
+      const lines = codeInput.value.split("\n");
+      const start = lines.slice(0, line - 1).reduce((total, text) => total + text.length + 1, 0);
+      const end = lines.slice(0, endLine).join("\n").length;
+      codeInput.focus();
+      codeInput.setSelectionRange(start, end);
+    }
+  }
+
   return {
+    onValueChange: (listener) => { valueListeners.add(listener); return () => valueListeners.delete(listener); },
+    selectLines,
     clearError,
     formatCode,
     getValue,

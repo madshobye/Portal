@@ -2,7 +2,7 @@
 
 QrAnchor is a single-marker prototype using a supplied Portal camera. It does not
 open or stop cameras and does not change QrReader or its ZXing global. The example
-tracks the original `qr7` marker. Recorded regression fixtures retain their
+tracks the `qr2` marker. Recorded regression fixtures retain their
 original targets (`qr7` or the URL marker used in the mobile recordings).
 With Portal's debug overlay on, it shows the tracking console, a
 WebGL wireframe and the three measured black centres. With debug off, it renders

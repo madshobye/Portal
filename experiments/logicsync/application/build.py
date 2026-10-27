@@ -21,7 +21,7 @@ needle='remaining_length == 0 ? MQTT_DATA_FLAG_LAST : 0);'
 assert mqtt_source.count(needle)==1
 mqtt_source=mqtt_source.replace(needle,'(remaining_length == 0 ? MQTT_DATA_FLAG_LAST : 0) | ((client->rx_buffer[0] & 1) ? 0x80 : 0));')
 (OUT/'mqtt_retained.c').write_text(mqtt_source)
-sources=list(HERE.glob('*.c'))+[SDK/'CMSIS/GD/GD32F30x/Source/system_gd32f30x.c']+[PERIPH/f'Source/gd32f30x_{name}.c' for name in ['rcu','gpio','usart','dma','fmc']]+[OUT/'enet_rtl8201f.c']+list((LWIP/'core').glob('*.c'))+list((LWIP/'core/ipv4').glob('*.c'))+[LWIP/'netif/ethernet.c',OUT/'mqtt_retained.c']
+sources=list(HERE.glob('*.c'))+[SDK/'CMSIS/GD/GD32F30x/Source/system_gd32f30x.c']+[PERIPH/f'Source/gd32f30x_{name}.c' for name in ['rcu','gpio','usart','dma','fmc']]+[OUT/'enet_rtl8201f.c']+list((LWIP/'core').glob('*.c'))+list((LWIP/'core/ipv4').glob('*.c'))+[LWIP/'netif/ethernet.c',LWIP/'apps/sntp/sntp.c',OUT/'mqtt_retained.c']
 (OUT/'webpage.h').write_text('static const char page[]='+json.dumps((HERE/'index.html').read_text())+';\n')
 incs=[OUT,HERE/'include',DEPS/'gd32/CMSIS/Core/Include',SDK/'CMSIS/GD/GD32F30x/Include',PERIPH/'Include',LWIP/'include']
 flags=['-mcpu=cortex-m4','-mthumb','-mfloat-abi=soft','-Os','-g','-ffreestanding','-fno-builtin','-ffunction-sections','-fdata-sections','-fno-unwind-tables','-fno-asynchronous-unwind-tables','-Wall','-Wextra','-DGD32F30X_CL','-DUSE_STDPERIPH_DRIVER','-DPHY_TYPE=2','-DPHY_SR=0','-DPHY_SPEED_STATUS=0x2000','-DPHY_DUPLEX_STATUS=0x100','-DENET_RXBUF_NUM=4','-DENET_TXBUF_NUM=2']+['-I'+str(i) for i in incs]

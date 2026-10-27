@@ -1,6 +1,6 @@
-import { createFirmwareUpdateController } from "./firmware-update-controller.js?v=0.1.87-ui755";
-import { createInstallPanelController } from "./install-panel-controller.js?v=0.1.87-ui755";
-import { createInstallWorkflowController } from "./install-workflow-controller.js?v=0.1.87-ui755";
+import { createFirmwareUpdateController } from "./firmware-update-controller.js?v=0.1.87-ui762";
+import { createInstallPanelController } from "./install-panel-controller.js?v=0.1.87-ui762";
+import { createInstallWorkflowController } from "./install-workflow-controller.js?v=0.1.87-ui762";
 
 export function createInstallFirmwareRegistry({
   P1WebFlasher,

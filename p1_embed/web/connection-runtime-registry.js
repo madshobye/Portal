@@ -1,8 +1,8 @@
-import { createConnectionHistoryActions } from "./connection-history-actions.js?v=0.1.87-ui755";
-import { createConnectionMemoryService } from "./connection-memory-service.js?v=0.1.87-ui755";
-import { createConnectionStartupService } from "./connection-startup-service.js?v=0.1.87-ui755";
-import { createConnectionReconnectService } from "./connection-reconnect-service.js?v=0.1.87-ui755";
-import { createConnectionTransportSession } from "./connection-transport-session.js?v=0.1.87-ui755";
+import { createConnectionHistoryActions } from "./connection-history-actions.js?v=0.1.87-ui762";
+import { createConnectionMemoryService } from "./connection-memory-service.js?v=0.1.87-ui762";
+import { createConnectionStartupService } from "./connection-startup-service.js?v=0.1.87-ui762";
+import { createConnectionReconnectService } from "./connection-reconnect-service.js?v=0.1.87-ui762";
+import { createConnectionTransportSession } from "./connection-transport-session.js?v=0.1.87-ui762";
 
 export function createConnectionRuntimeRegistry({
   ProtocolClient,

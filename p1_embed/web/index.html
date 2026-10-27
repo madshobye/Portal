@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>XOBIT</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui755">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui762">
   </head>
   <body>
     <main id="app">
@@ -13,7 +13,7 @@
         <div class="brand">
           <strong><span class="brand-xo">XO</span><span class="brand-bit">BIT</span></strong>
           <span id="brand-version" class="brand-version">
-            <span class="brand-version-line">web 0.1.87-ui755</span>
+            <span class="brand-version-line">web 0.1.87-ui762</span>
             <span class="brand-version-line"></span>
           </span>
         </div>
@@ -21,6 +21,7 @@
           <button id="chat-tab" class="tab is-active" type="button" data-tab="chat">AI</button>
           <button id="coding-tab" class="tab" type="button" data-tab="coding">Code</button>
           <button id="circuit-tab" class="tab" type="button" data-tab="circuit">Circuit</button>
+          <button id="code-map-tab" class="tab" type="button" data-tab="codeMap" hidden>Code Map</button>
           <button id="ui-tab" class="tab" type="button" data-tab="ui">UI</button>
           <button id="bug-report-tab" class="tab" type="button" data-tab="bugReport" hidden>Bug Report</button>
           <button id="install-tab" class="tab" type="button" data-tab="install">Install</button>
@@ -147,6 +148,10 @@
         </section>
       </section>
 
+      <section id="code-map-view" class="view" aria-label="Code Map">
+        <div id="code-map-host"></div>
+      </section>
+
       <section id="circuit-view" class="view circuit-view" aria-label="Circuit">
         <header class="workspace-toolbar circuit-toolbar">
           <div data-project-control-cluster="circuit"></div>
@@ -194,13 +199,13 @@
           <header class="bug-report-hero">
             <div>
               <h1>Bug Report</h1>
-              <p>Drop a XOBIT bug report JSON to inspect the captured state, logs, code, specification, and chat notes.</p>
+              <p>Explore saved conversations and revisions. Load bug reports or project exports, then download a readable Markdown copy. Files stay in your browser.</p>
             </div>
             <label id="bug-report-drop-zone" class="bug-report-drop-zone">
-              <input id="bug-report-file-input" type="file" accept="application/json,.json">
+              <input id="bug-report-file-input" type="file" accept="application/json,.json" multiple>
               <span class="material-symbols-rounded">upload_file</span>
-              <strong>Drop report</strong>
-              <span>or choose a JSON file</span>
+              <strong>Drop reports or a folder</strong>
+              <span>or choose JSON files</span>
             </label>
           </header>
           <section id="bug-report-summary" class="bug-report-summary" aria-label="Bug report summary"></section>
@@ -584,6 +589,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui755"></script>
+    <script type="module" src="app.js?v=0.1.87-ui762"></script>
   </body>
 </html>

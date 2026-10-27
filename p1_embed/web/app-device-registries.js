@@ -1,16 +1,16 @@
-import { settle } from "./timing.js?v=0.1.87-ui755";
-import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui755";
-import { createInstallAppFeatureRegistry } from "./install-app-feature-registry.js?v=0.1.87-ui755";
-import { isMqttKind, isWebRtcKind } from "./connection-kinds.js?v=0.1.87-ui755";
-import { createInfoAppFeatureRegistry } from "./info-app-feature-registry.js?v=0.1.87-ui755";
-import { createSettingsAppFeatureRegistry } from "./settings-app-feature-registry.js?v=0.1.87-ui755";
-import { normalizePeerId } from "./connection-address-utils.js?v=0.1.87-ui755";
-import { createDeviceAppFeatureRegistry } from "./device-app-feature-registry.js?v=0.1.87-ui755";
-import { createDeviceAppDependencies } from "./device-app-dependencies.js?v=0.1.87-ui755";
-import { createSettingsAppDependencies } from "./settings-app-dependencies.js?v=0.1.87-ui755";
-import { createInstallAppDependencies } from "./install-app-dependencies.js?v=0.1.87-ui755";
-import { createInfoAppDependencies } from "./info-app-dependencies.js?v=0.1.87-ui755";
-import { storage } from "./app-config.js?v=0.1.87-ui755";
+import { settle } from "./timing.js?v=0.1.87-ui762";
+import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui762";
+import { createInstallAppFeatureRegistry } from "./install-app-feature-registry.js?v=0.1.87-ui762";
+import { isMqttKind, isWebRtcKind } from "./connection-kinds.js?v=0.1.87-ui762";
+import { createInfoAppFeatureRegistry } from "./info-app-feature-registry.js?v=0.1.87-ui762";
+import { createSettingsAppFeatureRegistry } from "./settings-app-feature-registry.js?v=0.1.87-ui762";
+import { normalizePeerId } from "./connection-address-utils.js?v=0.1.87-ui762";
+import { createDeviceAppFeatureRegistry } from "./device-app-feature-registry.js?v=0.1.87-ui762";
+import { createDeviceAppDependencies } from "./device-app-dependencies.js?v=0.1.87-ui762";
+import { createSettingsAppDependencies } from "./settings-app-dependencies.js?v=0.1.87-ui762";
+import { createInstallAppDependencies } from "./install-app-dependencies.js?v=0.1.87-ui762";
+import { createInfoAppDependencies } from "./info-app-dependencies.js?v=0.1.87-ui762";
+import { storage } from "./app-config.js?v=0.1.87-ui762";
 
 export function createDeviceRegistries({
   context,

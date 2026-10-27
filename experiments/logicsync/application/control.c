@@ -1,5 +1,6 @@
 #include "app.h"
 #include "runtime.h"
+#include "astro.h"
 #include "protocol.h"
 #include "string.h"
 #include "lwip/apps/mqtt.h"
@@ -21,7 +22,7 @@ static void num(Writer*w,unsigned value){char b[12];unsigned n=0;do{b[n++]=(char
 unsigned control_state(char*out,unsigned capacity){
  if(!capacity)return 0;
  Writer w={out,capacity,1};char ip[16];network_address(ip,sizeof ip);
- text(&w,"{\"firmware\":\"facade-0.10\",\"ip\":\"");text(&w,ip);text(&w,"\",\"uptime_ms\":");num(&w,sys_now());
+ text(&w,"{\"firmware\":\"facade-0.11\",\"ip\":\"");text(&w,ip);text(&w,"\",\"uptime_ms\":");num(&w,sys_now());
  text(&w,",\"effect\":");num(&w,facade_config.effect);text(&w,",\"color\":[");for(unsigned i=0;i<3;i++){if(i)text(&w,",");num(&w,facade_config.color[i]);}
  text(&w,"],\"brightness\":");num(&w,facade_config.brightness);text(&w,",\"limit\":");num(&w,facade_config.limit);text(&w,",\"speed\":");num(&w,facade_config.speed);
  text(&w,",\"fixtures\":[");for(unsigned i=0;i<4;i++){if(i)text(&w,",");num(&w,facade_config.fixtures[i]);}text(&w,"],\"pixels\":");num(&w,facade_count());
@@ -32,6 +33,11 @@ unsigned control_state(char*out,unsigned capacity){
  text(&w,",\"dmx_frames\":[");for(unsigned i=0;i<4;i++){if(i)text(&w,",");num(&w,dmx_frames(i));}text(&w,"]");
  extern char _ebss,_estack;text(&w,",\"ram_unallocated_bytes\":");num(&w,(unsigned)((uintptr_t)&_estack-(uintptr_t)&_ebss));
  text(&w,",\"stack_untouched_bytes\":");num(&w,memory_stack_untouched());
+ AstroState astro=astro_state();
+ text(&w,",\"utc\":");num(&w,astro.utc);text(&w,",\"clock_synced\":");num(&w,astro.valid);
+ text(&w,",\"local_minute\":");num(&w,astro.local_minute);text(&w,",\"sunset_minute\":");num(&w,astro.sunset_minute);
+ text(&w,",\"auto_active\":");num(&w,facade_auto());text(&w,",\"auto_on\":");num(&w,facade_auto_on());
+ RGB ac=facade_auto_color();text(&w,",\"auto_color\":[");num(&w,ac.r);text(&w,",");num(&w,ac.g);text(&w,",");num(&w,ac.b);text(&w,"]");
  text(&w,",\"events\":[");for(unsigned i=0;i<runtime_event_count();i++){uint32_t time;const char*event=runtime_event_get(i,&time);if(i)text(&w,",");text(&w,"{\"ms\":");num(&w,time);text(&w,",\"text\":\"");text(&w,event);text(&w,"\"}");}text(&w,"]}");return w.ok?(unsigned)(w.p-out):0;
 }
 /* Admin-only readback excludes passwords and both access keys. */
