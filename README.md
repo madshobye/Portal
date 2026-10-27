@@ -713,7 +713,8 @@ This is the practical module overview for using Portal as a library.
   - class: `QrReader`
 - `portal/QrAnchor.js`
   - class: `QrAnchor` — prototype QR-based 3D pose tracking using an existing camera
-  - example: [`P1/sketches/qr-anchor/`](P1/sketches/qr-anchor/), target text `qr7`
+  - beginner example: [`P1/sketches/qr-anchor-basic/`](P1/sketches/qr-anchor-basic/), target text `qr2`
+  - advanced example: [`P1/sketches/qr-anchor/`](P1/sketches/qr-anchor/)
 - `portal/qrCodeGen.js`
   - functions:
     - `createQRCode(text)`
@@ -2223,6 +2224,38 @@ function draw() {
 optical flow and local darkness-weighted centre measurements. It uses the camera
 supplied by the sketch; `QrReader` and its ZXing global remain unchanged.
 
+For beginners, `QrAnchor.create()` starts tracking with stable display defaults,
+and `anchor.render()` manages the WebGL layer, resizing, camera view and status:
+
+```js
+let anchor;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await loadScript('portal/QrAnchor.js');
+  const video = await setupWebcamera(false, 1280, 720, false);
+  anchor = await QrAnchor.create({ video, target: 'qr2' });
+}
+
+function draw() {
+  anchor?.render(g => {
+    g.normalMaterial();
+    g.translate(0, 0, 0.5);
+    g.box(1);
+  });
+}
+```
+
+Use normal p5 3D methods on `g`. One unit equals the QR width; positive Z extends
+out of the marker. The helper follows the main canvas dimensions and pixel density,
+and cleans up its resources on page hide or p5 sketch removal. It never stops the
+supplied camera. Initialization errors still reject; the
+[beginner example](P1/sketches/qr-anchor-basic/) includes startup/error text.
+`render(drawScene, {status: false, debug: false})` disables its messages and markers.
+
+Existing sketches remain compatible. The original API below still supports manual
+layer ownership and custom composition; its constructor defaults have not changed.
+
 ```js
 let anchor;
 let cubeLayer;
@@ -2253,7 +2286,8 @@ function windowResized() {
 }
 ```
 
-[Full example](P1/sketches/qr-anchor/) · [Printable qr7](P1/sketches/qr-anchor/qr7.svg)
+[Beginner example](P1/sketches/qr-anchor-basic/) · [Advanced example](P1/sketches/qr-anchor/)
+· [Printable qr2](P1/sketches/qr-anchor/qr2.svg) · [Printable qr7 for the manual snippet](P1/sketches/qr-anchor/qr7.svg)
 · [Strategy, options, diagnostics and tests](P1/portal/qr-anchor/README.md)
 
 Defaults use a worker when available, with one frame in flight and no analysis

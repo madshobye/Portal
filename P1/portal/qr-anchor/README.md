@@ -11,6 +11,57 @@ QR widths, with the entire scene enlarged threefold in height as well. A black
 circle of diameter 3 QR widths covers the printed marker in presentation mode;
 the tracker continues to analyze the unmodified camera image.
 
+## Beginner API
+
+Use [`qr-anchor-basic`](../../sketches/qr-anchor-basic/) for a small, cloud-editor
+friendly example. Keep Portal's normal 2D `createCanvas()` and supplied camera:
+
+```js
+let anchor;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await loadScript('portal/QrAnchor.js');
+  const video = await setupWebcamera(false, 1280, 720, false);
+  anchor = await QrAnchor.create({ video, target: 'qr2' });
+}
+
+function draw() {
+  anchor?.render(g => {
+    g.normalMaterial();
+    g.translate(0, 0, 0.5);
+    g.box(1);
+  });
+}
+```
+
+- `QrAnchor.create(options)` initializes and starts tracking, with Kalman position
+  filtering, rotation stabilization, `smoothing: 1` and `renderSmoothingMs: 20`.
+  Explicit options override these defaults. Initialization errors reject the
+  promise; the full beginner example catches them and displays a message.
+- `anchor.render(drawScene, options)` owns one transparent WebGL layer. It draws
+  the camera, clears the layer, calls `drawScene(g, state)` while the anchor is
+  visible (including its bounded hold period), and composites onto the main canvas.
+  Use ordinary p5 graphics methods on `g`; one unit is the marker width, and positive
+  Z extends out of the QR. It returns the current tracking state.
+- Size and pixel density follow the actual main canvas on every render, including
+  Portal's delayed fullscreen and viewport resizes. Portal continues to resize the
+  main canvas; no separate graphics-layer resize handler is needed.
+- Options are `{status: true, debug: <Portal debug visibility>, target: <global p5>}`.
+  Simple search/hold/error messages appear by default. Debug adds the measured
+  finder markers and detailed status. Use `status: false` for custom text and
+  `debug: false` to suppress debug markers. Instance-mode sketches may pass their
+  2D p5 instance as `target`; existing WEBGL canvases should use `drawWebGL()`.
+- `create()` / `render()` register page-hide cleanup and, where available, p5's
+  `remove` lifecycle hook. `stop()` releases the owned layer; restarting and
+  rendering creates a fresh one. `dispose()` is idempotent. Camera tracks and any
+  graphics created by the caller remain caller-owned. `noLoop()` is a drawing
+  pause, not disposal; call `stop()` if analysis should pause too.
+
+The existing constructor defaults, `init()`, `start()`, `drawCamera()`,
+`drawWebGL()`, `drawCubeWebGL()` and other manual drawing methods are unchanged.
+Existing sketches can keep managing their own layers, or opt into `render()`.
+
 ## Strategy
 
 | State | Work | Exit |

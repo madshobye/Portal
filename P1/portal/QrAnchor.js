@@ -3,6 +3,8 @@
 (function (global) {
   const moduleUrl=global.document?.currentScript?.src||null;
   let corePromise;
+  const sketchAnchors=new WeakMap();
+  let cleanupAddonInstalled=false;
   async function loadCore() {
     if (global.PortalQrAnchorCore) return global.PortalQrAnchorCore;
     if (!corePromise) {
@@ -32,6 +34,13 @@
     return pose;
   }
   class QrAnchor {
+    // Beginner entry point. The constructor keeps its existing defaults.
+    static async create(options={}) {
+      const anchor=new this({kalmanFilter:true,rotationStabilization:true,smoothing:1,renderSmoothingMs:20,...options});
+      anchor._manageLifecycle(global.p5?.instance);
+      try {await anchor.init();anchor.start();return anchor;}
+      catch(error){anchor.dispose();throw error;}
+    }
     constructor({video,target='qr2',markerSize=1,horizontalFov=60,intrinsics=null,maxWidth=640,fps=30,smoothing=0.55,lostAfterMs=650,maxReprojectionError=3,maxReuseMs=3000,highResSearchIntervalMs=1000,renderSmoothingMs=0,recoveryMs=350,roiPadding=.5,kalmanFilter=false,predictionMs=150,patternIntervalMs=4000,patternMatchThreshold=.3,patternConfirmMs=3000,centreTracking=true,worker=true,cameraMotion=false,rotationStabilization=false}={}) {
       if(!Number.isFinite(markerSize)||markerSize<=0) throw new Error('markerSize must be positive');
       if(!Number.isFinite(horizontalFov)||horizontalFov<=10||horizontalFov>=150) throw new Error('horizontalFov must be between 10 and 150 degrees');
@@ -128,13 +137,38 @@
       this.running=false;this._motionSensor?.stop();clearTimeout(this._timer);this._timer=null;
       this._worker?.reset();
       this._resetTracking();
+      this._releaseGraphics();
       this._misses=0;this._lastHighSearch=-Infinity;this._status='stopped';this._diagnostics={};return this;
     }
     dispose() {
+      if(this._disposed)return;
       this.stop();this._motionSensor?.dispose();this.ready=false;this._disposed=true;this._worker?.dispose();this._worker=null;
+      if(this._pagehide)global.removeEventListener?.('pagehide',this._pagehide);
+      this._pagehide=null;
+      if(this._sketchOwner)sketchAnchors.get(this._sketchOwner)?.delete(this);
+      this._sketchOwner=null;
       if(this._canvas){this._canvas.width=0;this._canvas.height=0;}
       this._canvas=null;this._context=null;
       // Camera belongs to the sketch. Do not pause it or stop its MediaStream tracks.
+    }
+    _manageLifecycle(owner) {
+      if(!this._pagehide&&typeof global.addEventListener==='function') {
+        this._pagehide=()=>this.dispose();global.addEventListener('pagehide',this._pagehide);
+      }
+      if(!cleanupAddonInstalled&&typeof global.p5?.registerAddon==='function') {
+        global.p5.registerAddon((p5,prototype,hooks)=>{
+          hooks.remove=function(){for(const anchor of [...(sketchAnchors.get(this)||[])])anchor.dispose();};
+        });
+        cleanupAddonInstalled=true;
+      }
+      if(owner&&owner!==this._sketchOwner) {
+        if(this._sketchOwner)sketchAnchors.get(this._sketchOwner)?.delete(this);
+        if(!sketchAnchors.has(owner))sketchAnchors.set(owner,new Set());
+        sketchAnchors.get(owner).add(this);this._sketchOwner=owner;
+      }
+    }
+    _releaseGraphics() {
+      this._graphics?.remove();this._graphics=null;this._graphicsTarget=null;
     }
     _readFrame(rect,limit=this.maxWidth) {
       const scale=Math.min(1,limit/Math.max(rect.width,rect.height));
@@ -593,6 +627,51 @@
       if(!p) return null;
       const r=this._rect(rect),scale=Math.max(r.width/result.frameWidth,r.height/result.frameHeight);
       return {x:r.x+(r.width-result.frameWidth*scale)/2+p[0]*scale,y:r.y+(r.height-result.frameHeight*scale)/2+p[1]*scale,depth:p[2]};
+    }
+    // Full-canvas convenience renderer for a normal 2D p5 sketch. Existing
+    // drawCamera/drawWebGL callers retain ownership of their own graphics.
+    render(draw,{target=global,status=true,debug=typeof global.uiIsDebugOverlayVisible==='function'&&global.uiIsDebugOverlayVisible()}={}) {
+      if(this._disposed)return this.getLatest();
+      if(draw!=null&&typeof draw!=='function')throw new Error('QrAnchor.render expects a drawing callback');
+      if(typeof target.createGraphics!=='function'||target._renderer?.isP3D)throw new Error('QrAnchor.render needs a 2D p5 canvas; use drawWebGL for an existing WEBGL target');
+      const w=target.width,h=target.height;
+      if(!(w>0&&h>0))return this.getLatest();
+      this._manageLifecycle(target===global?global.p5?.instance:target);
+      if(this._graphicsTarget!==target)this._releaseGraphics();
+      if(!this._graphics){this._graphics=target.createGraphics(w,h,target.WEBGL);this._graphicsTarget=target;}
+      const layer=this._graphics,density=target.pixelDensity();
+      if(layer.pixelDensity()!==density)layer.pixelDensity(density);
+      // Portal can resize after fullscreen/viewport events without calling the
+      // sketch's windowResized. Match actual dimensions on every render.
+      if(layer.width!==w||layer.height!==h)layer.resizeCanvas(w,h);
+      layer.reset();layer.clear();
+      const rect={x:0,y:0,width:w,height:h};
+      const state=this.getLatest();
+      target.push();
+      try {
+        target.resetMatrix();target.imageMode(target.CORNER);target.noTint();target.blendMode(target.BLEND);
+        target.background(20);this.drawCamera(rect,target);
+        this.drawWebGL({target:layer,rect},draw);
+        target.image(layer,0,0,w,h);
+        if(debug)this.drawFinderMarkers({target,rect});
+        if(status) {
+          let message='';
+          if(this.error)message=`QR error: ${this.error.message||this.error}`;
+          else if(!this.ready||this.videoElement?.readyState<2)message='Starting camera…';
+          else if(!this.running)message='QR tracking stopped';
+          else if(debug)message=state.statusMessage;
+          else if(!state.visible)message=this.target?`Show ${this.target}`:'Show a QR code';
+          else if(state.holding)message='Keep the QR in view';
+          if(message) {
+            const margin=Math.min(16,w/10),boxWidth=w-margin*2,boxHeight=Math.min(64,h);
+            target.noStroke();target.fill(0,190);target.rectMode(target.CORNER);
+            target.rect(margin,Math.max(0,h-boxHeight-margin),boxWidth,boxHeight,10);
+            target.fill(255);target.textSize(16);target.textAlign(target.LEFT,target.TOP);
+            target.text(message,margin+10,Math.max(0,h-boxHeight-margin)+10,Math.max(1,boxWidth-20),boxHeight-16);
+          }
+        }
+      } finally {target.pop();}
+      return state;
     }
     // Render actual 3D geometry into a p5 WEBGL graphics layer. Projection uses
     // the same native intrinsics and cover crop as drawCamera/projectPoint.
